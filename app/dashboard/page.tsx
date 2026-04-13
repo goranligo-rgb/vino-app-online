@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import LogoutButton from "@/components/LogoutButton";
+import SignatureAnimation from "@/components/SignatureAnimation";
 
 type AuthUser = {
   id: string;
@@ -177,6 +178,8 @@ export default async function DashboardPage() {
           )}
         </div>
       </div>
+
+      <SignatureAnimation />
     </main>
   );
 }
