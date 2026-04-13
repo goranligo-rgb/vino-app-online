@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { unstable_noStore as noStore } from "next/cache";
 import TankSwitcher from "./tank-switcher";
 import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
@@ -495,6 +496,18 @@ export default async function TankPregledPage({
 }) {
   noStore();
 
+  const cookieStore = await cookies();
+  const raw = cookieStore.get("auth_user")?.value;
+
+  if (!raw) redirect("/login");
+
+  try {
+    const user = JSON.parse(decodeURIComponent(raw));
+    if (!user) redirect("/login");
+  } catch {
+    redirect("/login");
+  }
+
   const resolvedParams = await params;
   const id = resolvedParams?.id;
 
@@ -721,12 +734,12 @@ export default async function TankPregledPage({
 
         <TankSwitcher currentId={id} />
       </div>
-      
+
       <Link
-          href={`/tankovi/${tank.id}/izvjestaj`}
-          style={linkButtonPrimaryStyle}
-        >
-           Izvještaj
+        href={`/tankovi/${tank.id}/izvjestaj`}
+        style={linkButtonPrimaryStyle}
+      >
+        Izvještaj
       </Link>
 
       <div style={topParamsGridStyle}>

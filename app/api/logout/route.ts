@@ -1,15 +1,17 @@
-export const dynamic = "force-dynamic";
-
 import { NextResponse } from "next/server";
 
-export async function POST(req: Request) {
-  const origin = new URL(req.url).origin;
-  const res = NextResponse.redirect(new URL("/login", origin));
+export const dynamic = "force-dynamic";
 
-  res.cookies.set("auth_user", "", {
+export async function POST(req: Request) {
+  const response = NextResponse.redirect(new URL("/login", req.url));
+
+  response.cookies.set("auth_user", "", {
     path: "/",
     expires: new Date(0),
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
   });
 
-  return res;
+  return response;
 }

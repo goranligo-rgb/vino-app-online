@@ -136,6 +136,12 @@ export default async function DashboardPage() {
               />
 
               <DashboardCard
+                href="/tankovi/qr"
+                title="QR kodovi"
+                description="Ispis QR naljepnica za tankove"
+              />
+
+              <DashboardCard
                 href="/mjerenje"
                 title="Mjerenja"
                 description="Unos i pregled mjerenja"

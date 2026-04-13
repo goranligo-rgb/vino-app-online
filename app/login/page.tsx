@@ -1,12 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const savedUsername = localStorage.getItem("last_username");
+    if (savedUsername) {
+      setUsername(savedUsername);
+    }
+  }, []);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -23,7 +30,6 @@ export default function LoginPage() {
       });
 
       const text = await res.text();
-      console.log("LOGIN RAW RESPONSE:", text);
 
       let data: any = null;
       try {
@@ -43,6 +49,7 @@ export default function LoginPage() {
       }
 
       localStorage.setItem("user", JSON.stringify(data.user));
+      localStorage.setItem("last_username", username);
       window.location.href = "/dashboard";
     } catch (err) {
       console.error("LOGIN FETCH ERROR:", err);
@@ -58,26 +65,42 @@ export default function LoginPage() {
         minHeight: "100vh",
         display: "grid",
         placeItems: "center",
-        background: "#f3f4f6",
+        background:
+          "radial-gradient(circle at top left, #5a1a3f 0%, #1f1526 25%, #14111c 50%, #0f0d14 100%)",
         padding: 24,
+        fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
       }}
     >
       <div
         style={{
           width: "100%",
           maxWidth: 380,
-          background: "#fff",
-          border: "1px solid #e5e7eb",
-          borderRadius: 18,
+          background: "#14131c",
+          border: "2px solid #5b6b88",
           padding: 24,
           display: "grid",
           gap: 16,
+          boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
         }}
       >
-        <h1 style={{ margin: 0 }}>Prijava</h1>
+        <h1
+          style={{
+            margin: 0,
+            color: "#fff",
+            fontSize: 28,
+            fontWeight: 700,
+          }}
+        >
+          Prijava
+        </h1>
 
-        <form onSubmit={handleLogin} style={{ display: "grid", gap: 12 }}>
+        <form
+          onSubmit={handleLogin}
+          autoComplete="on"
+          style={{ display: "grid", gap: 12 }}
+        >
           <input
+            name="username"
             type="text"
             placeholder="Username"
             value={username}
@@ -85,12 +108,15 @@ export default function LoginPage() {
             autoComplete="username"
             style={{
               padding: "12px 14px",
-              borderRadius: 10,
-              border: "1px solid #d1d5db",
+              border: "1px solid #5b6b88",
+              background: "#ffffff",
+              color: "#111827",
+              outline: "none",
             }}
           />
 
           <input
+            name="password"
             type="password"
             placeholder="Lozinka"
             value={password}
@@ -98,8 +124,10 @@ export default function LoginPage() {
             autoComplete="current-password"
             style={{
               padding: "12px 14px",
-              borderRadius: 10,
-              border: "1px solid #d1d5db",
+              border: "1px solid #5b6b88",
+              background: "#ffffff",
+              color: "#111827",
+              outline: "none",
             }}
           />
 
@@ -108,9 +136,8 @@ export default function LoginPage() {
             disabled={loading}
             style={{
               padding: "12px 14px",
-              borderRadius: 10,
-              border: "none",
-              background: "#111827",
+              border: "2px solid #ff2f92",
+              background: "#14131c",
               color: "#fff",
               fontWeight: 700,
               cursor: loading ? "default" : "pointer",
@@ -123,11 +150,10 @@ export default function LoginPage() {
           {error ? (
             <div
               style={{
-                background: "#fef2f2",
-                border: "1px solid #fecaca",
-                color: "#991b1b",
+                background: "#fff1f2",
+                border: "1px solid #fecdd3",
+                color: "#9f1239",
                 padding: 10,
-                borderRadius: 10,
                 fontSize: 14,
                 whiteSpace: "pre-wrap",
               }}
