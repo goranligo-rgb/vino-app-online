@@ -2,22 +2,24 @@
 
 export default function LogoutButton() {
   async function logout() {
-    await fetch("/api/logout", {
-      method: "POST",
-    });
-
-    window.location.href = "/login";
+    try {
+      await fetch("/api/logout", {
+        method: "POST",
+      });
+    } finally {
+      window.location.href = "/login";
+    }
   }
 
   return (
     <button
+      type="button"
       onClick={logout}
+      className="px-4 py-2 font-semibold text-white"
       style={{
-        padding: "10px 16px",
-        border: "1px solid #7f1d1d",
-        background: "#fff",
-        color: "#7f1d1d",
-        fontWeight: 600,
+        border: "2px solid #ff2f92",
+        background: "#14131c",
+        fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
         cursor: "pointer",
       }}
     >

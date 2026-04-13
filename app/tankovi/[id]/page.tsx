@@ -471,8 +471,8 @@ function IzvorMjerenjeBlock({
             {zadnje.bentotestStatus === "STABILNO"
               ? "Stabilno"
               : zadnje.bentotestStatus === "NESTABILNO"
-              ? "Nestabilno"
-              : "—"}
+                ? "Nestabilno"
+                : "—"}
           </strong>
         </div>
       </div>
@@ -482,8 +482,8 @@ function IzvorMjerenjeBlock({
         {zadnje.izmjerenoAt
           ? formatDatum(zadnje.izmjerenoAt)
           : zadnje.bentotestIzmjerenoAt
-          ? formatDatum(zadnje.bentotestIzmjerenoAt)
-          : "—"}
+            ? formatDatum(zadnje.bentotestIzmjerenoAt)
+            : "—"}
       </div>
     </div>
   );
@@ -580,8 +580,8 @@ export default async function TankPregledPage({
     udjeliSorti.length === 0
       ? "Nije upisano"
       : udjeliSorti.length === 1
-      ? udjeliSorti[0].nazivSorte
-      : "Cuvée / blend";
+        ? udjeliSorti[0].nazivSorte
+        : "Cuvée / blend";
 
   const tankJePrazan =
     Number(tank.kolicinaVinaUTanku ?? 0) <= 0 &&
@@ -826,15 +826,15 @@ export default async function TankPregledPage({
               zadnje?.bentotestStatus === "STABILNO"
                 ? "Stabilno"
                 : zadnje?.bentotestStatus === "NESTABILNO"
-                ? "Nestabilno"
-                : "—"
+                  ? "Nestabilno"
+                  : "—"
             }
             tone={
               zadnje?.bentotestStatus === "STABILNO"
                 ? "green"
                 : zadnje?.bentotestStatus === "NESTABILNO"
-                ? "red"
-                : "default"
+                  ? "red"
+                  : "default"
             }
           />
         </div>
@@ -1298,10 +1298,10 @@ export default async function TankPregledPage({
               const href = izvor.izvorTankId
                 ? `/tankovi/${izvor.izvorTankId}?from=${encodeURIComponent(from)}`
                 : izvor.izvorArhivaVinaId
-                ? `/arhiva/${izvor.izvorArhivaVinaId}?from=${encodeURIComponent(
-                    from
-                  )}`
-                : null;
+                  ? `/arhiva/${izvor.izvorArhivaVinaId}?from=${encodeURIComponent(
+                      from
+                    )}`
+                  : null;
 
               return (
                 <details key={izvor.id} style={detailsStyle}>
@@ -1492,8 +1492,8 @@ export default async function TankPregledPage({
                               m.bentotestStatus === "NESTABILNO"
                                 ? "#9f1239"
                                 : m.bentotestStatus === "STABILNO"
-                                ? "#166534"
-                                : "#9ca3af",
+                                  ? "#166534"
+                                  : "#9ca3af",
                           }}
                         >
                           {bentotestLabel(m.bentotestStatus)}
@@ -1627,8 +1627,8 @@ export default async function TankPregledPage({
                               m.bentotestStatus === "NESTABILNO"
                                 ? "#9f1239"
                                 : m.bentotestStatus === "STABILNO"
-                                ? "#166534"
-                                : "#9ca3af",
+                                  ? "#166534"
+                                  : "#9ca3af",
                           }}
                         >
                           {bentotestLabel(m.bentotestStatus)}

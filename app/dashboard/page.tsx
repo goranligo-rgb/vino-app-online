@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import LogoutButton from "@/components/LogoutButton";
 
 type AuthUser = {
   id: string;
@@ -98,19 +99,7 @@ export default async function DashboardPage() {
             </p>
           </div>
 
-          <form action="/api/logout" method="POST">
-            <button
-              type="submit"
-              className="px-4 py-2 font-semibold text-white"
-              style={{
-                border: "2px solid #ff2f92",
-                background: "#14131c",
-                fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
-              }}
-            >
-              Odjava
-            </button>
-          </form>
+          <LogoutButton />
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
