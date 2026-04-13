@@ -287,8 +287,12 @@ export default function BerbaPage() {
           sorta: stavka.nazivSorte,
           kolicinaKgGrozdja: stavka.kolicinaKgGrozdja ?? null,
           kolicinaLitara: Number(stavka.kolicinaLitara ?? 0),
-          datumBerbe: stavka.datumBerbe ?? null,
-          godinaBerbe: stavka.godinaBerbe ?? null,
+          datumBerbe: stavka.datumBerbe ?? punjenje.datumPunjenja ?? null,
+          godinaBerbe:
+            stavka.godinaBerbe ??
+            (punjenje.datumPunjenja
+              ? new Date(punjenje.datumPunjenja).getFullYear()
+              : null),
           polozaj: stavka.polozaj ?? null,
           parcela: stavka.parcela ?? null,
           vinograd: stavka.vinograd ?? null,
@@ -327,8 +331,6 @@ export default function BerbaPage() {
         const haystack = [
           r.sorta,
           r.polozaj,
-          r.parcela,
-          r.vinograd,
           r.oznakaBerbe,
           r.nazivVina,
           r.opisPunjenja,
@@ -617,7 +619,7 @@ export default function BerbaPage() {
               <input
                 value={filterTekst}
                 onChange={(e) => setFilterTekst(e.target.value)}
-                placeholder="sorta, položaj, parcela, oznaka..."
+                placeholder="sorta, položaj, oznaka..."
                 className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
               />
             </div>
@@ -708,220 +710,188 @@ export default function BerbaPage() {
             </div>
           ) : (
             <div className="space-y-5">
-              {detaljiPoPunjenju.map((g) => (
-                <div
-                  key={g.punjenjeId}
-                  className="border border-emerald-200 bg-gradient-to-b from-white via-emerald-50/35 to-lime-50/50 px-4 py-4 shadow-sm"
-                >
-                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-[20px] font-semibold text-stone-800">
-                          {g.nazivVina || "Bez naziva vina"}
-                        </h3>
-                        {g.tankBroj != null ? (
-                          <Oznaka variant="strong">Tank {g.tankBroj}</Oznaka>
-                        ) : null}
-                        {g.tankTip ? <Oznaka>{g.tankTip}</Oznaka> : null}
-                      </div>
+              {detaljiPoPunjenju.map((g) => {
+                const sorteBerbe = uniqueSorted(g.stavke.map((s) => s.sorta));
+                const datumiBerbe = uniqueSorted(
+                  g.stavke.map((s) => (s.datumBerbe ? formatDatum(s.datumBerbe) : null))
+                );
+                const godineBerbe = uniqueSorted(g.stavke.map((s) => s.godinaBerbe));
+                const polozajiBerbe = uniqueSorted(g.stavke.map((s) => s.polozaj));
 
-                      <div className="mt-1 flex flex-wrap gap-2 text-[13px] text-stone-600">
-                        <span>Datum punjenja: {formatDatum(g.datumPunjenja)}</span>
-                        {g.tankId ? (
-                          <>
-                            <span>•</span>
-                            <Link
-                              href={`/tankovi/${g.tankId}`}
-                              className="font-medium text-emerald-800 hover:underline"
-                            >
-                              Otvori tank
-                            </Link>
-                          </>
-                        ) : null}
-                      </div>
-                    </div>
+                return (
+                  <div
+                    key={g.punjenjeId}
+                    className="border border-emerald-200 bg-gradient-to-b from-white via-emerald-50/35 to-lime-50/50 px-4 py-4 shadow-sm"
+                  >
+                    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-[20px] font-semibold text-stone-800">
+                            {g.nazivVina || "Bez naziva vina"}
+                          </h3>
+                          {g.tankBroj != null ? (
+                            <Oznaka variant="strong">Tank {g.tankBroj}</Oznaka>
+                          ) : null}
+                          {g.tankTip ? <Oznaka>{g.tankTip}</Oznaka> : null}
+                        </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Oznaka variant="strong">
-                        {formatBroj(g.ukupnoLitara, 0)} L
-                      </Oznaka>
-                      <Oznaka>{formatBroj(g.ukupnoKg, 0)} kg</Oznaka>
-                      <Oznaka variant="soft">{g.stavke.length} stavki</Oznaka>
-                    </div>
-                  </div>
-
-                  <div className="mb-4 overflow-x-auto">
-                    <table className="min-w-full border-collapse">
-                      <thead>
-                        <tr className="bg-emerald-100/70 text-left text-[12px] uppercase tracking-[0.12em] text-emerald-900">
-                          <th className="border border-emerald-200 px-3 py-2">Sorta</th>
-                          <th className="border border-emerald-200 px-3 py-2">Položaj</th>
-                          <th className="border border-emerald-200 px-3 py-2">Parcela</th>
-                          <th className="border border-emerald-200 px-3 py-2">Vinograd</th>
-                          <th className="border border-emerald-200 px-3 py-2">Datum berbe</th>
-                          <th className="border border-emerald-200 px-3 py-2">Godina</th>
-                          <th className="border border-emerald-200 px-3 py-2">L</th>
-                          <th className="border border-emerald-200 px-3 py-2">kg</th>
-                          <th className="border border-emerald-200 px-3 py-2">Akcija</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {g.stavke.map((r) => (
-                          <tr key={r.stavkaId} className="bg-white text-[13px] text-stone-700">
-                            <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                              {r.sorta}
-                            </td>
-                            <td className="border border-emerald-100 px-3 py-2">
-                              {r.polozaj || "-"}
-                            </td>
-                            <td className="border border-emerald-100 px-3 py-2">
-                              {r.parcela || "-"}
-                            </td>
-                            <td className="border border-emerald-100 px-3 py-2">
-                              {r.vinograd || "-"}
-                            </td>
-                            <td className="border border-emerald-100 px-3 py-2">
-                              {formatDatum(r.datumBerbe)}
-                            </td>
-                            <td className="border border-emerald-100 px-3 py-2">
-                              {r.godinaBerbe || "-"}
-                            </td>
-                            <td className="border border-emerald-100 px-3 py-2">
-                              {formatBroj(r.kolicinaLitara, 0)}
-                            </td>
-                            <td className="border border-emerald-100 px-3 py-2">
-                              {formatBroj(r.kolicinaKgGrozdja, 0)}
-                            </td>
-                            <td className="border border-emerald-100 px-3 py-2">
-                              <button
-                                type="button"
-                                onClick={() => obrisiRed(r.stavkaId)}
-                                disabled={deletingId === r.stavkaId}
-                                className="border border-red-200 bg-gradient-to-b from-red-50 to-rose-50 px-3 py-2 text-[12px] font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        <div className="mt-1 flex flex-wrap gap-2 text-[13px] text-stone-600">
+                          <span>Datum punjenja: {formatDatum(g.datumPunjenja)}</span>
+                          {g.tankId ? (
+                            <>
+                              <span>•</span>
+                              <Link
+                                href={`/tankovi/${g.tankId}`}
+                                className="font-medium text-emerald-800 hover:underline"
                               >
-                                {deletingId === r.stavkaId ? "Brišem..." : "Obriši"}
-                              </button>
-                            </td>
+                                Otvori tank
+                              </Link>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Oznaka variant="strong">
+                          {formatBroj(g.ukupnoLitara, 0)} L
+                        </Oznaka>
+                        <Oznaka>{formatBroj(g.ukupnoKg, 0)} kg</Oznaka>
+                        <Oznaka variant="soft">{g.stavke.length} stavki</Oznaka>
+                      </div>
+                    </div>
+
+                    <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <Polje label="Sorta" value={sorteBerbe.join(", ") || "-"} />
+                      <Polje label="Datum berbe" value={datumiBerbe.join(", ") || "-"} />
+                      <Polje label="Godina berbe" value={godineBerbe.join(", ") || "-"} />
+                      <Polje label="Položaj" value={polozajiBerbe.join(", ") || "-"} />
+                    </div>
+
+                    <div className="mb-4 overflow-x-auto">
+                      <table className="min-w-full border-collapse">
+                        <thead>
+                          <tr className="bg-emerald-100/70 text-left text-[12px] uppercase tracking-[0.12em] text-emerald-900">
+                            <th className="border border-emerald-200 px-3 py-2">Sorta</th>
+                            <th className="border border-emerald-200 px-3 py-2">Položaj</th>
+                            <th className="border border-emerald-200 px-3 py-2">Datum berbe</th>
+                            <th className="border border-emerald-200 px-3 py-2">Godina</th>
+                            <th className="border border-emerald-200 px-3 py-2">L</th>
+                            <th className="border border-emerald-200 px-3 py-2">kg</th>
+                            <th className="border border-emerald-200 px-3 py-2">Akcija</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {(g.opisPunjenja || g.napomenaPunjenja) && (
-                    <div className="mb-4 grid gap-3 xl:grid-cols-2">
-                      <div className="border border-emerald-200 bg-white p-4">
-                        <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-emerald-800/70">
-                          Opis punjenja
-                        </div>
-                        <div className="text-[13px] text-stone-700">
-                          {g.opisPunjenja || "-"}
-                        </div>
-                      </div>
-
-                      <div className="border border-emerald-200 bg-white p-4">
-                        <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-emerald-800/70">
-                          Napomena punjenja
-                        </div>
-                        <div className="text-[13px] text-stone-700">
-                          {g.napomenaPunjenja || "-"}
-                        </div>
-                      </div>
+                        </thead>
+                        <tbody>
+                          {g.stavke.map((r) => (
+                            <tr key={r.stavkaId} className="bg-white text-[13px] text-stone-700">
+                              <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                                {r.sorta}
+                              </td>
+                              <td className="border border-emerald-100 px-3 py-2">
+                                {r.polozaj || "-"}
+                              </td>
+                              <td className="border border-emerald-100 px-3 py-2">
+                                {formatDatum(r.datumBerbe)}
+                              </td>
+                              <td className="border border-emerald-100 px-3 py-2">
+                                {r.godinaBerbe || "-"}
+                              </td>
+                              <td className="border border-emerald-100 px-3 py-2">
+                                {formatBroj(r.kolicinaLitara, 0)}
+                              </td>
+                              <td className="border border-emerald-100 px-3 py-2">
+                                {formatBroj(r.kolicinaKgGrozdja, 0)}
+                              </td>
+                              <td className="border border-emerald-100 px-3 py-2">
+                                <button
+                                  type="button"
+                                  onClick={() => obrisiRed(r.stavkaId)}
+                                  disabled={deletingId === r.stavkaId}
+                                  className="border border-red-200 bg-gradient-to-b from-red-50 to-rose-50 px-3 py-2 text-[12px] font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {deletingId === r.stavkaId ? "Brišem..." : "Obriši"}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                  )}
 
-                  <div className="mb-4">
-                    <div className="mb-2 text-[13px] font-semibold text-stone-800">
-                      Bilješke po stavkama
-                    </div>
-                    <div className="grid gap-3 xl:grid-cols-2">
-                      {g.stavke.map((r) => (
-                        <div
-                          key={`${r.stavkaId}-biljeske`}
-                          className="border border-emerald-200 bg-white p-4"
-                        >
-                          <div className="mb-2 flex items-center gap-2">
-                            <span className="text-[14px] font-semibold text-stone-800">
-                              {r.sorta}
-                            </span>
-                            {r.polozaj ? <Oznaka>{r.polozaj}</Oznaka> : null}
+                    {(g.opisPunjenja || g.napomenaPunjenja) && (
+                      <div className="mb-4 grid gap-3 xl:grid-cols-2">
+                        <div className="border border-emerald-200 bg-white p-4">
+                          <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-emerald-800/70">
+                            Opis punjenja
                           </div>
-                          <div className="space-y-2 text-[13px] text-stone-700">
-                            <div>
-                              <span className="font-medium text-stone-800">Opis: </span>
-                              {r.opisStavke || "-"}
-                            </div>
-                            <div>
-                              <span className="font-medium text-stone-800">
-                                Napomena:{" "}
-                              </span>
-                              {r.napomenaBerbe || "-"}
-                            </div>
-                            <div>
-                              <span className="font-medium text-stone-800">
-                                Šećer / kiseline / pH:{" "}
-                              </span>
-                              {formatBroj(r.secer, 2)} / {formatBroj(r.kiseline, 2)} /{" "}
-                              {formatBroj(r.ph, 2)}
-                            </div>
+                          <div className="text-[13px] text-stone-700">
+                            {g.opisPunjenja || "-"}
                           </div>
                         </div>
-                      ))}
-                    </div>
+
+                        <div className="border border-emerald-200 bg-white p-4">
+                          <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-emerald-800/70">
+                            Napomena punjenja
+                          </div>
+                          <div className="text-[13px] text-stone-700">
+                            {g.napomenaPunjenja || "-"}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {g.pocetnoMjerenje ? (
+                      <div className="mt-3 border border-lime-300 bg-gradient-to-r from-lime-50 via-emerald-50 to-green-50 p-4">
+                        <div className="mb-3 text-[13px] font-semibold text-emerald-900">
+                          Početno mjerenje
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                          <Polje
+                            label="Datum mjerenja"
+                            value={formatDatum(g.pocetnoMjerenje.izmjerenoAt || null)}
+                          />
+                          <Polje
+                            label="Alkohol"
+                            value={formatBroj(g.pocetnoMjerenje.alkohol, 2)}
+                          />
+                          <Polje
+                            label="Ukupne kiseline"
+                            value={formatBroj(g.pocetnoMjerenje.ukupneKiseline, 2)}
+                          />
+                          <Polje
+                            label="Šećer"
+                            value={formatBroj(g.pocetnoMjerenje.secer, 2)}
+                          />
+                          <Polje
+                            label="pH"
+                            value={formatBroj(g.pocetnoMjerenje.ph, 2)}
+                          />
+                          <Polje
+                            label="Hlapive kiseline"
+                            value={formatBroj(g.pocetnoMjerenje.hlapiveKiseline, 2)}
+                          />
+                          <Polje
+                            label="Slobodni SO2"
+                            value={formatBroj(g.pocetnoMjerenje.slobodniSO2, 2)}
+                          />
+                          <Polje
+                            label="Ukupni SO2"
+                            value={formatBroj(g.pocetnoMjerenje.ukupniSO2, 2)}
+                          />
+                          <Polje
+                            label="Temperatura"
+                            value={formatBroj(g.pocetnoMjerenje.temperatura, 2)}
+                          />
+                          <Polje
+                            label="Napomena"
+                            value={g.pocetnoMjerenje.napomena || "-"}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-
-                  {g.pocetnoMjerenje ? (
-                    <div className="mt-3 border border-lime-300 bg-gradient-to-r from-lime-50 via-emerald-50 to-green-50 p-4">
-                      <div className="mb-3 text-[13px] font-semibold text-emerald-900">
-                        Početno mjerenje
-                      </div>
-
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                        <Polje
-                          label="Datum mjerenja"
-                          value={formatDatum(g.pocetnoMjerenje.izmjerenoAt || null)}
-                        />
-                        <Polje
-                          label="Alkohol"
-                          value={formatBroj(g.pocetnoMjerenje.alkohol, 2)}
-                        />
-                        <Polje
-                          label="Ukupne kiseline"
-                          value={formatBroj(g.pocetnoMjerenje.ukupneKiseline, 2)}
-                        />
-                        <Polje
-                          label="Šećer"
-                          value={formatBroj(g.pocetnoMjerenje.secer, 2)}
-                        />
-                        <Polje
-                          label="pH"
-                          value={formatBroj(g.pocetnoMjerenje.ph, 2)}
-                        />
-                        <Polje
-                          label="Hlapive kiseline"
-                          value={formatBroj(g.pocetnoMjerenje.hlapiveKiseline, 2)}
-                        />
-                        <Polje
-                          label="Slobodni SO2"
-                          value={formatBroj(g.pocetnoMjerenje.slobodniSO2, 2)}
-                        />
-                        <Polje
-                          label="Ukupni SO2"
-                          value={formatBroj(g.pocetnoMjerenje.ukupniSO2, 2)}
-                        />
-                        <Polje
-                          label="Temperatura"
-                          value={formatBroj(g.pocetnoMjerenje.temperatura, 2)}
-                        />
-                        <Polje
-                          label="Napomena"
-                          value={g.pocetnoMjerenje.napomena || "-"}
-                        />
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

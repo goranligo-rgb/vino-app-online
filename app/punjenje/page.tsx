@@ -125,6 +125,7 @@ export default function PunjenjePage() {
   const [saving, setSaving] = useState(false);
   const [poruka, setPoruka] = useState("");
   const [zadnjeSpremljenoTankId, setZadnjeSpremljenoTankId] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
 
   const [tankId, setTankId] = useState("");
   const [nazivVina, setNazivVina] = useState("");
@@ -132,6 +133,16 @@ export default function PunjenjePage() {
   const [napomena, setNapomena] = useState("");
 
   const [stavke, setStavke] = useState<StavkaPunjenja[]>([praznaStavka()]);
+
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth < 900);
+    }
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     ucitajTankove();
@@ -421,14 +432,14 @@ export default function PunjenjePage() {
         minHeight: "100vh",
         background:
           "linear-gradient(180deg, #fcf8f9 0%, #faf3f4 45%, #f7edef 100%)",
-        padding: 24,
+        padding: isMobile ? 12 : 24,
       }}
     >
       <div style={{ maxWidth: 1580, margin: "0 auto" }}>
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) 360px",
+            gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1fr) 360px",
             gap: 22,
             alignItems: "start",
           }}
@@ -439,13 +450,15 @@ export default function PunjenjePage() {
               background:
                 "linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(255,246,247,0.96) 100%)",
               boxShadow: "0 18px 40px rgba(127,29,29,0.07)",
-              padding: 24,
+              padding: isMobile ? 14 : 24,
             }}
           >
             <div style={heroBoxStyle}>
               <div>
                 <div style={heroOverlineStyle}>PODRUMSKI UNOS</div>
-                <h1 style={heroTitleStyle}>Punjenje / berba</h1>
+                <h1 style={{ ...heroTitleStyle, fontSize: isMobile ? 28 : 34 }}>
+                  Punjenje / berba
+                </h1>
                 <p style={heroTextStyle}>
                   Unesi mošt koji ulazi u tank, evidentiraj količinu grožđa,
                   položaj i kvalitetu te odmah vidi raspodjelu sorti i stanje
@@ -494,7 +507,9 @@ export default function PunjenjePage() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    gridTemplateColumns: isMobile
+                      ? "1fr"
+                      : "repeat(auto-fit, minmax(220px, 1fr))",
                     gap: 14,
                   }}
                 >
@@ -606,8 +621,9 @@ export default function PunjenjePage() {
                         <div
                           style={{
                             display: "grid",
-                            gridTemplateColumns:
-                              "repeat(auto-fit, minmax(170px, 1fr))",
+                            gridTemplateColumns: isMobile
+                              ? "1fr"
+                              : "repeat(auto-fit, minmax(170px, 1fr))",
                             gap: 12,
                           }}
                         >
@@ -731,7 +747,14 @@ export default function PunjenjePage() {
                   </div>
                 </div>
 
-                <div style={summaryGridStyle}>
+                <div
+                  style={{
+                    ...summaryGridStyle,
+                    gridTemplateColumns: isMobile
+                      ? "1fr"
+                      : "repeat(auto-fit, minmax(220px, 1fr))",
+                  }}
+                >
                   <div style={summaryCardStyle}>
                     <div style={summaryTitleStyle}>Ukupno kg grožđa</div>
                     <div style={summaryValueStyle}>
@@ -800,7 +823,14 @@ export default function PunjenjePage() {
 
                     <div style={{ display: "grid", gap: 8 }}>
                       {pregledPostotaka.map((s) => (
-                        <div key={s.nazivSorte} style={sortaRedStyle}>
+                        <div
+                          key={s.nazivSorte}
+                          style={{
+                            ...sortaRedStyle,
+                            flexDirection: isMobile ? "column" : "row",
+                            alignItems: isMobile ? "flex-start" : "center",
+                          }}
+                        >
                           <span style={sortaNazivStyle}>{s.nazivSorte}</span>
                           <span style={sortaVrijednostStyle}>
                             {formatBroj(s.litara)} L — {formatBroj(s.postotak)}%
@@ -868,8 +898,8 @@ export default function PunjenjePage() {
                 "linear-gradient(180deg, #fffafb 0%, #fff3f5 52%, #fdecef 100%)",
               boxShadow: "0 18px 36px rgba(127,29,29,0.08)",
               padding: 18,
-              position: "sticky",
-              top: 18,
+              position: isMobile ? "static" : "sticky",
+              top: isMobile ? undefined : 18,
             }}
           >
             <div
@@ -896,7 +926,13 @@ export default function PunjenjePage() {
                     style={{ textDecoration: "none", color: "inherit" }}
                   >
                     <div style={sideCardStyle}>
-                      <div style={sideCardTopRow}>
+                      <div
+                        style={{
+                          ...sideCardTopRow,
+                          flexDirection: isMobile ? "column" : "row",
+                          alignItems: isMobile ? "flex-start" : "start",
+                        }}
+                      >
                         <div style={sideCardTitleStyle}>
                           {punjenje.nazivVina || "Bez naziva"}
                         </div>

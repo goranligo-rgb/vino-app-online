@@ -50,7 +50,7 @@ export default async function PunjenjeDetaljPage({ params }: Props) {
       style={{
         maxWidth: 1100,
         margin: "0 auto",
-        padding: 24,
+        padding: "clamp(12px, 3vw, 24px)",
       }}
     >
       <div style={headerCard}>
@@ -213,19 +213,20 @@ export default async function PunjenjeDetaljPage({ params }: Props) {
 const headerCard: React.CSSProperties = {
   border: "2px solid #4d7c0f",
   borderRadius: 16,
-  padding: 20,
+  padding: "clamp(14px, 3vw, 20px)",
   background: "#f8fafc",
   marginBottom: 20,
 };
 
 const title: React.CSSProperties = {
-  fontSize: 28,
+  fontSize: "clamp(24px, 5vw, 28px)",
   fontWeight: 800,
   marginBottom: 6,
+  lineHeight: 1.15,
 };
 
 const subTitle: React.CSSProperties = {
-  fontSize: 18,
+  fontSize: "clamp(16px, 3.8vw, 18px)",
   fontWeight: 600,
   color: "#475569",
   marginBottom: 10,
@@ -248,13 +249,13 @@ const napomenaBox: React.CSSProperties = {
 const section: React.CSSProperties = {
   border: "1px solid #e5e7eb",
   borderRadius: 14,
-  padding: 18,
+  padding: "clamp(12px, 3vw, 18px)",
   background: "white",
   marginBottom: 20,
 };
 
 const sectionTitle: React.CSSProperties = {
-  fontSize: 20,
+  fontSize: "clamp(18px, 4vw, 20px)",
   fontWeight: 700,
   marginBottom: 12,
 };
@@ -277,7 +278,7 @@ const stavkaHeaderRow: React.CSSProperties = {
 
 const stavkaHeader: React.CSSProperties = {
   fontWeight: 700,
-  fontSize: 18,
+  fontSize: "clamp(16px, 3.5vw, 18px)",
 };
 
 const stavkaGrid: React.CSSProperties = {
@@ -311,7 +312,7 @@ const summaryTitle: React.CSSProperties = {
 };
 
 const summaryValue: React.CSSProperties = {
-  fontSize: 22,
+  fontSize: "clamp(20px, 4.5vw, 22px)",
   fontWeight: 800,
 };
 

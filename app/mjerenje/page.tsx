@@ -384,8 +384,19 @@ export default function MjerenjePage() {
   const [poruka, setPoruka] = useState("");
   const [formData, setFormData] = useState<FormDataType>(praznaForma());
   const [otvorenoMjerenjeId, setOtvorenoMjerenjeId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
   const formaRef = useRef<HTMLFormElement | null>(null);
+
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth < 1000);
+    }
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   async function ucitajTankove() {
     try {
@@ -559,7 +570,7 @@ export default function MjerenjePage() {
       style={{
         minHeight: "100vh",
         background: "linear-gradient(180deg, #f4f8fb 0%, #eef4f8 100%)",
-        padding: 20,
+        padding: isMobile ? 12 : 20,
         fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
       }}
     >
@@ -591,7 +602,7 @@ export default function MjerenjePage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1.3fr 0.7fr",
+            gridTemplateColumns: isMobile ? "1fr" : "1.3fr 0.7fr",
             gap: 20,
             alignItems: "start",
           }}
@@ -600,7 +611,7 @@ export default function MjerenjePage() {
             style={{
               background:
                 "linear-gradient(180deg, #ffffff 0%, #f3f8fc 48%, #edf5fb 100%)",
-              padding: 24,
+              padding: isMobile ? 16 : 24,
               border: "1px solid #cfe3f1",
               boxShadow: "0 12px 26px rgba(59,130,246,0.06)",
             }}
@@ -609,7 +620,7 @@ export default function MjerenjePage() {
               style={{
                 margin: 0,
                 marginBottom: 20,
-                fontSize: 28,
+                fontSize: isMobile ? 24 : 28,
                 fontWeight: 800,
                 color: "#1e3a5f",
               }}
@@ -621,7 +632,13 @@ export default function MjerenjePage() {
               <div style={sectionStyleWarm}>
                 <div style={sectionTitleWarm}>Osnovno</div>
 
-                <div style={grid2}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+                    gap: 10,
+                  }}
+                >
                   <Polje label="Tank" htmlFor="tankId">
                     <select
                       id="tankId"
@@ -658,7 +675,13 @@ export default function MjerenjePage() {
               <div style={sectionStyleStrong}>
                 <div style={sectionTitleStrong}>Glavni parametri</div>
 
-                <div style={grid4}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr",
+                    gap: 10,
+                  }}
+                >
                   <Polje label="Temperatura (°C)" htmlFor="temperatura">
                     <input
                       id="temperatura"
@@ -712,7 +735,13 @@ export default function MjerenjePage() {
               <div style={sectionStyleWarm}>
                 <div style={sectionTitleWarm}>Dodatni parametri</div>
 
-                <div style={grid4}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr",
+                    gap: 10,
+                  }}
+                >
                   <Polje label="Alkohol" htmlFor="alkohol">
                     <input
                       id="alkohol"
@@ -786,7 +815,13 @@ export default function MjerenjePage() {
               <div style={sectionStyleBentotest}>
                 <div style={sectionTitleBentotest}>Bentotest</div>
 
-                <div style={grid2}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+                    gap: 10,
+                  }}
+                >
                   <Polje label="Datum bentotesta" htmlFor="bentotestDatum">
                     <input
                       id="bentotestDatum"
@@ -825,10 +860,10 @@ export default function MjerenjePage() {
           <div
             style={{
               background: "#ffffff",
-              padding: 18,
+              padding: isMobile ? 14 : 18,
               border: "1px solid #dbeafe",
-              maxHeight: "85vh",
-              overflowY: "auto",
+              maxHeight: isMobile ? "none" : "85vh",
+              overflowY: isMobile ? "visible" : "auto",
               boxShadow: "0 10px 25px rgba(59,130,246,0.05)",
             }}
           >
@@ -837,7 +872,7 @@ export default function MjerenjePage() {
                 marginTop: 0,
                 marginBottom: 14,
                 color: "#1e3a5f",
-                fontSize: 22,
+                fontSize: isMobile ? 20 : 22,
                 fontWeight: 800,
               }}
             >
@@ -947,7 +982,7 @@ export default function MjerenjePage() {
                       <div
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "1fr 1fr",
+                          gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
                           gap: 8,
                           marginTop: 10,
                         }}
@@ -1021,7 +1056,7 @@ export default function MjerenjePage() {
                       <div
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                          gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))",
                           gap: 8,
                           marginTop: 10,
                         }}
@@ -1054,7 +1089,7 @@ export default function MjerenjePage() {
                         <div
                           style={{
                             display: "grid",
-                            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                            gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))",
                             gap: 10,
                           }}
                         >
@@ -1102,7 +1137,7 @@ export default function MjerenjePage() {
                         <div
                           style={{
                             display: "grid",
-                            gridTemplateColumns: "1fr 1fr",
+                            gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
                             gap: 10,
                           }}
                         >
@@ -1263,18 +1298,6 @@ const sectionTitleBentotest: React.CSSProperties = {
   color: "#475569",
   letterSpacing: 0.3,
   textTransform: "uppercase",
-};
-
-const grid2: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 10,
-};
-
-const grid4: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr 1fr 1fr",
-  gap: 10,
 };
 
 const input: React.CSSProperties = {

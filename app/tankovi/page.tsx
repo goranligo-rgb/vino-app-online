@@ -23,6 +23,17 @@ export default function TankoviPage() {
   const [loading, setLoading] = useState(false);
   const [poruka, setPoruka] = useState("");
   const [prikaziFormu, setPrikaziFormu] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth < 900);
+    }
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   async function ucitajTankove() {
     try {
@@ -201,7 +212,7 @@ export default function TankoviPage() {
   }, [prazniTankovi]);
 
   return (
-    <main style={pageStyle}>
+    <main style={{ ...pageStyle, padding: isMobile ? "12px" : "16px" }}>
       <div style={{ maxWidth: "1500px", margin: "0 auto" }}>
         <div style={headerStyle}>
           <div>
@@ -236,7 +247,7 @@ export default function TankoviPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) 320px",
+            gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1fr) 320px",
             gap: "12px",
             alignItems: "start",
           }}
@@ -296,7 +307,12 @@ export default function TankoviPage() {
               <div style={sectionTitleStyle}>Popis tankova</div>
 
               <div style={{ overflowX: "auto" }}>
-                <table style={tableStyle}>
+                <table
+                  style={{
+                    ...tableStyle,
+                    minWidth: isMobile ? "760px" : "100%",
+                  }}
+                >
                   <thead>
                     <tr>
                       <th style={thStyle}>Broj</th>
@@ -426,7 +442,13 @@ export default function TankoviPage() {
             </section>
           </div>
 
-          <aside style={panelStyleSticky}>
+          <aside
+            style={{
+              ...panelStyleStickyBase,
+              position: isMobile ? "static" : "sticky",
+              top: isMobile ? undefined : "12px",
+            }}
+          >
             <div style={sectionTitleStyle}>Prazni tankovi</div>
 
             {prazniTankovi.length === 0 ? (
@@ -467,7 +489,6 @@ export default function TankoviPage() {
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
-  padding: "16px",
   background: "#f4f4f5",
   fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
   color: "#2f2f2f",
@@ -502,12 +523,10 @@ const panelStyle: React.CSSProperties = {
   marginBottom: "12px",
 };
 
-const panelStyleSticky: React.CSSProperties = {
+const panelStyleStickyBase: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid rgba(127,29,29,0.18)",
   padding: "12px",
-  position: "sticky",
-  top: "12px",
 };
 
 const sectionTitleStyle: React.CSSProperties = {

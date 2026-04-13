@@ -14,47 +14,76 @@ const prisma = new PrismaClient({ adapter });
 async function main() {
   // ===== USER =====
   await prisma.user.upsert({
-  where: { email: "admin@vino.local" },
-  update: {
-    username: "admin",
-    password: "123456",
-    active: true,
-  },
-  create: {
-    ime: "Admin",
-    username: "admin",
-    email: "admin@vino.local",
-    password: "123456",
-    role: Role.ADMIN,
-    active: true,
-  },
-});
+    where: { email: "admin@vino.local" },
+    update: {
+      username: "admin",
+      password: "123456",
+      active: true,
+    },
+    create: {
+      ime: "Admin",
+      username: "admin",
+      email: "admin@vino.local",
+      password: "123456",
+      role: Role.ADMIN,
+      active: true,
+    },
+  });
 
   console.log("User OK");
 
   // ===== JEDINICE =====
-  const jedinice = ["mg", "g", "dkg", "kg", "ml", "dl", "l", "hl"];
+  const jedinice = [
+    { naziv: "mg", tip: "MASA", faktor: 0.001 },
+    { naziv: "g", tip: "MASA", faktor: 1 },
+    { naziv: "dkg", tip: "MASA", faktor: 10 },
+    { naziv: "kg", tip: "MASA", faktor: 1000 },
 
-  for (const naziv of jedinice) {
+    { naziv: "ml", tip: "VOLUMEN", faktor: 0.001 },
+    { naziv: "dl", tip: "VOLUMEN", faktor: 0.1 },
+    { naziv: "l", tip: "VOLUMEN", faktor: 1 },
+    { naziv: "hl", tip: "VOLUMEN", faktor: 100 },
+
+    { naziv: "g/hl", tip: "MASA_PO_VOLUMENU", faktor: 1 },
+    { naziv: "kg/hl", tip: "MASA_PO_VOLUMENU", faktor: 1000 },
+    { naziv: "ml/hl", tip: "VOLUMEN_PO_VOLUMENU", faktor: 1 },
+    { naziv: "l/hl", tip: "VOLUMEN_PO_VOLUMENU", faktor: 1000 },
+
+    { naziv: "mg/l", tip: "MASA_PO_VOLUMENU", faktor: 0.001 },
+    { naziv: "g/l", tip: "MASA_PO_VOLUMENU", faktor: 1 },
+    { naziv: "ml/l", tip: "VOLUMEN_PO_VOLUMENU", faktor: 0.001 },
+    { naziv: "l/l", tip: "VOLUMEN_PO_VOLUMENU", faktor: 1 },
+  ];
+
+  for (const unit of jedinice) {
     const postoji = await prisma.unit.findFirst({
-      where: { naziv },
+      where: { naziv: unit.naziv },
     });
 
     if (!postoji) {
       await prisma.unit.create({
-        data: { naziv },
+        data: unit,
+      });
+    } else {
+      await prisma.unit.update({
+        where: { id: postoji.id },
+        data: {
+          tip: unit.tip,
+          faktor: unit.faktor,
+        },
       });
     }
   }
 
   console.log("Jedinice OK");
 
+  // ===== DOHVAT JEDINICA =====
+  const unitG = await prisma.unit.findFirst({ where: { naziv: "g" } });
   const unitMl = await prisma.unit.findFirst({ where: { naziv: "ml" } });
   const unitDl = await prisma.unit.findFirst({ where: { naziv: "dl" } });
-  const unitG = await prisma.unit.findFirst({ where: { naziv: "g" } });
 
-  if (!unitMl || !unitDl || !unitG) {
-    throw new Error("Nisu pronađene osnovne jedinice ml/dl/g nakon seeda.");
+  if (!unitG || !unitMl || !unitDl) {
+    throw new Error("Jedinice nisu ispravno seedane!");
   }
 
   // ===== PREPARATI =====
@@ -66,53 +95,15 @@ async function main() {
     { naziv: "PVPP", dozaOd: 10, dozaDo: 50, unitId: unitG.id },
 
     { naziv: "UVAFERM 228", dozaOd: 20, dozaDo: 20, unitId: unitG.id },
-    { naziv: "UVAFERM CEG", dozaOd: 20, dozaDo: 20, unitId: unitG.id },
-    { naziv: "AFFINITY", dozaOd: 20, dozaDo: 20, unitId: unitG.id },
-    { naziv: "ALCHEMY II", dozaOd: 20, dozaDo: 20, unitId: unitG.id },
-    { naziv: "LALVIN CY3079", dozaOd: 20, dozaDo: 20, unitId: unitG.id },
     { naziv: "LALVIN EC-1118", dozaOd: 20, dozaDo: 20, unitId: unitG.id },
-    { naziv: "ANCHOR OENOLOGY LEGACY", dozaOd: 20, dozaDo: 20, unitId: unitG.id },
-    { naziv: "LALVIN V1116", dozaOd: 20, dozaDo: 20, unitId: unitG.id },
 
     { naziv: "FERMAID E", dozaOd: 10, dozaDo: 10, unitId: unitG.id },
-    { naziv: "OPTI-MUM WHITE", dozaOd: 20, dozaDo: 20, unitId: unitG.id },
-    { naziv: "OPTI-MUM RED", dozaOd: 20, dozaDo: 20, unitId: unitG.id },
     { naziv: "GO FERM", dozaOd: 30, dozaDo: 30, unitId: unitG.id },
 
-    { naziv: "SIHAFERM ELEMENT", dozaOd: 20, dozaDo: 20, unitId: unitG.id },
-    { naziv: "SIHA PROFERM FIT", dozaOd: 30, dozaDo: 30, unitId: unitG.id },
-    { naziv: "SIHA PROFERM H+2", dozaOd: 30, dozaDo: 30, unitId: unitG.id },
-    { naziv: "SIHA FERMENTACIJSKA SOL PLUS", dozaOd: 30, dozaDo: 30, unitId: unitG.id },
-    { naziv: "SIHA SPEEDFERM", dozaOd: 30, dozaDo: 30, unitId: unitG.id },
-
     { naziv: "SIHA KALIJ METABISULFIT PRAH", dozaOd: 10, dozaDo: 20, unitId: unitG.id },
-    { naziv: "STIMULA SAUVIGNON BLANC", dozaOd: 20, dozaDo: 20, unitId: unitG.id },
-    { naziv: "POLYMUST BLANC", dozaOd: 15, dozaDo: 15, unitId: unitG.id },
-    { naziv: "OPERA MEDIUM T", dozaOd: 1, dozaDo: 20, unitId: unitG.id },
-    { naziv: "OPERA FRUITY-TANINI", dozaOd: 1, dozaDo: 20, unitId: unitG.id },
-    { naziv: "GLUTASTAR", dozaOd: 30, dozaDo: 30, unitId: unitG.id },
-
-    { naziv: "SIHA KALIJ SORBAT", dozaOd: 10, dozaDo: 20, unitId: unitG.id },
-    { naziv: "KALIJ SORBAT PAVIN", dozaOd: 10, dozaDo: 20, unitId: unitG.id },
-    { naziv: "AROMAX", dozaOd: 8, dozaDo: 10, unitId: unitG.id },
-    { naziv: "PYROVIN", dozaOd: 10, dozaDo: 20, unitId: unitG.id },
-    { naziv: "PYROVIN S TANINOM", dozaOd: 10, dozaDo: 20, unitId: unitG.id },
-    { naziv: "KALIJ METABISULFIT S TANINOM", dozaOd: 10, dozaDo: 20, unitId: unitG.id },
-    { naziv: "KALIJ BIKARBONAT", dozaOd: 110, dozaDo: 110, unitId: unitG.id },
-
-    { naziv: "LALLZYME C-MAX", dozaOd: 2, dozaDo: 2, unitId: unitG.id },
-    { naziv: "LALLZYME HC", dozaOd: 2, dozaDo: 2, unitId: unitG.id },
-    { naziv: "LALLZYME-CUVEE BLANC", dozaOd: 2, dozaDo: 2, unitId: unitG.id },
-    { naziv: "LALLZYME- EX-V", dozaOd: 2, dozaDo: 2, unitId: unitG.id },
-    { naziv: "LALLZYME- OE", dozaOd: 2, dozaDo: 2, unitId: unitG.id },
+    { naziv: "VINSKA KISELINA", dozaOd: 50, dozaDo: 250, unitId: unitG.id },
 
     { naziv: "ŽELATINA ZA FLOTACIJU", dozaOd: 20, dozaDo: 20, unitId: unitMl.id },
-    { naziv: "GERBINOL", dozaOd: 10, dozaDo: 10, unitId: unitG.id },
-
-    { naziv: "LIMUNSKA KISELINA", dozaOd: 1, dozaDo: 2, unitId: unitG.id },
-    { naziv: "ASKORBINSKA KISELINA", dozaOd: 15, dozaDo: 25, unitId: unitG.id },
-    { naziv: "VINSKA KISELINA", dozaOd: 50, dozaDo: 250, unitId: unitG.id },
-    { naziv: "JABUČNA KISELINA", dozaOd: 3, dozaDo: 3, unitId: unitG.id },
 
     { naziv: "CMC", dozaOd: 200, dozaDo: 200, unitId: unitMl.id },
     { naziv: "UGUŠĆENI MOŠT", dozaOd: 1.5, dozaDo: 1.5, unitId: unitMl.id },
@@ -132,14 +123,6 @@ async function main() {
           dozaDo: p.dozaDo,
           unitId: p.unitId,
           isKorekcijski: false,
-          korekcijaTip: null,
-          korekcijaJedinica: null,
-          ucinakPoJedinici: null,
-          povecanjeParametra: null,
-          referentnaKolicina: null,
-          referentnaKolicinaJedinica: null,
-          referentniVolumen: null,
-          referentniVolumenJedinica: null,
         },
       });
     } else {
@@ -158,13 +141,13 @@ async function main() {
   console.log("Preparati OK");
 
   // ===== KOREKCIJSKI PREPARAT =====
-  const postojeciSumpovin = await prisma.preparation.findFirst({
+  const postojeci = await prisma.preparation.findFirst({
     where: { naziv: "Sumpovin" },
   });
 
-  if (postojeciSumpovin) {
+  if (postojeci) {
     await prisma.preparation.update({
-      where: { id: postojeciSumpovin.id },
+      where: { id: postojeci.id },
       data: {
         isKorekcijski: true,
         korekcijaTip: "SLOBODNI_SO2",
@@ -196,89 +179,7 @@ async function main() {
 
   console.log("Korekcijski preparat OK");
 
-  // ===== SORTE =====
-  const sorte = [
-    "Graševina",
-    "Sauvignon",
-    "Rajnski rizling",
-    "Chardonnay",
-    "Pinot sivi",
-    "Pinot bijeli",
-    "Muškat žuti",
-    "Traminac",
-    "Zeleni Veltlinac",
-    "Cabernet Sauvignon",
-    "Merlot",
-    "Frankovka",
-    "Pinot crni",
-    "Rose",
-    "Cuvee",
-  ];
-
-  for (const naziv of sorte) {
-    await prisma.sorta.upsert({
-      where: { naziv },
-      update: {},
-      create: { naziv },
-    });
-  }
-
-  console.log("Sorte OK");
-
-  // ===== TANKOVI =====
-  const tankoviZaUnos = [
-    { broj: 7, kapacitet: 10500, tip: "zatvoreni tank", opis: "TANK 7" },
-    { broj: 8, kapacitet: 10500, tip: "zatvoreni tank", opis: "TANK 8" },
-    { broj: 9, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 9" },
-    { broj: 10, kapacitet: 5000, tip: "zatvoreni tank", opis: "TANK 10" },
-    { broj: 11, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 11" },
-    { broj: 12, kapacitet: 5000, tip: "zatvoreni tank", opis: "TANK 12" },
-    { broj: 13, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 13" },
-    { broj: 14, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 14" },
-    { broj: 15, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 15" },
-    { broj: 16, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 16" },
-    { broj: 17, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 17" },
-    { broj: 18, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 18" },
-    { broj: 20, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 20" },
-    { broj: 21, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 21" },
-    { broj: 22, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 22" },
-    { broj: 25, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 25" },
-    { broj: 26, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 26" },
-    { broj: 27, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 27" },
-    { broj: 28, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 28" },
-    { broj: 29, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 29" },
-    { broj: 30, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 30" },
-    { broj: 31, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 31" },
-    { broj: 32, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 32" },
-    { broj: 33, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 33" },
-    { broj: 34, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 34" },
-    { broj: 36, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 36" },
-    { broj: 37, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 37" },
-    { broj: 38, kapacitet: 3900, tip: "zatvoreni tank", opis: "TANK 38" },
-    { broj: 39, kapacitet: 2500, tip: "drvena bačva", opis: "DRV.BAČVA 39" },
-    { broj: 40, kapacitet: 2500, tip: "drvena bačva", opis: "DRV.BAČVA 40" },
-    { broj: 41, kapacitet: 2500, tip: "drvena bačva", opis: "DRV.BAČVA 41" },
-    { broj: 42, kapacitet: 80000, tip: "vanjski tank", opis: "VANJSKI TANK 42" },
-  ];
-
-  for (const tank of tankoviZaUnos) {
-    await prisma.tank.upsert({
-      where: { broj: tank.broj },
-      update: {
-        kapacitet: tank.kapacitet,
-        tip: tank.tip,
-        opis: tank.opis,
-      },
-      create: {
-        broj: tank.broj,
-        kapacitet: tank.kapacitet,
-        tip: tank.tip,
-        opis: tank.opis,
-      },
-    });
-  }
-
-  console.log("Tankovi OK");
+  console.log("SEED GOTOV");
 }
 
 main()
@@ -286,6 +187,7 @@ main()
     await prisma.$disconnect();
   })
   .catch(async (e) => {
+    console.error("SEED GREŠKA:");
     console.error(e);
     await prisma.$disconnect();
     process.exit(1);

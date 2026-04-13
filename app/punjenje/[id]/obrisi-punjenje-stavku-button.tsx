@@ -54,6 +54,10 @@ export default function ObrisiPunjenjeStavkuButton({
         fontWeight: 700,
         cursor: loading ? "not-allowed" : "pointer",
         opacity: loading ? 0.7 : 1,
+        fontSize: "13px",
+        lineHeight: 1.2,
+        whiteSpace: "nowrap",
+        maxWidth: "100%",
       }}
     >
       {loading ? "Brišem..." : "Obriši stavku"}
