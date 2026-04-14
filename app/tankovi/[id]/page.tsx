@@ -34,6 +34,12 @@ function formatDatumBezVremena(value: Date | string | null | undefined) {
   return d.toLocaleDateString("hr-HR");
 }
 
+function formatTipIzlaza(tip: string | null | undefined) {
+  if (tip === "PUNJENJE") return "Punjenje u boce";
+  if (tip === "PRODAJA") return "Prodaja / rinfuza";
+  return tip ?? "—";
+}
+
 function prikaziKorisnika(
   korisnik:
     | {
@@ -571,6 +577,10 @@ export default async function TankPregledPage({
       documents: {
         orderBy: [{ datumDokumenta: "desc" }, { createdAt: "desc" }],
       },
+      izlaziVina: {
+        orderBy: [{ datum: "desc" }, { createdAt: "desc" }],
+        take: 50,
+      },
     },
   });
 
@@ -609,6 +619,8 @@ export default async function TankPregledPage({
     !tank.nazivVina &&
     !tank.godiste &&
     udjeliSorti.length === 0;
+
+  const izlaziZaPrikaz = tankJePrazan ? [] : (tank.izlaziVina ?? []);
 
   const punjenja = !tankJePrazan
     ? await prisma.punjenjeTanka.findMany({
@@ -723,6 +735,30 @@ export default async function TankPregledPage({
 
   const slobodno =
     Number(tank.kapacitet ?? 0) - Number(tank.kolicinaVinaUTanku ?? 0);
+
+  const ukupnoIzlazLitara = izlaziZaPrikaz.reduce(
+    (sum, stavka) => sum + Number(stavka.kolicinaLitara ?? 0),
+    0
+  );
+
+  const ukupnoPunjenjeLitara = izlaziZaPrikaz.reduce((sum, stavka) => {
+    if (stavka.tip === "PUNJENJE") {
+      return sum + Number(stavka.kolicinaLitara ?? 0);
+    }
+    return sum;
+  }, 0);
+
+  const ukupnoProdajaLitara = izlaziZaPrikaz.reduce((sum, stavka) => {
+    if (stavka.tip === "PRODAJA") {
+      return sum + Number(stavka.kolicinaLitara ?? 0);
+    }
+    return sum;
+  }, 0);
+
+  const ukupnoBoca = izlaziZaPrikaz.reduce(
+    (sum, stavka) => sum + Number(stavka.brojBoca ?? 0),
+    0
+  );
 
   return (
     <div style={pageStyle}>
@@ -961,6 +997,102 @@ export default async function TankPregledPage({
                 </details>
               );
             })}
+          </div>
+        </Card>
+      ) : null}
+
+      {!tankJePrazan && izlaziZaPrikaz.length > 0 ? (
+        <Card title="Izlaz vina">
+          <div style={izlazSummaryWrapStyle}>
+            <div style={izlazSummaryBadgeStyle}>
+              Ukupno izašlo: <strong>{formatBroj(ukupnoIzlazLitara, 0)} L</strong>
+            </div>
+            <div style={izlazSummaryBadgeStyle}>
+              Punjenje: <strong>{formatBroj(ukupnoPunjenjeLitara, 0)} L</strong>
+            </div>
+            <div style={izlazSummaryBadgeStyle}>
+              Prodaja / rinfuza:{" "}
+              <strong>{formatBroj(ukupnoProdajaLitara, 0)} L</strong>
+            </div>
+            <div style={izlazSummaryBadgeStyle}>
+              Ukupno boca: <strong>{formatBroj(ukupnoBoca, 0)}</strong>
+            </div>
+          </div>
+
+          <div style={izlazListStyle}>
+            {izlaziZaPrikaz.map((stavka) => (
+              <details key={stavka.id} style={detailsStyle}>
+                <summary style={summaryStyle}>
+                  <div style={{ display: "grid", gap: 2 }}>
+                    <div style={summaryMainTextStyle}>
+                      {formatTipIzlaza(stavka.tip)}
+                    </div>
+                    <div style={summarySubTextStyle}>
+                      {formatDatum(stavka.datum)}
+                    </div>
+                  </div>
+
+                  <div style={summaryRightStyle}>
+                    {formatBroj(stavka.kolicinaLitara, 0)} L
+                  </div>
+                </summary>
+
+                <div style={detailsContentStyle}>
+                  <div style={izlazInfoGridStyle}>
+                    <div style={izlazInfoCardStyle}>
+                      <div style={izlazInfoLabelStyle}>Tip izlaza</div>
+                      <div style={izlazInfoValueStyle}>
+                        {formatTipIzlaza(stavka.tip)}
+                      </div>
+                    </div>
+
+                    <div style={izlazInfoCardStyle}>
+                      <div style={izlazInfoLabelStyle}>Datum</div>
+                      <div style={izlazInfoValueStyle}>
+                        {formatDatum(stavka.datum)}
+                      </div>
+                    </div>
+
+                    <div style={izlazInfoCardStyle}>
+                      <div style={izlazInfoLabelStyle}>Količina</div>
+                      <div style={izlazInfoValueStyle}>
+                        {formatBroj(stavka.kolicinaLitara, 0)} L
+                      </div>
+                    </div>
+
+                    <div style={izlazInfoCardStyle}>
+                      <div style={izlazInfoLabelStyle}>Broj boca</div>
+                      <div style={izlazInfoValueStyle}>
+                        {stavka.brojBoca != null
+                          ? formatBroj(stavka.brojBoca, 0)
+                          : "—"}
+                      </div>
+                    </div>
+
+                    <div style={izlazInfoCardStyle}>
+                      <div style={izlazInfoLabelStyle}>Volumen boce</div>
+                      <div style={izlazInfoValueStyle}>
+                        {stavka.volumenBoce != null
+                          ? `${formatBroj(stavka.volumenBoce, 2)} L`
+                          : "—"}
+                      </div>
+                    </div>
+
+                    <div style={izlazInfoCardStyle}>
+                      <div style={izlazInfoLabelStyle}>Upisano</div>
+                      <div style={izlazInfoValueStyle}>
+                        {formatDatum(stavka.createdAt)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <DetailRow
+                    label="Napomena"
+                    value={stavka.napomena?.trim() ? stavka.napomena : "—"}
+                  />
+                </div>
+              </details>
+            ))}
           </div>
         </Card>
       ) : null}
@@ -2130,5 +2262,50 @@ const mjerenjeMiniValueStyle: React.CSSProperties = {
 const mjerenjeMiniValueStrongStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 900,
+  color: "#2f2f2f",
+};
+
+const izlazSummaryWrapStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 6,
+  padding: 8,
+};
+
+const izlazSummaryBadgeStyle: React.CSSProperties = {
+  border: "1px solid rgba(127,29,29,0.18)",
+  background: "#fcfcfc",
+  padding: "8px 10px",
+  fontSize: 12,
+  color: "#44403c",
+};
+
+const izlazListStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 0,
+};
+
+const izlazInfoGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: 6,
+};
+
+const izlazInfoCardStyle: React.CSSProperties = {
+  border: "1px solid #ececec",
+  background: "#fcfcfc",
+  padding: "8px 10px",
+  display: "grid",
+  gap: 4,
+};
+
+const izlazInfoLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#6b7280",
+};
+
+const izlazInfoValueStyle: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 600,
   color: "#2f2f2f",
 };

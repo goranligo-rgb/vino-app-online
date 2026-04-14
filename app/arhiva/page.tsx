@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -9,6 +9,7 @@ type Arhiva = {
   tankId: string;
   brojTanka: number;
   sorta: string | null;
+  nazivVina?: string | null;
   kolicinaVina: number;
   kapacitetTanka: number | null;
   tipTanka: string | null;
@@ -66,8 +67,8 @@ function Oznaka({
     variant === "strong"
       ? "border-rose-300 bg-gradient-to-b from-rose-100 to-red-100 text-rose-950"
       : variant === "soft"
-      ? "border-stone-200 bg-stone-50 text-stone-700"
-      : "border-rose-200 bg-rose-50 text-rose-900";
+        ? "border-stone-200 bg-stone-50 text-stone-700"
+        : "border-rose-200 bg-rose-50 text-rose-900";
 
   return (
     <span className={`inline-flex border px-2.5 py-1 text-[11px] font-medium ${cls}`}>
@@ -191,10 +192,10 @@ export default function ArhivaPage() {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => router.push("/tankovi")}
+                onClick={() => router.push("/dashboard")}
                 className="border border-white/20 bg-white/90 px-4 py-2 text-[13px] font-medium text-stone-700 transition hover:bg-white"
               >
-                Povratak na tankove
+                Početna
               </button>
             </div>
           </div>
@@ -236,116 +237,185 @@ export default function ArhivaPage() {
               Nema arhivskih zapisa.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full border-collapse">
-                <thead>
-                  <tr className="border-b border-rose-200 bg-rose-50/70 text-left">
-                    <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-                      Datum
-                    </th>
-                    <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-                      Tank
-                    </th>
-                    <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-                      Sorta
-                    </th>
-                    <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-                      Količina
-                    </th>
-                    <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-                      Kapacitet
-                    </th>
-                    <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-                      Tip
-                    </th>
-                    <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-                      Napomena
-                    </th>
-                    <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-                      Akcije
-                    </th>
-                  </tr>
-                </thead>
+            <>
+              <div className="hidden overflow-x-auto lg:block">
+                <table className="min-w-full border-collapse">
+                  <thead>
+                    <tr className="border-b border-rose-200 bg-rose-50/70 text-left">
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                        Datum
+                      </th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                        Tank
+                      </th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                        Sorta
+                      </th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                        Količina
+                      </th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                        Kapacitet
+                      </th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                        Tip
+                      </th>
+                      <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                        Napomena
+                      </th>
+                      <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                        Akcije
+                      </th>
+                    </tr>
+                  </thead>
 
-                <tbody>
-                  {data.map((row, index) => (
-                    <tr
-                      key={row.id}
-                      className={`border-b border-rose-100 align-top text-[13px] transition hover:bg-white ${
-                        index % 2 === 0 ? "bg-white/75" : "bg-rose-50/30"
-                      }`}
-                    >
-                      <td className="px-4 py-4 text-stone-600 whitespace-nowrap">
-                        {formatDatumVrijeme(row.arhiviranoAt)}
-                      </td>
+                  <tbody>
+                    {data.map((row, index) => (
+                      <tr
+                        key={row.id}
+                        className={`border-b border-rose-100 align-top text-[13px] transition hover:bg-white ${
+                          index % 2 === 0 ? "bg-white/75" : "bg-rose-50/30"
+                        }`}
+                      >
+                        <td className="px-4 py-4 text-stone-600 whitespace-nowrap">
+                          {formatDatumVrijeme(row.arhiviranoAt)}
+                        </td>
 
-                      <td className="px-4 py-4">
-                        <div className="font-semibold text-stone-800">
+                        <td className="px-4 py-4">
+                          <div className="font-semibold text-stone-800">
+                            Tank {row.brojTanka}
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-4">
+                          {row.sorta ? (
+                            <Oznaka>{row.sorta}</Oznaka>
+                          ) : (
+                            <span className="text-stone-400">-</span>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-4 font-medium text-stone-700 whitespace-nowrap">
+                          {formatBroj(row.kolicinaVina, 0)} L
+                        </td>
+
+                        <td className="px-4 py-4 text-stone-600 whitespace-nowrap">
+                          {formatBroj(row.kapacitetTanka, 0)} L
+                        </td>
+
+                        <td className="px-4 py-4">
+                          {row.tipTanka ? (
+                            <Oznaka variant="soft">{row.tipTanka}</Oznaka>
+                          ) : (
+                            <span className="text-stone-400">-</span>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-4 text-stone-600 min-w-[220px]">
+                          {row.napomena ?? "-"}
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Link
+                              href={`/arhiva/${row.id}`}
+                              className="inline-flex items-center justify-center border border-sky-200 bg-sky-50 px-3 py-2 text-[12px] font-medium text-sky-700 transition hover:bg-sky-100"
+                            >
+                              Otvori
+                            </Link>
+
+                            <button
+                              type="button"
+                              onClick={() => obrisiZapis(row.id)}
+                              className="inline-flex items-center justify-center border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-medium text-rose-700 transition hover:bg-rose-100"
+                            >
+                              Obriši zapis
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                obrisiSveZaTank(row.tankId, row.brojTanka)
+                              }
+                              className="inline-flex items-center justify-center border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-medium text-red-700 transition hover:bg-red-100"
+                            >
+                              Obriši sve za tank
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="grid gap-3 p-4 lg:hidden">
+                {data.map((row) => (
+                  <div
+                    key={row.id}
+                    className="border border-rose-200 bg-white px-4 py-4 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[18px] font-semibold text-stone-800">
                           Tank {row.brojTanka}
                         </div>
-                      </td>
-
-                      <td className="px-4 py-4">
-                        {row.sorta ? (
-                          <Oznaka>{row.sorta}</Oznaka>
-                        ) : (
-                          <span className="text-stone-400">-</span>
-                        )}
-                      </td>
-
-                      <td className="px-4 py-4 font-medium text-stone-700 whitespace-nowrap">
-                        {formatBroj(row.kolicinaVina, 0)} L
-                      </td>
-
-                      <td className="px-4 py-4 text-stone-600 whitespace-nowrap">
-                        {formatBroj(row.kapacitetTanka, 0)} L
-                      </td>
-
-                      <td className="px-4 py-4">
-                        {row.tipTanka ? (
-                          <Oznaka variant="soft">{row.tipTanka}</Oznaka>
-                        ) : (
-                          <span className="text-stone-400">-</span>
-                        )}
-                      </td>
-
-                      <td className="px-4 py-4 text-stone-600 min-w-[220px]">
-                        {row.napomena ?? "-"}
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <Link
-                            href={`/arhiva/${row.id}`}
-                            className="inline-flex items-center justify-center border border-sky-200 bg-sky-50 px-3 py-2 text-[12px] font-medium text-sky-700 transition hover:bg-sky-100"
-                          >
-                            Otvori
-                          </Link>
-
-                          <button
-                            type="button"
-                            onClick={() => obrisiZapis(row.id)}
-                            className="inline-flex items-center justify-center border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-medium text-rose-700 transition hover:bg-rose-100"
-                          >
-                            Obriši zapis
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              obrisiSveZaTank(row.tankId, row.brojTanka)
-                            }
-                            className="inline-flex items-center justify-center border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-medium text-red-700 transition hover:bg-red-100"
-                          >
-                            Obriši sve za tank
-                          </button>
+                        <div className="mt-1 text-[13px] text-stone-500">
+                          {formatDatumVrijeme(row.arhiviranoAt)}
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </div>
+
+                      <Oznaka variant="strong">
+                        {formatBroj(row.kolicinaVina, 0)} L
+                      </Oznaka>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {row.sorta ? <Oznaka>{row.sorta}</Oznaka> : null}
+                      {row.nazivVina ? (
+                        <Oznaka variant="soft">{row.nazivVina}</Oznaka>
+                      ) : null}
+                      {row.tipTanka ? (
+                        <Oznaka variant="soft">{row.tipTanka}</Oznaka>
+                      ) : null}
+                      <Oznaka variant="soft">
+                        Kapacitet: {formatBroj(row.kapacitetTanka, 0)} L
+                      </Oznaka>
+                    </div>
+
+                    <div className="mt-3 text-[13px] leading-6 text-stone-600">
+                      <span className="font-medium text-stone-700">Napomena:</span>{" "}
+                      {row.napomena ?? "-"}
+                    </div>
+
+                    <div className="mt-4 grid gap-2">
+                      <Link
+                        href={`/arhiva/${row.id}`}
+                        className="inline-flex items-center justify-center border border-sky-200 bg-sky-50 px-3 py-2 text-[12px] font-medium text-sky-700 transition hover:bg-sky-100"
+                      >
+                        Otvori detalj
+                      </Link>
+
+                      <button
+                        type="button"
+                        onClick={() => obrisiZapis(row.id)}
+                        className="inline-flex items-center justify-center border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-medium text-rose-700 transition hover:bg-rose-100"
+                      >
+                        Obriši zapis
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => obrisiSveZaTank(row.tankId, row.brojTanka)}
+                        className="inline-flex items-center justify-center border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-medium text-red-700 transition hover:bg-red-100"
+                      >
+                        Obriši sve za tank
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>

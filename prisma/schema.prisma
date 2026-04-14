@@ -476,6 +476,7 @@ model ArhivaVina {
   udjeliSorti ArhivaVinaUdioSorte[]
   blendIzvori BlendIzvor[]
   dokumenti   ArhivaVinaDokument[]
+  punjenja    ArhivaPunjenjeTanka[]
 
   @@index([tankId])
   @@index([arhiviranoAt])
@@ -689,4 +690,55 @@ model IzlazVina {
 enum TipIzlazaVina {
   PRODAJA
   PUNJENJE
+}
+
+model ArhivaPunjenjeTanka {
+  id                String   @id @default(uuid())
+  arhivaVinaId      String
+  izvornoPunjenjeId String?
+  nazivVina         String?
+  datumPunjenja     DateTime @default(now())
+  napomena          String?
+  opis              String?
+  ukupnoLitara      Float    @default(0)
+  ukupnoKgGrozdja   Float    @default(0)
+  pocetnoMjerenjeId String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  arhivaVina ArhivaVina @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
+  stavke     ArhivaPunjenjeStavka[]
+
+  @@index([arhivaVinaId])
+  @@index([izvornoPunjenjeId])
+}
+
+model ArhivaPunjenjeStavka {
+  id                      String   @id @default(uuid())
+  arhivaPunjenjeId        String
+  izvornaPunjenjeStavkaId String?
+
+  nazivSorte              String
+  sortaId                 String?
+  opis                    String?
+  kolicinaKgGrozdja       Float?
+  kolicinaLitara          Float
+  datumBerbe              DateTime?
+  godinaBerbe             Int?
+  polozaj                 String?
+  parcela                 String?
+  vinograd                String?
+  oznakaBerbe             String?
+  secer                   Float?
+  kiseline                Float?
+  ph                      Float?
+  napomenaBerbe           String?
+
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  arhivaPunjenje          ArhivaPunjenjeTanka @relation(fields: [arhivaPunjenjeId], references: [id], onDelete: Cascade)
+
+  @@index([arhivaPunjenjeId])
+  @@index([izvornaPunjenjeStavkaId])
 }

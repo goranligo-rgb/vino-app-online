@@ -1,4 +1,5 @@
 import Link from "next/link";
+import React from "react";
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
@@ -9,10 +10,7 @@ function boja(value: number | null, min?: number, max?: number) {
   if (min != null && value < min) return "#fee2e2";
   if (max != null && value > max) return "#fee2e2";
 
-  if (
-    (min != null && value < min + 2) ||
-    (max != null && value > max - 2)
-  ) {
+  if ((min != null && value < min + 2) || (max != null && value > max - 2)) {
     return "#fef9c3";
   }
 
@@ -165,6 +163,7 @@ function InfoBox({
           fontSize: 16,
           fontWeight: 600,
           color: "#292524",
+          wordBreak: "break-word",
         }}
       >
         {value}
@@ -205,14 +204,18 @@ function Oznaka({
   variant = "default",
 }: {
   children: React.ReactNode;
-  variant?: "default" | "soft" | "strong";
+  variant?: "default" | "soft" | "strong" | "success" | "danger";
 }) {
   const cls =
     variant === "strong"
       ? "border-rose-300 bg-gradient-to-b from-rose-100 to-red-100 text-rose-950"
       : variant === "soft"
-      ? "border-stone-200 bg-stone-50 text-stone-700"
-      : "border-rose-200 bg-rose-50 text-rose-900";
+        ? "border-stone-200 bg-stone-50 text-stone-700"
+        : variant === "success"
+          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+          : variant === "danger"
+            ? "border-red-200 bg-red-50 text-red-800"
+            : "border-rose-200 bg-rose-50 text-rose-900";
 
   return (
     <span className={`inline-flex border px-2.5 py-1 text-[11px] font-medium ${cls}`}>
@@ -366,6 +369,22 @@ export default async function ArhivaDetaljPage({
     })),
   ].sort((a, b) => b.datum.getTime() - a.datum.getTime());
 
+  const napomenaTekst = arhiva.napomena ?? "";
+  const matchBoca = napomenaTekst.match(/Napunjeno\s+(\d+)/i);
+  const matchVolumen = napomenaTekst.match(/od\s+([\d.,]+)\s*L/i);
+  const matchProdaja = napomenaTekst.match(/Prodano rinfuza\s+([\d.,]+)/i);
+
+  const brojBocaIzNapomene = matchBoca ? Number(matchBoca[1]) : null;
+  const volumenBoceIzNapomene = matchVolumen
+    ? Number(matchVolumen[1].replace(",", "."))
+    : null;
+  const litaraProdanoIzNapomene = matchProdaja
+    ? Number(matchProdaja[1].replace(",", "."))
+    : null;
+
+  const punjenja: any[] = [];
+  const zadnjePunjenje = null;
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f6f3f1_0%,#f9f3f4_45%,#fdf7f8_100%)] px-4 py-4 text-stone-800 [font-family:Calibri,Segoe_UI,Arial,sans-serif] md:px-6">
       <div className="mx-auto max-w-[1540px]">
@@ -379,8 +398,8 @@ export default async function ArhivaDetaljPage({
                 Arhiva tanka {arhiva.brojTanka}
               </h1>
               <p className="mt-2 max-w-[760px] text-[14px] leading-6 text-white/80">
-                Arhivirani pregled sadržaja tanka, mjerenja, zadataka, sastava
-                vina i dokumenata.
+                Arhivirani pregled sadržaja tanka, mjerenja, zadataka, završnog
+                izlaza i dokumenata.
               </p>
             </div>
 
@@ -411,11 +430,11 @@ export default async function ArhivaDetaljPage({
             <Oznaka>{`Sorta: ${arhiva.sorta ?? "-"}`}</Oznaka>
             <Oznaka>{`Naziv vina: ${arhiva.nazivVina ?? "-"}`}</Oznaka>
             <Oznaka variant="soft">{`Tip: ${arhiva.tipTanka ?? "-"}`}</Oznaka>
-            <Oznaka variant="strong">{`Količina: ${formatBroj(
+            <Oznaka variant="strong">{`Količina prije arhive: ${formatBroj(
               arhiva.kolicinaVina ?? 0,
               0
             )} L`}</Oznaka>
-            <Oznaka variant="soft">{`Arhivirano: ${formatDatum(
+            <Oznaka variant="success">{`Arhivirano: ${formatDatum(
               arhiva.arhiviranoAt
             )}`}</Oznaka>
           </div>
@@ -424,10 +443,10 @@ export default async function ArhivaDetaljPage({
         <div className="mb-4 grid gap-3 md:grid-cols-4">
           <KarticaBroj
             naslov="Broj tanka"
-            vrijednost={String(arhiva.brojTanka)}
+            vrijednost={String(arhiva.brojTanka ?? "-")}
           />
           <KarticaBroj
-            naslov="Količina vina"
+            naslov="Količina prije pražnjenja"
             vrijednost={`${formatBroj(arhiva.kolicinaVina, 0)} L`}
           />
           <KarticaBroj
@@ -440,16 +459,84 @@ export default async function ArhivaDetaljPage({
           />
         </div>
 
-        {arhiva.napomena ? (
-          <div className="mb-4 border border-rose-200 bg-white/90 px-4 py-4 shadow-sm">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-              Napomena arhive
-            </div>
-            <div className="mt-2 whitespace-pre-wrap text-[14px] leading-6 text-stone-700">
-              {arhiva.napomena}
-            </div>
+        <Card title="Završni izlaz vina">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <KarticaBroj
+              naslov="Datum završetka"
+              vrijednost={formatDatumSamoDan(arhiva.arhiviranoAt)}
+              podnaslov={formatDatum(arhiva.arhiviranoAt)}
+            />
+            <KarticaBroj
+              naslov="Broj boca"
+              vrijednost={
+                brojBocaIzNapomene != null
+                  ? formatBroj(brojBocaIzNapomene, 0)
+                  : "-"
+              }
+              podnaslov="Završno punjenje"
+            />
+            <KarticaBroj
+              naslov="Volumen boce"
+              vrijednost={
+                volumenBoceIzNapomene != null
+                  ? `${formatBroj(volumenBoceIzNapomene, 2)} L`
+                  : "-"
+              }
+              podnaslov="Po boci"
+            />
+            <KarticaBroj
+              naslov="Prodano / punjeno"
+              vrijednost={
+                litaraProdanoIzNapomene != null
+                  ? `${formatBroj(litaraProdanoIzNapomene, 0)} L`
+                  : `${formatBroj(arhiva.kolicinaVina, 0)} L`
+              }
+              podnaslov="Završni izlaz"
+            />
+            <KarticaBroj
+              naslov="Status"
+              vrijednost="TANK ISPRAŽNJEN"
+              podnaslov="Arhiva završena"
+            />
           </div>
-        ) : null}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {brojBocaIzNapomene != null ? (
+              <Oznaka variant="strong">
+                Napunjeno {formatBroj(brojBocaIzNapomene, 0)} boca
+              </Oznaka>
+            ) : null}
+            {volumenBoceIzNapomene != null ? (
+              <Oznaka variant="soft">
+                Volumen boce: {formatBroj(volumenBoceIzNapomene, 2)} L
+              </Oznaka>
+            ) : null}
+            {litaraProdanoIzNapomene != null ? (
+              <Oznaka variant="danger">
+                Prodaja / rinfuza: {formatBroj(litaraProdanoIzNapomene, 0)} L
+              </Oznaka>
+            ) : (
+              <Oznaka variant="success">
+                Završno zatvaranje tanka: {formatBroj(arhiva.kolicinaVina, 0)} L
+              </Oznaka>
+            )}
+            <Oznaka variant="success">Tank je očišćen za novi ciklus</Oznaka>
+          </div>
+
+          {arhiva.napomena ? (
+            <div className="mt-4 border border-rose-200 bg-white px-4 py-4 text-[14px] leading-6 text-stone-700">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                Zabilješka završnog izlaza
+              </div>
+              <div className="mt-2 whitespace-pre-wrap">{arhiva.napomena}</div>
+            </div>
+          ) : null}
+        </Card>
+
+        <div className="mb-4 border border-dashed border-rose-200 bg-white px-4 py-4 text-[13px] text-stone-600">
+          Detalji punjenja privremeno su skriveni dok se nova arhivska tablica ne
+          sinkronizira s bazom.
+        </div>
 
         <div className="grid gap-4">
           <Card
@@ -933,8 +1020,7 @@ export default async function ArhivaDetaljPage({
                           <div>Izvršio: {z.izvrsioKorisnikIme ?? "-"}</div>
                           <div>Zadano: {formatDatum(z.zadanoAt)}</div>
                           <div>
-                            Izvršeno:{" "}
-                            {z.izvrsenoAt ? formatDatum(z.izvrsenoAt) : "-"}
+                            Izvršeno: {z.izvrsenoAt ? formatDatum(z.izvrsenoAt) : "-"}
                           </div>
                           <div>Napomena: {z.napomena ?? "-"}</div>
                         </div>

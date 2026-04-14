@@ -105,6 +105,21 @@ function mapTankoviResponse(data: any): TankOption[] {
     .sort((a, b) => a.brojTanka - b.brojTanka);
 }
 
+function jeArhiviraniIzlaz(napomena?: string | null) {
+  const text = (napomena ?? "").toLowerCase();
+  return (
+    text.includes("arhivirano") ||
+    text.includes("tank ispražnjen") ||
+    text.includes("tank ispraznjen") ||
+    text.includes("završni izlaz") ||
+    text.includes("zavrsni izlaz")
+  );
+}
+
+function tipLabel(tip: "PRODAJA" | "PUNJENJE") {
+  return tip === "PRODAJA" ? "PRODAJA RINFUZA" : "PUNJENJE U BOCE";
+}
+
 export default function IzlazVinaPage() {
   const [tankovi, setTankovi] = useState<TankOption[]>([]);
   const [izlazi, setIzlazi] = useState<IzlazRow[]>([]);
@@ -217,6 +232,10 @@ export default function IzlazVinaPage() {
       return tipOk && tankOk;
     });
   }, [izlazi, filterTip, filterTankId]);
+
+  const zadnjihDesetIzlaza = useMemo(() => {
+    return filtriraniIzlazi.slice(0, 10);
+  }, [filtriraniIzlazi]);
 
   async function spremiIzlaz() {
     setSaving(true);
@@ -552,38 +571,80 @@ export default function IzlazVinaPage() {
             </div>
           </div>
 
+          <div style={summaryStripWrapStyle}>
+            <div style={summaryBadgeStyle}>
+              Prikazano zapisa: <strong>{zadnjihDesetIzlaza.length}</strong>
+            </div>
+            <div style={summaryBadgeStyle}>
+              Ukupno nakon filtera:{" "}
+              <strong>
+                {formatBroj(
+                  filtriraniIzlazi.reduce(
+                    (sum, row) => sum + Number(row.kolicinaLitara || 0),
+                    0
+                  ),
+                  0
+                )}{" "}
+                L
+              </strong>
+            </div>
+          </div>
+
           {loading ? (
             <div style={emptyStyle}>Učitavanje...</div>
-          ) : filtriraniIzlazi.length === 0 ? (
+          ) : zadnjihDesetIzlaza.length === 0 ? (
             <div style={emptyStyle}>Nema zapisa.</div>
           ) : isMobile ? (
             <div style={mobileListWrapStyle}>
-              {filtriraniIzlazi.map((row) => (
+              {zadnjihDesetIzlaza.map((row) => (
                 <div key={row.id} style={mobileCardStyle}>
                   <div style={mobileCardTopStyle}>
                     <div style={mobileCardTitleStyle}>
                       Tank {row.tank?.broj ?? "—"}
                     </div>
-                    <span
-                      style={{
-                        ...pillStyle,
-                        background:
-                          row.tip === "PRODAJA" ? "#fff5f5" : "#f4f8ff",
-                        color:
-                          row.tip === "PRODAJA" ? "#991b1b" : "#1d4ed8",
-                        border:
-                          row.tip === "PRODAJA"
-                            ? "1px solid #fecaca"
-                            : "1px solid #bfdbfe",
-                      }}
-                    >
-                      {row.tip}
-                    </span>
+
+                    <div style={pillWrapStyle}>
+                      <span
+                        style={{
+                          ...pillStyle,
+                          background:
+                            row.tip === "PRODAJA" ? "#fff5f5" : "#f4f8ff",
+                          color:
+                            row.tip === "PRODAJA" ? "#991b1b" : "#1d4ed8",
+                          border:
+                            row.tip === "PRODAJA"
+                              ? "1px solid #fecaca"
+                              : "1px solid #bfdbfe",
+                        }}
+                      >
+                        {tipLabel(row.tip)}
+                      </span>
+
+                      {jeArhiviraniIzlaz(row.napomena) ? (
+                        <span
+                          style={{
+                            ...pillStyle,
+                            background: "#ecfdf5",
+                            color: "#166534",
+                            border: "1px solid #bbf7d0",
+                          }}
+                        >
+                          ARHIVIRANO
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div style={mobileSubStyle}>
                     {row.tank?.nazivVina || row.tank?.sorta || "—"}
                     {row.tank?.godiste ? ` • ${row.tank.godiste}` : ""}
+                  </div>
+
+                  <div style={mobileStrongValueWrapStyle}>
+                    <div style={mobileStrongValueStyle}>
+                      {formatBroj(row.kolicinaLitara, 0)} L
+                    </div>
+                    <div style={mobileStrongLabelStyle}>Količina izlaza</div>
                   </div>
 
                   <div style={mobileRowStyle}>
@@ -592,14 +653,7 @@ export default function IzlazVinaPage() {
                   </div>
 
                   <div style={mobileRowStyle}>
-                    <span style={mobileLabelStyle}>Litara</span>
-                    <span style={mobileValueStyle}>
-                      {formatBroj(row.kolicinaLitara)} L
-                    </span>
-                  </div>
-
-                  <div style={mobileRowStyle}>
-                    <span style={mobileLabelStyle}>Boce</span>
+                    <span style={mobileLabelStyle}>Broj boca</span>
                     <span style={mobileValueStyle}>
                       {row.brojBoca != null ? formatBroj(row.brojBoca, 0) : "—"}
                     </span>
@@ -622,61 +676,86 @@ export default function IzlazVinaPage() {
               ))}
             </div>
           ) : (
-            <div style={tableWrapStyle}>
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={thStyle}>Datum</th>
-                    <th style={thStyle}>Tank</th>
-                    <th style={thStyle}>Tip</th>
-                    <th style={thStyle}>Litara</th>
-                    <th style={thStyle}>Boce</th>
-                    <th style={thStyle}>Volumen boce</th>
-                    <th style={thStyle}>Napomena</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtriraniIzlazi.map((row) => (
-                    <tr key={row.id}>
-                      <td style={tdStyle}>{formatDatum(row.datum)}</td>
-                      <td style={tdStyle}>
+            <div style={desktopCardsWrapStyle}>
+              {zadnjihDesetIzlaza.map((row) => (
+                <div key={row.id} style={desktopExitCardStyle}>
+                  <div style={desktopExitTopStyle}>
+                    <div>
+                      <div style={desktopExitTankStyle}>
                         Tank {row.tank?.broj ?? "—"}
-                        <div style={tdSubStyle}>
-                          {row.tank?.nazivVina || row.tank?.sorta || "—"}
-                          {row.tank?.godiste ? ` • ${row.tank.godiste}` : ""}
-                        </div>
-                      </td>
-                      <td style={tdStyle}>
+                      </div>
+                      <div style={desktopExitWineStyle}>
+                        {row.tank?.nazivVina || row.tank?.sorta || "—"}
+                        {row.tank?.godiste ? ` • ${row.tank.godiste}` : ""}
+                      </div>
+                    </div>
+
+                    <div style={pillWrapStyle}>
+                      <span
+                        style={{
+                          ...pillStyle,
+                          background:
+                            row.tip === "PRODAJA" ? "#fff5f5" : "#f4f8ff",
+                          color:
+                            row.tip === "PRODAJA" ? "#991b1b" : "#1d4ed8",
+                          border:
+                            row.tip === "PRODAJA"
+                              ? "1px solid #fecaca"
+                              : "1px solid #bfdbfe",
+                        }}
+                      >
+                        {tipLabel(row.tip)}
+                      </span>
+
+                      {jeArhiviraniIzlaz(row.napomena) ? (
                         <span
                           style={{
                             ...pillStyle,
-                            background:
-                              row.tip === "PRODAJA" ? "#fff5f5" : "#f4f8ff",
-                            color:
-                              row.tip === "PRODAJA" ? "#991b1b" : "#1d4ed8",
-                            border:
-                              row.tip === "PRODAJA"
-                                ? "1px solid #fecaca"
-                                : "1px solid #bfdbfe",
+                            background: "#ecfdf5",
+                            color: "#166534",
+                            border: "1px solid #bbf7d0",
                           }}
                         >
-                          {row.tip}
+                          ARHIVIRANO
                         </span>
-                      </td>
-                      <td style={tdStyle}>{formatBroj(row.kolicinaLitara)} L</td>
-                      <td style={tdStyle}>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div style={desktopExitLitersStyle}>
+                    {formatBroj(row.kolicinaLitara, 0)} L
+                  </div>
+
+                  <div style={desktopExitGridStyle}>
+                    <div style={desktopMiniInfoStyle}>
+                      <div style={desktopMiniLabelStyle}>Datum</div>
+                      <div style={desktopMiniValueStyle}>
+                        {formatDatum(row.datum)}
+                      </div>
+                    </div>
+
+                    <div style={desktopMiniInfoStyle}>
+                      <div style={desktopMiniLabelStyle}>Broj boca</div>
+                      <div style={desktopMiniValueStyle}>
                         {row.brojBoca != null ? formatBroj(row.brojBoca, 0) : "—"}
-                      </td>
-                      <td style={tdStyle}>
+                      </div>
+                    </div>
+
+                    <div style={desktopMiniInfoStyle}>
+                      <div style={desktopMiniLabelStyle}>Volumen boce</div>
+                      <div style={desktopMiniValueStyle}>
                         {row.volumenBoce != null
                           ? `${formatBroj(row.volumenBoce)} L`
                           : "—"}
-                      </td>
-                      <td style={tdStyle}>{row.napomena || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={desktopExitNoteStyle}>
+                    <strong>Napomena:</strong> {row.napomena || "—"}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </section>
@@ -916,41 +995,6 @@ const archiveNoticeStyle: React.CSSProperties = {
   lineHeight: 1.45,
 };
 
-const tableWrapStyle: React.CSSProperties = {
-  width: "100%",
-  overflowX: "auto",
-};
-
-const tableStyle: React.CSSProperties = {
-  width: "100%",
-  borderCollapse: "collapse",
-  minWidth: 900,
-};
-
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "10px 12px",
-  borderBottom: "1px solid #e5e7eb",
-  fontSize: 12,
-  color: "#6b7280",
-  background: "#fafafa",
-  whiteSpace: "nowrap",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "10px 12px",
-  borderBottom: "1px solid #f1f5f9",
-  fontSize: 13,
-  color: "#2f2f2f",
-  verticalAlign: "top",
-};
-
-const tdSubStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "#6b7280",
-  marginTop: 3,
-};
-
 const pillStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
@@ -958,12 +1002,36 @@ const pillStyle: React.CSSProperties = {
   padding: "3px 8px",
   fontSize: 11,
   fontWeight: 700,
+  whiteSpace: "nowrap",
+};
+
+const pillWrapStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 6,
+  flexWrap: "wrap",
+  justifyContent: "flex-end",
 };
 
 const emptyStyle: React.CSSProperties = {
   padding: 12,
   color: "#6b7280",
   fontSize: 13,
+};
+
+const summaryStripWrapStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  padding: "0 12px 12px 12px",
+  borderBottom: "1px solid #f1f5f9",
+};
+
+const summaryBadgeStyle: React.CSSProperties = {
+  padding: "8px 10px",
+  background: "#fafafa",
+  border: "1px solid #e5e7eb",
+  fontSize: 12,
+  color: "#44403c",
 };
 
 const mobileListWrapStyle: React.CSSProperties = {
@@ -983,7 +1051,7 @@ const mobileCardStyle: React.CSSProperties = {
 const mobileCardTopStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "center",
+  alignItems: "flex-start",
   gap: 8,
 };
 
@@ -997,6 +1065,28 @@ const mobileSubStyle: React.CSSProperties = {
   fontSize: 12,
   color: "#6b7280",
   lineHeight: 1.4,
+};
+
+const mobileStrongValueWrapStyle: React.CSSProperties = {
+  border: "1px solid rgba(127,29,29,0.18)",
+  background: "#fffafa",
+  padding: 10,
+  display: "grid",
+  gap: 4,
+};
+
+const mobileStrongValueStyle: React.CSSProperties = {
+  fontSize: 24,
+  fontWeight: 800,
+  color: "#7f1d1d",
+  lineHeight: 1,
+};
+
+const mobileStrongLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#7f1d1d",
+  textTransform: "uppercase",
+  fontWeight: 700,
 };
 
 const mobileRowStyle: React.CSSProperties = {
@@ -1018,4 +1108,82 @@ const mobileValueStyle: React.CSSProperties = {
   color: "#2f2f2f",
   fontWeight: 600,
   lineHeight: 1.4,
+};
+
+const desktopCardsWrapStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+  gap: 12,
+  padding: 12,
+};
+
+const desktopExitCardStyle: React.CSSProperties = {
+  border: "1px solid #e5e7eb",
+  background: "#ffffff",
+  padding: 14,
+  display: "grid",
+  gap: 10,
+};
+
+const desktopExitTopStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 10,
+};
+
+const desktopExitTankStyle: React.CSSProperties = {
+  fontSize: 16,
+  fontWeight: 800,
+  color: "#2f2f2f",
+};
+
+const desktopExitWineStyle: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 12,
+  color: "#6b7280",
+  lineHeight: 1.4,
+};
+
+const desktopExitLitersStyle: React.CSSProperties = {
+  fontSize: 30,
+  fontWeight: 800,
+  color: "#7f1d1d",
+  lineHeight: 1,
+};
+
+const desktopExitGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 8,
+};
+
+const desktopMiniInfoStyle: React.CSSProperties = {
+  border: "1px solid #ececec",
+  background: "#fcfcfc",
+  padding: 10,
+  display: "grid",
+  gap: 4,
+};
+
+const desktopMiniLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#6b7280",
+  textTransform: "uppercase",
+  fontWeight: 700,
+};
+
+const desktopMiniValueStyle: React.CSSProperties = {
+  fontSize: 13,
+  color: "#2f2f2f",
+  fontWeight: 700,
+  lineHeight: 1.4,
+};
+
+const desktopExitNoteStyle: React.CSSProperties = {
+  borderTop: "1px solid #f1f5f9",
+  paddingTop: 10,
+  fontSize: 13,
+  color: "#44403c",
+  lineHeight: 1.5,
 };

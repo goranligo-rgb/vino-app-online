@@ -72,6 +72,14 @@ async function arhivirajPrazanTank(
       documents: true,
       blendIzvori: true,
       currentContent: true,
+      punjenja: {
+        orderBy: { datumPunjenja: "desc" },
+        include: {
+          stavke: {
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      },
       mjerenja: {
         orderBy: { izmjerenoAt: "desc" },
       },
@@ -113,6 +121,48 @@ async function arhivirajPrazanTank(
       napomena: napomenaArhive,
     },
   });
+
+  if (tank.punjenja.length > 0) {
+    for (const p of tank.punjenja) {
+      await tx.arhivaPunjenjeTanka.create({
+        data: {
+          arhivaVinaId: arhiva.id,
+          izvornoPunjenjeId: p.id,
+          nazivVina: p.nazivVina,
+          datumPunjenja: p.datumPunjenja,
+          napomena: p.napomena,
+          opis: p.opis,
+          ukupnoLitara: p.ukupnoLitara,
+          ukupnoKgGrozdja: p.ukupnoKgGrozdja,
+          pocetnoMjerenjeId: p.pocetnoMjerenjeId,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+          stavke: {
+            create: p.stavke.map((s: any) => ({
+              izvornaPunjenjeStavkaId: s.id,
+              nazivSorte: s.nazivSorte,
+              sortaId: s.sortaId,
+              opis: s.opis,
+              kolicinaKgGrozdja: s.kolicinaKgGrozdja,
+              kolicinaLitara: s.kolicinaLitara,
+              datumBerbe: s.datumBerbe,
+              godinaBerbe: s.godinaBerbe,
+              polozaj: s.polozaj,
+              parcela: s.parcela,
+              vinograd: s.vinograd,
+              oznakaBerbe: s.oznakaBerbe,
+              secer: s.secer,
+              kiseline: s.kiseline,
+              ph: s.ph,
+              napomenaBerbe: s.napomenaBerbe,
+              createdAt: s.createdAt,
+              updatedAt: s.updatedAt,
+            })),
+          },
+        },
+      });
+    }
+  }
 
   if (tank.mjerenja.length > 0) {
     await tx.arhivaVinaMjerenje.createMany({
@@ -215,6 +265,16 @@ async function arhivirajPrazanTank(
   await tx.zadatak.deleteMany({ where: { tankId } });
   await tx.blendIzvor.deleteMany({ where: { ciljTankId: tankId } });
   await tx.tankContent.deleteMany({ where: { tankId } });
+
+  await tx.punjenjeStavka.deleteMany({
+    where: {
+      punjenje: {
+        tankId,
+      },
+    },
+  });
+
+  await tx.punjenjeTanka.deleteMany({ where: { tankId } });
 
   await tx.tank.update({
     where: { id: tankId },
@@ -322,7 +382,10 @@ export async function POST(req: Request) {
       }
     }
 
-    const novoStanje = Math.max(0, Number((trenutnoLitara - kolicinaLitara).toFixed(3)));
+    const novoStanje = Math.max(
+      0,
+      Number((trenutnoLitara - kolicinaLitara).toFixed(3))
+    );
 
     const autoNapomena =
       tip === "PUNJENJE"
@@ -334,6 +397,8 @@ export async function POST(req: Request) {
         ? `Napunjeno ${brojBoca ?? 0} boca od ${formatBrojTekst(volumenBoce)} L iz tanka ${tank.broj}`
         : `Prodano rinfuza ${formatBrojTekst(kolicinaLitara)} L iz tanka ${tank.broj}`;
 
+    const izlazNapomena = korisnickaNapomena ?? autoNapomena;
+
     const rezultat = await prisma.$transaction(async (tx) => {
       const izlaz = await tx.izlazVina.create({
         data: {
@@ -343,7 +408,10 @@ export async function POST(req: Request) {
           kolicinaLitara,
           brojBoca,
           volumenBoce,
-          napomena: korisnickaNapomena ?? autoNapomena,
+          napomena:
+            novoStanje <= PRAZNO_PRAG
+              ? `${izlazNapomena} • završni izlaz • tank ispražnjen • arhivirano`
+              : izlazNapomena,
         },
       });
 
@@ -358,10 +426,9 @@ export async function POST(req: Request) {
         data: {
           tankId,
           korisnikId: user.id,
-          vrsta: tip === "PRODAJA" ? "PRODAJA" : "PUNJENJE",
+          vrsta: tip === "PRODAJA" ? "OSTALO" : "PUNJENJE",
           opis: opisRadnje,
-          napomena:
-            `${korisnickaNapomena ?? autoNapomena} • ostalo u tanku ${formatBrojTekst(novoStanje)} L`,
+          napomena: `${izlazNapomena} • ostalo u tanku ${formatBrojTekst(novoStanje)} L`,
           kolicina: kolicinaLitara,
         },
       });
@@ -372,7 +439,7 @@ export async function POST(req: Request) {
         const arhiva = await arhivirajPrazanTank(
           tx,
           tankId,
-          `${korisnickaNapomena ?? autoNapomena} • tank ispražnjen do kraja automatskom arhivom nakon izlaza vina`,
+          `${izlazNapomena} • tank ispražnjen do kraja automatskom arhivom nakon izlaza vina`,
           trenutnoLitara
         );
         arhivaId = arhiva?.id ?? null;
@@ -403,7 +470,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            "Tablica IzlazVina još nije kreirana u bazi. Prvo treba napraviti tablicu.",
+            "Tablica za izlaz vina ili arhivu punjenja još nije kreirana u bazi. Prvo napravi Prisma update.",
         },
         { status: 500 }
       );
