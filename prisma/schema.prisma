@@ -51,6 +51,7 @@ model Tank {
   sourceTransfers Transfer[]      @relation("SourceTankTransfers")
   zadaci          Zadatak[]
   udjeliSorti     TankSortaUdio[]
+  izlaziVina      IzlazVina[]
 
   blendIzvori    BlendIzvor[] @relation("CiljniBlendTank")
   kaoIzvorBlenda BlendIzvor[] @relation("IzvorBlendTank")
@@ -433,6 +434,7 @@ enum VrstaRadnje {
   MJERENJE
   KOREKCIJA
   PUNJENJE
+  PRODAJA
   NAPOMENA
   OSTALO
 }
@@ -664,4 +666,27 @@ model PunjenjeStavka {
   @@index([punjenjeId])
   @@index([sortaId])
   @@index([obrisano])
+}
+
+model IzlazVina {
+  id             String        @id @default(uuid())
+  tankId         String
+  tip            TipIzlazaVina
+  datum          DateTime      @default(now())
+  kolicinaLitara Float
+  brojBoca       Int?
+  volumenBoce    Float?
+  napomena       String?
+  createdAt      DateTime      @default(now())
+
+  tank Tank @relation(fields: [tankId], references: [id], onDelete: Cascade)
+
+  @@index([tankId])
+  @@index([datum])
+  @@index([tip])
+}
+
+enum TipIzlazaVina {
+  PRODAJA
+  PUNJENJE
 }

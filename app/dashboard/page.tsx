@@ -156,6 +156,18 @@ export default async function DashboardPage() {
               />
 
               <DashboardCard
+                href="/izlaz-vina"
+                title="Izlaz vina"
+                description="Evidencija izlaza vina iz tankova, prodaje i punjenja u boce"
+              />
+
+              <DashboardCard
+                href="/statistika"
+                title="Statistika"
+                description="Količine vina u podrumu po sortama, godištima, položajima i tankovima"
+              />
+
+              <DashboardCard
                 href="/berba"
                 title="Berba"
                 description="Statistika grožđa i ulaza"

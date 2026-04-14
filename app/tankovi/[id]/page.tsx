@@ -165,11 +165,13 @@ function ParamTop({
   value,
   unit,
   tone,
+  emphasize = false,
 }: {
   label: string;
   value: number | string | null | undefined;
   unit?: string;
   tone?: "default" | "green" | "red";
+  emphasize?: boolean;
 }) {
   const hasValue =
     value !== null &&
@@ -180,9 +182,27 @@ function ParamTop({
     tone === "green" ? "#166534" : tone === "red" ? "#9f1239" : "#222";
 
   return (
-    <div style={paramCardStyle}>
-      <div style={paramLabelStyle}>{label}</div>
-      <div style={{ ...paramValueStyle, color: boja }}>
+    <div
+      style={{
+        ...paramCardStyle,
+        ...(emphasize ? paramCardStrongStyle : null),
+      }}
+    >
+      <div
+        style={{
+          ...paramLabelStyle,
+          ...(emphasize ? paramLabelStrongStyle : null),
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          ...paramValueStyle,
+          ...(emphasize ? paramValueStrongStyle : null),
+          color: boja,
+        }}
+      >
         {hasValue ? value : "—"}
         {hasValue && unit ? ` ${unit}` : ""}
       </div>
@@ -393,22 +413,40 @@ function IzvorMjerenjeBlock({
     <div style={sourceMeasurementWrapStyle}>
       <div style={sourceMeasurementTitleStyle}>Zadnje mjerenje izvora</div>
 
-      <div style={sourceMeasurementGridStyle}>
-        <div style={sourceMeasurementItemStyle}>
+      <div style={sourceMeasurementPrimaryGridStyle}>
+        <div style={sourceMeasurementPrimaryItemStyle}>
           <span style={sourceMeasurementLabelStyle}>Alkohol</span>
           <strong>
             {zadnje.alkohol != null ? `${formatBroj(zadnje.alkohol)} %` : "—"}
           </strong>
         </div>
 
+        <div style={sourceMeasurementPrimaryItemStyle}>
+          <span style={sourceMeasurementLabelStyle}>Šećer</span>
+          <strong>{zadnje.secer != null ? formatBroj(zadnje.secer) : "—"}</strong>
+        </div>
+
+        <div style={sourceMeasurementPrimaryItemStyle}>
+          <span style={sourceMeasurementLabelStyle}>Uk. kiseline</span>
+          <strong>
+            {zadnje.ukupneKiseline != null
+              ? formatBroj(zadnje.ukupneKiseline)
+              : "—"}
+          </strong>
+        </div>
+
+        <div style={sourceMeasurementPrimaryItemStyle}>
+          <span style={sourceMeasurementLabelStyle}>SO2 uk.</span>
+          <strong>
+            {zadnje.ukupniSO2 != null ? formatBroj(zadnje.ukupniSO2) : "—"}
+          </strong>
+        </div>
+      </div>
+
+      <div style={sourceMeasurementSecondaryGridStyle}>
         <div style={sourceMeasurementItemStyle}>
           <span style={sourceMeasurementLabelStyle}>pH</span>
           <strong>{zadnje.ph != null ? formatBroj(zadnje.ph) : "—"}</strong>
-        </div>
-
-        <div style={sourceMeasurementItemStyle}>
-          <span style={sourceMeasurementLabelStyle}>Šećer</span>
-          <strong>{zadnje.secer != null ? formatBroj(zadnje.secer) : "—"}</strong>
         </div>
 
         <div style={sourceMeasurementItemStyle}>
@@ -416,15 +454,6 @@ function IzvorMjerenjeBlock({
           <strong>
             {zadnje.temperatura != null
               ? `${formatBroj(zadnje.temperatura)} °C`
-              : "—"}
-          </strong>
-        </div>
-
-        <div style={sourceMeasurementItemStyle}>
-          <span style={sourceMeasurementLabelStyle}>Uk. kiseline</span>
-          <strong>
-            {zadnje.ukupneKiseline != null
-              ? formatBroj(zadnje.ukupneKiseline)
               : "—"}
           </strong>
         </div>
@@ -443,15 +472,6 @@ function IzvorMjerenjeBlock({
           <strong>
             {zadnje.slobodniSO2 != null
               ? formatBroj(zadnje.slobodniSO2)
-              : "—"}
-          </strong>
-        </div>
-
-        <div style={sourceMeasurementItemStyle}>
-          <span style={sourceMeasurementLabelStyle}>SO2 uk.</span>
-          <strong>
-            {zadnje.ukupniSO2 != null
-              ? formatBroj(zadnje.ukupniSO2)
               : "—"}
           </strong>
         </div>
@@ -757,86 +777,95 @@ export default async function TankPregledPage({
       </div>
 
       <Card title="Zadnje mjerenje">
-        <div style={measurementGridStyle}>
-          <ParamTop
-            label="Temperatura"
-            value={
-              zadnje?.temperatura != null
-                ? formatBroj(zadnje.temperatura)
-                : "—"
-            }
-            unit="°C"
-          />
-          <ParamTop
-            label="pH"
-            value={zadnje?.ph != null ? formatBroj(zadnje.ph) : "—"}
-          />
-          <ParamTop
-            label="Šećer"
-            value={zadnje?.secer != null ? formatBroj(zadnje.secer) : "—"}
-          />
-          <ParamTop
-            label="Alkohol"
-            value={
-              zadnje?.alkohol != null ? formatBroj(zadnje.alkohol) : "—"
-            }
-            unit="%"
-          />
-          <ParamTop
-            label="Ukupne kiseline"
-            value={
-              zadnje?.ukupneKiseline != null
-                ? formatBroj(zadnje.ukupneKiseline)
-                : "—"
-            }
-          />
-          <ParamTop
-            label="Hlapive kiseline"
-            value={
-              zadnje?.hlapiveKiseline != null
-                ? formatBroj(zadnje.hlapiveKiseline)
-                : "—"
-            }
-          />
-          <ParamTop
-            label="SO2 slobodni"
-            value={
-              zadnje?.slobodniSO2 != null
-                ? formatBroj(zadnje.slobodniSO2)
-                : "—"
-            }
-          />
-          <ParamTop
-            label="SO2 ukupni"
-            value={
-              zadnje?.ukupniSO2 != null ? formatBroj(zadnje.ukupniSO2) : "—"
-            }
-          />
-          <ParamTop
-            label="Bentotest datum"
-            value={
-              zadnje?.bentotestDatum
-                ? formatDatumBezVremena(zadnje.bentotestDatum)
-                : "—"
-            }
-          />
-          <ParamTop
-            label="Bentotest status"
-            value={
-              zadnje?.bentotestStatus === "STABILNO"
-                ? "Stabilno"
-                : zadnje?.bentotestStatus === "NESTABILNO"
-                  ? "Nestabilno"
+        <div style={measurementWrapStyle}>
+          <div style={measurementPrimaryGridStyle}>
+            <ParamTop
+              label="Alkohol"
+              value={
+                zadnje?.alkohol != null ? formatBroj(zadnje.alkohol) : "—"
+              }
+              unit="%"
+              emphasize
+            />
+            <ParamTop
+              label="Šećer"
+              value={zadnje?.secer != null ? formatBroj(zadnje.secer) : "—"}
+              emphasize
+            />
+            <ParamTop
+              label="Ukupne kiseline"
+              value={
+                zadnje?.ukupneKiseline != null
+                  ? formatBroj(zadnje.ukupneKiseline)
                   : "—"
-            }
-            tone={
-              zadnje?.bentotestStatus === "STABILNO"
-                ? "green"
-                : zadnje?.bentotestStatus === "NESTABILNO"
-                  ? "red"
-                  : "default"
-            }
-          />
+              }
+              emphasize
+            />
+            <ParamTop
+              label="SO2 ukupni"
+              value={
+                zadnje?.ukupniSO2 != null ? formatBroj(zadnje.ukupniSO2) : "—"
+              }
+              emphasize
+            />
+          </div>
+
+          <div style={measurementSecondaryGridStyle}>
+            <ParamTop
+              label="Temperatura"
+              value={
+                zadnje?.temperatura != null
+                  ? formatBroj(zadnje.temperatura)
+                  : "—"
+              }
+              unit="°C"
+            />
+            <ParamTop
+              label="pH"
+              value={zadnje?.ph != null ? formatBroj(zadnje.ph) : "—"}
+            />
+            <ParamTop
+              label="Hlapive kiseline"
+              value={
+                zadnje?.hlapiveKiseline != null
+                  ? formatBroj(zadnje.hlapiveKiseline)
+                  : "—"
+              }
+            />
+            <ParamTop
+              label="SO2 slobodni"
+              value={
+                zadnje?.slobodniSO2 != null
+                  ? formatBroj(zadnje.slobodniSO2)
+                  : "—"
+              }
+            />
+            <ParamTop
+              label="Bentotest datum"
+              value={
+                zadnje?.bentotestDatum
+                  ? formatDatumBezVremena(zadnje.bentotestDatum)
+                  : "—"
+              }
+            />
+            <ParamTop
+              label="Bentotest status"
+              value={
+                zadnje?.bentotestStatus === "STABILNO"
+                  ? "Stabilno"
+                  : zadnje?.bentotestStatus === "NESTABILNO"
+                    ? "Nestabilno"
+                    : "—"
+              }
+              tone={
+                zadnje?.bentotestStatus === "STABILNO"
+                  ? "green"
+                  : zadnje?.bentotestStatus === "NESTABILNO"
+                    ? "red"
+                    : "default"
+              }
+            />
+          </div>
         </div>
 
         <div style={metaBlockStyle}>
@@ -1465,7 +1494,7 @@ export default async function TankPregledPage({
                     <div
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
                         gap: 4,
                       }}
                     >
@@ -1501,137 +1530,143 @@ export default async function TankPregledPage({
                       </div>
                     </div>
                   ) : (
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-                        gap: 4,
-                      }}
-                    >
-                      <div style={mjerenjeMiniCardStyle}>
-                        <div style={mjerenjeMiniLabelStyle}>Alkohol</div>
-                        <div
-                          style={{
-                            ...mjerenjeMiniValueStyle,
-                            color: bojaAktivnogPolja(m.alkohol),
-                          }}
-                        >
-                          {m.alkohol ?? "—"}
+                    <div style={mjerenjeWrapStyle}>
+                      <div style={mjerenjePrimaryGridStyle}>
+                        <div style={mjerenjeMiniCardStrongStyle}>
+                          <div style={mjerenjeMiniLabelStyle}>Alkohol</div>
+                          <div
+                            style={{
+                              ...mjerenjeMiniValueStrongStyle,
+                              color: bojaAktivnogPolja(m.alkohol),
+                            }}
+                          >
+                            {m.alkohol != null ? formatBroj(m.alkohol) : "—"}
+                          </div>
+                        </div>
+
+                        <div style={mjerenjeMiniCardStrongStyle}>
+                          <div style={mjerenjeMiniLabelStyle}>Šećer</div>
+                          <div
+                            style={{
+                              ...mjerenjeMiniValueStrongStyle,
+                              color: bojaAktivnogPolja(m.secer),
+                            }}
+                          >
+                            {m.secer != null ? formatBroj(m.secer) : "—"}
+                          </div>
+                        </div>
+
+                        <div style={mjerenjeMiniCardStrongStyle}>
+                          <div style={mjerenjeMiniLabelStyle}>Uk. kiseline</div>
+                          <div
+                            style={{
+                              ...mjerenjeMiniValueStrongStyle,
+                              color: bojaAktivnogPolja(m.ukupneKiseline),
+                            }}
+                          >
+                            {m.ukupneKiseline != null
+                              ? formatBroj(m.ukupneKiseline)
+                              : "—"}
+                          </div>
+                        </div>
+
+                        <div style={mjerenjeMiniCardStrongStyle}>
+                          <div style={mjerenjeMiniLabelStyle}>SO2 uk.</div>
+                          <div
+                            style={{
+                              ...mjerenjeMiniValueStrongStyle,
+                              color: bojaAktivnogPolja(m.ukupniSO2),
+                            }}
+                          >
+                            {m.ukupniSO2 != null ? formatBroj(m.ukupniSO2) : "—"}
+                          </div>
                         </div>
                       </div>
 
-                      <div style={mjerenjeMiniCardStyle}>
-                        <div style={mjerenjeMiniLabelStyle}>pH</div>
-                        <div
-                          style={{
-                            ...mjerenjeMiniValueStyle,
-                            color: bojaAktivnogPolja(m.ph),
-                          }}
-                        >
-                          {m.ph ?? "—"}
+                      <div style={mjerenjeSecondaryGridStyle}>
+                        <div style={mjerenjeMiniCardStyle}>
+                          <div style={mjerenjeMiniLabelStyle}>pH</div>
+                          <div
+                            style={{
+                              ...mjerenjeMiniValueStyle,
+                              color: bojaAktivnogPolja(m.ph),
+                            }}
+                          >
+                            {m.ph != null ? formatBroj(m.ph) : "—"}
+                          </div>
                         </div>
-                      </div>
 
-                      <div style={mjerenjeMiniCardStyle}>
-                        <div style={mjerenjeMiniLabelStyle}>Šećer</div>
-                        <div
-                          style={{
-                            ...mjerenjeMiniValueStyle,
-                            color: bojaAktivnogPolja(m.secer),
-                          }}
-                        >
-                          {m.secer ?? "—"}
+                        <div style={mjerenjeMiniCardStyle}>
+                          <div style={mjerenjeMiniLabelStyle}>Temperatura</div>
+                          <div
+                            style={{
+                              ...mjerenjeMiniValueStyle,
+                              color: bojaAktivnogPolja(m.temperatura),
+                            }}
+                          >
+                            {m.temperatura != null
+                              ? `${formatBroj(m.temperatura)} °C`
+                              : "—"}
+                          </div>
                         </div>
-                      </div>
 
-                      <div style={mjerenjeMiniCardStyle}>
-                        <div style={mjerenjeMiniLabelStyle}>Temperatura</div>
-                        <div
-                          style={{
-                            ...mjerenjeMiniValueStyle,
-                            color: bojaAktivnogPolja(m.temperatura),
-                          }}
-                        >
-                          {m.temperatura != null ? `${m.temperatura} °C` : "—"}
+                        <div style={mjerenjeMiniCardStyle}>
+                          <div style={mjerenjeMiniLabelStyle}>Hlapive</div>
+                          <div
+                            style={{
+                              ...mjerenjeMiniValueStyle,
+                              color: bojaAktivnogPolja(m.hlapiveKiseline),
+                            }}
+                          >
+                            {m.hlapiveKiseline != null
+                              ? formatBroj(m.hlapiveKiseline)
+                              : "—"}
+                          </div>
                         </div>
-                      </div>
 
-                      <div style={mjerenjeMiniCardStyle}>
-                        <div style={mjerenjeMiniLabelStyle}>Uk. kiseline</div>
-                        <div
-                          style={{
-                            ...mjerenjeMiniValueStyle,
-                            color: bojaAktivnogPolja(m.ukupneKiseline),
-                          }}
-                        >
-                          {m.ukupneKiseline ?? "—"}
+                        <div style={mjerenjeMiniCardStyle}>
+                          <div style={mjerenjeMiniLabelStyle}>SO2 slob.</div>
+                          <div
+                            style={{
+                              ...mjerenjeMiniValueStyle,
+                              color: bojaAktivnogPolja(m.slobodniSO2),
+                            }}
+                          >
+                            {m.slobodniSO2 != null
+                              ? formatBroj(m.slobodniSO2)
+                              : "—"}
+                          </div>
                         </div>
-                      </div>
 
-                      <div style={mjerenjeMiniCardStyle}>
-                        <div style={mjerenjeMiniLabelStyle}>Hlapive</div>
-                        <div
-                          style={{
-                            ...mjerenjeMiniValueStyle,
-                            color: bojaAktivnogPolja(m.hlapiveKiseline),
-                          }}
-                        >
-                          {m.hlapiveKiseline ?? "—"}
+                        <div style={mjerenjeMiniCardStyle}>
+                          <div style={mjerenjeMiniLabelStyle}>Bentotest datum</div>
+                          <div
+                            style={{
+                              ...mjerenjeMiniValueStyle,
+                              color: bojaAktivnogPolja(m.bentotestDatum),
+                            }}
+                          >
+                            {m.bentotestDatum
+                              ? formatDatumBezVremena(m.bentotestDatum)
+                              : "—"}
+                          </div>
                         </div>
-                      </div>
 
-                      <div style={mjerenjeMiniCardStyle}>
-                        <div style={mjerenjeMiniLabelStyle}>SO2 slob.</div>
-                        <div
-                          style={{
-                            ...mjerenjeMiniValueStyle,
-                            color: bojaAktivnogPolja(m.slobodniSO2),
-                          }}
-                        >
-                          {m.slobodniSO2 ?? "—"}
-                        </div>
-                      </div>
-
-                      <div style={mjerenjeMiniCardStyle}>
-                        <div style={mjerenjeMiniLabelStyle}>SO2 uk.</div>
-                        <div
-                          style={{
-                            ...mjerenjeMiniValueStyle,
-                            color: bojaAktivnogPolja(m.ukupniSO2),
-                          }}
-                        >
-                          {m.ukupniSO2 ?? "—"}
-                        </div>
-                      </div>
-
-                      <div style={mjerenjeMiniCardStyle}>
-                        <div style={mjerenjeMiniLabelStyle}>Bentotest datum</div>
-                        <div
-                          style={{
-                            ...mjerenjeMiniValueStyle,
-                            color: bojaAktivnogPolja(m.bentotestDatum),
-                          }}
-                        >
-                          {m.bentotestDatum
-                            ? formatDatumBezVremena(m.bentotestDatum)
-                            : "—"}
-                        </div>
-                      </div>
-
-                      <div style={mjerenjeMiniCardStyle}>
-                        <div style={mjerenjeMiniLabelStyle}>Bentotest status</div>
-                        <div
-                          style={{
-                            ...mjerenjeMiniValueStyle,
-                            color:
-                              m.bentotestStatus === "NESTABILNO"
-                                ? "#9f1239"
-                                : m.bentotestStatus === "STABILNO"
-                                  ? "#166534"
-                                  : "#9ca3af",
-                          }}
-                        >
-                          {bentotestLabel(m.bentotestStatus)}
+                        <div style={mjerenjeMiniCardStyle}>
+                          <div style={mjerenjeMiniLabelStyle}>Bentotest status</div>
+                          <div
+                            style={{
+                              ...mjerenjeMiniValueStyle,
+                              color:
+                                m.bentotestStatus === "NESTABILNO"
+                                  ? "#9f1239"
+                                  : m.bentotestStatus === "STABILNO"
+                                    ? "#166534"
+                                    : "#9ca3af",
+                            }}
+                          >
+                            {bentotestLabel(m.bentotestStatus)}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1668,6 +1703,7 @@ const headerStyle: React.CSSProperties = {
   alignItems: "flex-start",
   gap: 16,
   marginBottom: 10,
+  flexWrap: "wrap",
 };
 
 const titleStyle: React.CSSProperties = {
@@ -1706,13 +1742,25 @@ const headerActionsStyle: React.CSSProperties = {
 
 const topParamsGridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
   gap: 6,
 };
 
-const measurementGridStyle: React.CSSProperties = {
+const measurementWrapStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(10, minmax(0, 1fr))",
+  gap: 6,
+  padding: 8,
+};
+
+const measurementPrimaryGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+  gap: 6,
+};
+
+const measurementSecondaryGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
   gap: 4,
 };
 
@@ -1723,16 +1771,34 @@ const paramCardStyle: React.CSSProperties = {
   borderRadius: 0,
 };
 
+const paramCardStrongStyle: React.CSSProperties = {
+  background: "#fffafa",
+  border: "1px solid rgba(127,29,29,0.26)",
+};
+
 const paramLabelStyle: React.CSSProperties = {
   color: "#6b7280",
   fontSize: 11,
   marginBottom: 3,
 };
 
+const paramLabelStrongStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: 0.2,
+  color: "#7f1d1d",
+};
+
 const paramValueStyle: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 500,
   color: "#222",
+};
+
+const paramValueStrongStyle: React.CSSProperties = {
+  fontSize: 18,
+  fontWeight: 800,
 };
 
 const cardStyle: React.CSSProperties = {
@@ -1865,13 +1931,13 @@ const statusPillStyle: React.CSSProperties = {
 
 const twoColGridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: 10,
 };
 
 const docsGridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "0.8fr 1.2fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: 10,
 };
 
@@ -1972,10 +2038,25 @@ const sourceMeasurementTitleStyle: React.CSSProperties = {
   color: "#44403c",
 };
 
-const sourceMeasurementGridStyle: React.CSSProperties = {
+const sourceMeasurementPrimaryGridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
   gap: 4,
+};
+
+const sourceMeasurementSecondaryGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+  gap: 4,
+};
+
+const sourceMeasurementPrimaryItemStyle: React.CSSProperties = {
+  border: "1px solid rgba(127,29,29,0.22)",
+  background: "#ffffff",
+  padding: "7px 8px",
+  display: "grid",
+  gap: 2,
+  borderRadius: 0,
 };
 
 const sourceMeasurementItemStyle: React.CSSProperties = {
@@ -1997,9 +2078,35 @@ const sourceMeasurementMetaStyle: React.CSSProperties = {
   color: "#6b7280",
 };
 
+const mjerenjeWrapStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 4,
+};
+
+const mjerenjePrimaryGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+  gap: 4,
+};
+
+const mjerenjeSecondaryGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+  gap: 4,
+};
+
 const mjerenjeMiniCardStyle: React.CSSProperties = {
   border: "1px solid #ececec",
   background: "#ffffff",
+  padding: "6px 7px",
+  display: "grid",
+  gap: 2,
+  borderRadius: 0,
+};
+
+const mjerenjeMiniCardStrongStyle: React.CSSProperties = {
+  border: "1px solid rgba(127,29,29,0.22)",
+  background: "#fffafa",
   padding: "6px 7px",
   display: "grid",
   gap: 2,
@@ -2016,6 +2123,12 @@ const mjerenjeMiniLabelStyle: React.CSSProperties = {
 
 const mjerenjeMiniValueStyle: React.CSSProperties = {
   fontSize: 13,
+  fontWeight: 900,
+  color: "#2f2f2f",
+};
+
+const mjerenjeMiniValueStrongStyle: React.CSSProperties = {
+  fontSize: 15,
   fontWeight: 900,
   color: "#2f2f2f",
 };
