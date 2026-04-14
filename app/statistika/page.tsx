@@ -66,6 +66,14 @@ export default function StatistikaPage() {
   const [data, setData] = useState<StatistikaData | null>(null);
   const [loading, setLoading] = useState(true);
   const [greska, setGreska] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const provjeri = () => setIsMobile(window.innerWidth <= 768);
+    provjeri();
+    window.addEventListener("resize", provjeri);
+    return () => window.removeEventListener("resize", provjeri);
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -116,84 +124,118 @@ export default function StatistikaPage() {
   return (
     <main style={pageStyle}>
       <div style={containerStyle}>
-        <div style={topBarStyle}>
+        <div
+          style={{
+            ...topBarStyle,
+            flexDirection: isMobile ? "column" : "row",
+            alignItems: isMobile ? "stretch" : "flex-start",
+          }}
+        >
           <div>
-            <h1 style={titleStyle}>Statistika vina</h1>
+            <h1 style={{ ...titleStyle, fontSize: isMobile ? 24 : 28 }}>
+              Statistika vina
+            </h1>
             <div style={subtitleStyle}>
               Pregled količina vina u podrumu, punjenja u boce i rinfuza prodaje.
             </div>
           </div>
 
-          <Link href="/dashboard" style={backButtonStyle}>
+          <Link
+            href="/dashboard"
+            style={{
+              ...backButtonStyle,
+              width: isMobile ? "100%" : "auto",
+            }}
+          >
             POČETNA
           </Link>
         </div>
 
-        {loading ? <div style={cardStyle}>Učitavanje...</div> : null}
+        {loading ? <div style={cardStyle}><div style={emptyStyle}>Učitavanje...</div></div> : null}
         {greska ? <div style={errorStyle}>{greska}</div> : null}
 
         {!loading && !greska && data ? (
           <>
-            <section style={summaryGridStyle}>
+            <section
+              style={{
+                ...summaryGridStyle,
+                gridTemplateColumns: isMobile
+                  ? "minmax(0, 1fr)"
+                  : "repeat(auto-fit, minmax(180px, 1fr))",
+              }}
+            >
               <div style={summaryCardStyle}>
                 <div style={summaryLabelStyle}>Ukupno vina u podrumu</div>
-                <div style={summaryValueStyle}>
+                <div style={{ ...summaryValueStyle, fontSize: isMobile ? 21 : 24 }}>
                   {formatBroj(data.sazetak?.ukupnoLitara)} L
                 </div>
               </div>
 
               <div style={summaryCardStyle}>
                 <div style={summaryLabelStyle}>Ukupni kapacitet</div>
-                <div style={summaryValueStyle}>{formatBroj(ukupniKapacitet)} L</div>
+                <div style={{ ...summaryValueStyle, fontSize: isMobile ? 21 : 24 }}>
+                  {formatBroj(ukupniKapacitet)} L
+                </div>
               </div>
 
               <div style={summaryCardStyle}>
                 <div style={summaryLabelStyle}>Slobodan kapacitet</div>
-                <div style={summaryValueStyle}>
+                <div style={{ ...summaryValueStyle, fontSize: isMobile ? 21 : 24 }}>
                   {formatBroj(slobodanKapacitet)} L
                 </div>
               </div>
 
               <div style={summaryCardStyle}>
                 <div style={summaryLabelStyle}>Ukupno tankova</div>
-                <div style={summaryValueStyle}>
+                <div style={{ ...summaryValueStyle, fontSize: isMobile ? 21 : 24 }}>
                   {formatBroj(data.sazetak?.ukupnoTankova, 0)}
                 </div>
               </div>
 
               <div style={summaryCardStyle}>
                 <div style={summaryLabelStyle}>Aktivni tankovi</div>
-                <div style={summaryValueStyle}>{formatBroj(aktivniTankovi, 0)}</div>
+                <div style={{ ...summaryValueStyle, fontSize: isMobile ? 21 : 24 }}>
+                  {formatBroj(aktivniTankovi, 0)}
+                </div>
               </div>
 
               <div style={summaryCardStyle}>
                 <div style={summaryLabelStyle}>Prazni tankovi</div>
-                <div style={summaryValueStyle}>{formatBroj(prazniTankovi, 0)}</div>
+                <div style={{ ...summaryValueStyle, fontSize: isMobile ? 21 : 24 }}>
+                  {formatBroj(prazniTankovi, 0)}
+                </div>
               </div>
 
               <div style={summaryCardStyle}>
                 <div style={summaryLabelStyle}>Ukupno prodano</div>
-                <div style={summaryValueStyle}>
+                <div style={{ ...summaryValueStyle, fontSize: isMobile ? 21 : 24 }}>
                   {formatBroj(data.sazetak?.ukupnoProdanoLitara)} L
                 </div>
               </div>
 
               <div style={summaryCardStyle}>
                 <div style={summaryLabelStyle}>Ukupno punjeno</div>
-                <div style={summaryValueStyle}>
+                <div style={{ ...summaryValueStyle, fontSize: isMobile ? 21 : 24 }}>
                   {formatBroj(data.sazetak?.ukupnoPunjenjeLitara)} L
                 </div>
               </div>
 
               <div style={summaryCardStyle}>
                 <div style={summaryLabelStyle}>Ukupno punjenih boca</div>
-                <div style={summaryValueStyle}>
+                <div style={{ ...summaryValueStyle, fontSize: isMobile ? 21 : 24 }}>
                   {formatBroj(data.sazetak?.ukupnoPunjenihBoca, 0)}
                 </div>
               </div>
             </section>
 
-            <section style={threeColStyle}>
+            <section
+              style={{
+                ...threeColStyle,
+                gridTemplateColumns: isMobile
+                  ? "minmax(0, 1fr)"
+                  : "repeat(auto-fit, minmax(280px, 1fr))",
+              }}
+            >
               <div style={cardStyle}>
                 <div style={cardTitleStyle}>Količina vina po sortama</div>
                 {(data.poSortama ?? []).length === 0 ? (
@@ -202,8 +244,15 @@ export default function StatistikaPage() {
                   <div style={listWrapStyle}>
                     {data.poSortama?.map((row) => (
                       <div key={row.sorta} style={progressRowStyle}>
-                        <div style={progressHeadStyle}>
-                          <strong>{row.sorta}</strong>
+                        <div
+                          style={{
+                            ...progressHeadStyle,
+                            flexDirection: isMobile ? "column" : "row",
+                            alignItems: isMobile ? "flex-start" : "center",
+                            gap: isMobile ? 4 : 10,
+                          }}
+                        >
+                          <strong style={{ wordBreak: "break-word" }}>{row.sorta}</strong>
                           <span>{formatBroj(row.litara)} L</span>
                         </div>
                         <div style={progressTrackStyle}>
@@ -216,8 +265,7 @@ export default function StatistikaPage() {
                                       2,
                                       Math.min(
                                         100,
-                                        (row.litara / data.sazetak.ukupnoLitara) *
-                                          100
+                                        (row.litara / data.sazetak.ukupnoLitara) * 100
                                       )
                                     )
                                   : 0
@@ -239,8 +287,15 @@ export default function StatistikaPage() {
                   <div style={listWrapStyle}>
                     {data.punjenoPoSortama?.map((row) => (
                       <div key={row.sorta} style={progressRowStyle}>
-                        <div style={progressHeadStyle}>
-                          <strong>{row.sorta}</strong>
+                        <div
+                          style={{
+                            ...progressHeadStyle,
+                            flexDirection: isMobile ? "column" : "row",
+                            alignItems: isMobile ? "flex-start" : "center",
+                            gap: isMobile ? 4 : 10,
+                          }}
+                        >
+                          <strong style={{ wordBreak: "break-word" }}>{row.sorta}</strong>
                           <span>{formatBroj(row.litara)} L</span>
                         </div>
                         <div style={progressTrackStyle}>
@@ -253,8 +308,7 @@ export default function StatistikaPage() {
                                       2,
                                       Math.min(
                                         100,
-                                        (row.litara /
-                                          data.sazetak.ukupnoPunjenjeLitara) *
+                                        (row.litara / data.sazetak.ukupnoPunjenjeLitara) *
                                           100
                                       )
                                     )
@@ -277,8 +331,15 @@ export default function StatistikaPage() {
                   <div style={listWrapStyle}>
                     {data.prodanoPoSortama?.map((row) => (
                       <div key={row.sorta} style={progressRowStyle}>
-                        <div style={progressHeadStyle}>
-                          <strong>{row.sorta}</strong>
+                        <div
+                          style={{
+                            ...progressHeadStyle,
+                            flexDirection: isMobile ? "column" : "row",
+                            alignItems: isMobile ? "flex-start" : "center",
+                            gap: isMobile ? 4 : 10,
+                          }}
+                        >
+                          <strong style={{ wordBreak: "break-word" }}>{row.sorta}</strong>
                           <span>{formatBroj(row.litara)} L</span>
                         </div>
                         <div style={progressTrackStyle}>
@@ -291,8 +352,7 @@ export default function StatistikaPage() {
                                       2,
                                       Math.min(
                                         100,
-                                        (row.litara /
-                                          data.sazetak.ukupnoProdanoLitara) *
+                                        (row.litara / data.sazetak.ukupnoProdanoLitara) *
                                           100
                                       )
                                     )
@@ -308,7 +368,14 @@ export default function StatistikaPage() {
               </div>
             </section>
 
-            <section style={twoColStyle}>
+            <section
+              style={{
+                ...twoColStyle,
+                gridTemplateColumns: isMobile
+                  ? "minmax(0, 1fr)"
+                  : "repeat(auto-fit, minmax(320px, 1fr))",
+              }}
+            >
               <div style={cardStyle}>
                 <div style={cardTitleStyle}>Količina vina po godištima</div>
                 {(data.poGodistima ?? []).length === 0 ? (
@@ -317,7 +384,14 @@ export default function StatistikaPage() {
                   <div style={listWrapStyle}>
                     {data.poGodistima?.map((row) => (
                       <div key={row.godiste} style={progressRowStyle}>
-                        <div style={progressHeadStyle}>
+                        <div
+                          style={{
+                            ...progressHeadStyle,
+                            flexDirection: isMobile ? "column" : "row",
+                            alignItems: isMobile ? "flex-start" : "center",
+                            gap: isMobile ? 4 : 10,
+                          }}
+                        >
                           <strong>{row.godiste}</strong>
                           <span>{formatBroj(row.litara)} L</span>
                         </div>
@@ -331,8 +405,7 @@ export default function StatistikaPage() {
                                       2,
                                       Math.min(
                                         100,
-                                        (row.litara / data.sazetak.ukupnoLitara) *
-                                          100
+                                        (row.litara / data.sazetak.ukupnoLitara) * 100
                                       )
                                     )
                                   : 0
@@ -350,6 +423,20 @@ export default function StatistikaPage() {
                 <div style={cardTitleStyle}>Količina vina po nazivima vina</div>
                 {(data.poNazivimaVina ?? []).length === 0 ? (
                   <div style={emptyStyle}>Nema podataka.</div>
+                ) : isMobile ? (
+                  <div style={mobileListWrapStyle}>
+                    {data.poNazivimaVina?.map((row) => (
+                      <div key={row.nazivVina} style={mobileCardStyle}>
+                        <div style={mobileCardTitleStyle}>{row.nazivVina}</div>
+                        <div style={mobileRowStyle}>
+                          <span style={mobileLabelStyle}>Količina</span>
+                          <span style={mobileValueStyle}>
+                            {formatBroj(row.litara)} L
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   <div style={tableWrapStyle}>
                     <table style={tableStyle}>
@@ -378,6 +465,82 @@ export default function StatistikaPage() {
 
               {(data.poTankovima ?? []).length === 0 ? (
                 <div style={emptyStyle}>Nema podataka.</div>
+              ) : isMobile ? (
+                <div style={mobileListWrapStyle}>
+                  {data.poTankovima?.map((row) => (
+                    <div key={row.tankId} style={mobileCardStyle}>
+                      <div style={mobileCardTopStyle}>
+                        <div style={mobileCardTitleStyle}>Tank {row.brojTanka}</div>
+                        <div style={mobileTankBadgeStyle}>
+                          {formatBroj(row.popunjenostPosto)}%
+                        </div>
+                      </div>
+
+                      <div style={mobileSubStyle}>
+                        {row.nazivVina || row.sorta || "Bez naziva"}
+                        {row.godiste ? ` • ${row.godiste}` : ""}
+                      </div>
+
+                      <div style={mobileRowStyle}>
+                        <span style={mobileLabelStyle}>Naziv vina</span>
+                        <span style={mobileValueStyle}>{row.nazivVina || "—"}</span>
+                      </div>
+
+                      <div style={mobileRowStyle}>
+                        <span style={mobileLabelStyle}>Sorta</span>
+                        <span style={mobileValueStyle}>{row.sorta || "—"}</span>
+                      </div>
+
+                      <div style={mobileRowStyle}>
+                        <span style={mobileLabelStyle}>Godište</span>
+                        <span style={mobileValueStyle}>{row.godiste ?? "—"}</span>
+                      </div>
+
+                      <div style={mobileRowStyle}>
+                        <span style={mobileLabelStyle}>Tip</span>
+                        <span style={mobileValueStyle}>{row.tip || "—"}</span>
+                      </div>
+
+                      <div style={mobileRowStyle}>
+                        <span style={mobileLabelStyle}>Litara</span>
+                        <span style={mobileValueStyle}>{formatBroj(row.litara)} L</span>
+                      </div>
+
+                      <div style={mobileRowStyle}>
+                        <span style={mobileLabelStyle}>Kapacitet</span>
+                        <span style={mobileValueStyle}>
+                          {formatBroj(row.kapacitet)} L
+                        </span>
+                      </div>
+
+                      <div style={mobileRowStyle}>
+                        <span style={mobileLabelStyle}>Popunjenost</span>
+                        <span style={mobileValueStyle}>
+                          {formatBroj(row.popunjenostPosto)}%
+                        </span>
+                      </div>
+
+                      {row.udjeliSorti && row.udjeliSorti.length > 0 ? (
+                        <div style={mobileUdjeliWrapStyle}>
+                          <div style={mobileLabelStyle}>Udjeli sorti</div>
+                          <div style={mobileUdjeliListStyle}>
+                            {row.udjeliSorti.map((udio, index) => (
+                              <div
+                                key={`${row.tankId}-${udio.nazivSorte}-${index}`}
+                                style={mobileUdioItemStyle}
+                              >
+                                <strong>{udio.nazivSorte}</strong>
+                                <span>
+                                  {formatBroj(udio.postotak)}% • {formatBroj(udio.litara)} L
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div style={tableWrapStyle}>
                   <table style={tableStyle}>
@@ -453,18 +616,20 @@ const subtitleStyle: React.CSSProperties = {
   marginTop: 4,
   color: "#6b7280",
   fontSize: 14,
+  lineHeight: 1.45,
 };
 
 const backButtonStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  padding: "8px 12px",
+  padding: "10px 12px",
   background: "#ffffff",
   border: "1px solid #d1d5db",
   color: "#44403c",
   textDecoration: "none",
   fontSize: 13,
+  fontWeight: 700,
 };
 
 const summaryGridStyle: React.CSSProperties = {
@@ -485,6 +650,7 @@ const summaryLabelStyle: React.CSSProperties = {
   fontWeight: 700,
   textTransform: "uppercase",
   letterSpacing: 0.2,
+  lineHeight: 1.4,
 };
 
 const summaryValueStyle: React.CSSProperties = {
@@ -492,6 +658,7 @@ const summaryValueStyle: React.CSSProperties = {
   fontSize: 24,
   fontWeight: 800,
   color: "#2f2f2f",
+  wordBreak: "break-word",
 };
 
 const threeColStyle: React.CSSProperties = {
@@ -542,6 +709,7 @@ const progressTrackStyle: React.CSSProperties = {
   width: "100%",
   height: 10,
   background: "#ececec",
+  overflow: "hidden",
 };
 
 const progressFillStyle: React.CSSProperties = {
@@ -600,4 +768,95 @@ const errorStyle: React.CSSProperties = {
   border: "1px solid #fdba74",
   color: "#9a3412",
   fontSize: 13,
+};
+
+const mobileListWrapStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 10,
+  padding: 12,
+};
+
+const mobileCardStyle: React.CSSProperties = {
+  border: "1px solid #e5e7eb",
+  background: "#ffffff",
+  padding: 12,
+  display: "grid",
+  gap: 8,
+};
+
+const mobileCardTopStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 8,
+};
+
+const mobileCardTitleStyle: React.CSSProperties = {
+  fontSize: 15,
+  fontWeight: 800,
+  color: "#2f2f2f",
+  lineHeight: 1.35,
+  wordBreak: "break-word",
+};
+
+const mobileSubStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#6b7280",
+  lineHeight: 1.4,
+  wordBreak: "break-word",
+};
+
+const mobileRowStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 4,
+  paddingTop: 6,
+  borderTop: "1px solid #f1f5f9",
+};
+
+const mobileLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#6b7280",
+  textTransform: "uppercase",
+  fontWeight: 700,
+  letterSpacing: 0.2,
+};
+
+const mobileValueStyle: React.CSSProperties = {
+  fontSize: 14,
+  color: "#2f2f2f",
+  fontWeight: 600,
+  lineHeight: 1.4,
+  wordBreak: "break-word",
+};
+
+const mobileTankBadgeStyle: React.CSSProperties = {
+  padding: "4px 8px",
+  background: "#fff7ed",
+  border: "1px solid #fdba74",
+  color: "#9a3412",
+  fontSize: 12,
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+};
+
+const mobileUdjeliWrapStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 8,
+  paddingTop: 6,
+  borderTop: "1px solid #f1f5f9",
+};
+
+const mobileUdjeliListStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 6,
+};
+
+const mobileUdioItemStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 2,
+  padding: "8px 10px",
+  background: "#fafafa",
+  border: "1px solid #ececec",
+  fontSize: 13,
+  color: "#2f2f2f",
 };

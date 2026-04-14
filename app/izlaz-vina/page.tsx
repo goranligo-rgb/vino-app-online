@@ -113,6 +113,7 @@ export default function IzlazVinaPage() {
   const [poruka, setPoruka] = useState("");
   const [greska, setGreska] = useState("");
   const [warning, setWarning] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
 
   const [tankId, setTankId] = useState("");
   const [tip, setTip] = useState<"PRODAJA" | "PUNJENJE">("PRODAJA");
@@ -123,6 +124,13 @@ export default function IzlazVinaPage() {
 
   const [filterTip, setFilterTip] = useState("");
   const [filterTankId, setFilterTankId] = useState("");
+
+  useEffect(() => {
+    const provjeri = () => setIsMobile(window.innerWidth <= 768);
+    provjeri();
+    window.addEventListener("resize", provjeri);
+    return () => window.removeEventListener("resize", provjeri);
+  }, []);
 
   const autoBrojBoca = useMemo(() => {
     const litara = toNumber(kolicinaLitara);
@@ -257,24 +265,53 @@ export default function IzlazVinaPage() {
   return (
     <main style={pageStyle}>
       <div style={containerStyle}>
-        <div style={topBarStyle}>
+        <div
+          style={{
+            ...topBarStyle,
+            flexDirection: isMobile ? "column" : "row",
+            alignItems: isMobile ? "stretch" : "flex-start",
+          }}
+        >
           <div>
-            <h1 style={titleStyle}>Izlaz vina</h1>
+            <h1 style={{ ...titleStyle, fontSize: isMobile ? 24 : 28 }}>
+              Izlaz vina
+            </h1>
             <div style={subtitleStyle}>
-              Izvadi vino iz odabranog tanka i evidentiraj punjenje ili rinfuza prodaju.
+              Izvadi vino iz odabranog tanka i evidentiraj punjenje ili rinfuza
+              prodaju.
             </div>
           </div>
 
-          <Link href="/dashboard" style={backButtonStyle}>
+          <Link
+            href="/dashboard"
+            style={{
+              ...backButtonStyle,
+              width: isMobile ? "100%" : "auto",
+            }}
+          >
             POČETNA
           </Link>
         </div>
 
-        <div style={topSectionStyle}>
+        <div
+          style={{
+            ...topSectionStyle,
+            gridTemplateColumns: isMobile
+              ? "minmax(0, 1fr)"
+              : "minmax(0, 2fr) minmax(280px, 1fr)",
+          }}
+        >
           <section style={cardStyle}>
             <div style={cardTitleStyle}>Novi izlaz vina</div>
 
-            <div style={formGridStyle}>
+            <div
+              style={{
+                ...formGridStyle,
+                gridTemplateColumns: isMobile
+                  ? "minmax(0, 1fr)"
+                  : "repeat(auto-fit, minmax(220px, 1fr))",
+              }}
+            >
               <div style={fieldWrapStyle}>
                 <label style={labelStyle}>Tank</label>
                 <select
@@ -366,6 +403,7 @@ export default function IzlazVinaPage() {
                 disabled={saving || !tankId}
                 style={{
                   ...primaryButtonStyle,
+                  width: isMobile ? "100%" : "auto",
                   opacity: saving || !tankId ? 0.6 : 1,
                   cursor: saving || !tankId ? "not-allowed" : "pointer",
                 }}
@@ -426,7 +464,12 @@ export default function IzlazVinaPage() {
 
                   <div style={sideStatStrongStyle}>
                     <div style={sideStatLabelStrongStyle}>Broj boca</div>
-                    <div style={sideStatValueStrongStyle}>
+                    <div
+                      style={{
+                        ...sideStatValueStrongStyle,
+                        fontSize: isMobile ? 24 : 28,
+                      }}
+                    >
                       {autoBrojBoca > 0 ? formatBroj(autoBrojBoca, 0) : "—"}
                     </div>
                   </div>
@@ -456,9 +499,12 @@ export default function IzlazVinaPage() {
                 </div>
               )}
 
-              {odabraniTank && toNumber(kolicinaLitara) > 0 && ostajeUTanku <= 0 ? (
+              {odabraniTank &&
+              toNumber(kolicinaLitara) > 0 &&
+              ostajeUTanku <= 0 ? (
                 <div style={archiveNoticeStyle}>
-                  Tank će nakon spremanja ostati prazan i automatski će se arhivirati.
+                  Tank će nakon spremanja ostati prazan i automatski će se
+                  arhivirati.
                 </div>
               ) : null}
             </div>
@@ -468,7 +514,14 @@ export default function IzlazVinaPage() {
         <section style={cardStyle}>
           <div style={cardTitleStyle}>Zadnji izlazi vina</div>
 
-          <div style={filterGridStyle}>
+          <div
+            style={{
+              ...filterGridStyle,
+              gridTemplateColumns: isMobile
+                ? "minmax(0, 1fr)"
+                : "repeat(auto-fit, minmax(180px, 1fr))",
+            }}
+          >
             <div style={fieldWrapStyle}>
               <label style={labelStyle}>Filter tip</label>
               <select
@@ -503,6 +556,71 @@ export default function IzlazVinaPage() {
             <div style={emptyStyle}>Učitavanje...</div>
           ) : filtriraniIzlazi.length === 0 ? (
             <div style={emptyStyle}>Nema zapisa.</div>
+          ) : isMobile ? (
+            <div style={mobileListWrapStyle}>
+              {filtriraniIzlazi.map((row) => (
+                <div key={row.id} style={mobileCardStyle}>
+                  <div style={mobileCardTopStyle}>
+                    <div style={mobileCardTitleStyle}>
+                      Tank {row.tank?.broj ?? "—"}
+                    </div>
+                    <span
+                      style={{
+                        ...pillStyle,
+                        background:
+                          row.tip === "PRODAJA" ? "#fff5f5" : "#f4f8ff",
+                        color:
+                          row.tip === "PRODAJA" ? "#991b1b" : "#1d4ed8",
+                        border:
+                          row.tip === "PRODAJA"
+                            ? "1px solid #fecaca"
+                            : "1px solid #bfdbfe",
+                      }}
+                    >
+                      {row.tip}
+                    </span>
+                  </div>
+
+                  <div style={mobileSubStyle}>
+                    {row.tank?.nazivVina || row.tank?.sorta || "—"}
+                    {row.tank?.godiste ? ` • ${row.tank.godiste}` : ""}
+                  </div>
+
+                  <div style={mobileRowStyle}>
+                    <span style={mobileLabelStyle}>Datum</span>
+                    <span style={mobileValueStyle}>{formatDatum(row.datum)}</span>
+                  </div>
+
+                  <div style={mobileRowStyle}>
+                    <span style={mobileLabelStyle}>Litara</span>
+                    <span style={mobileValueStyle}>
+                      {formatBroj(row.kolicinaLitara)} L
+                    </span>
+                  </div>
+
+                  <div style={mobileRowStyle}>
+                    <span style={mobileLabelStyle}>Boce</span>
+                    <span style={mobileValueStyle}>
+                      {row.brojBoca != null ? formatBroj(row.brojBoca, 0) : "—"}
+                    </span>
+                  </div>
+
+                  <div style={mobileRowStyle}>
+                    <span style={mobileLabelStyle}>Volumen boce</span>
+                    <span style={mobileValueStyle}>
+                      {row.volumenBoce != null
+                        ? `${formatBroj(row.volumenBoce)} L`
+                        : "—"}
+                    </span>
+                  </div>
+
+                  <div style={mobileRowStyle}>
+                    <span style={mobileLabelStyle}>Napomena</span>
+                    <span style={mobileValueStyle}>{row.napomena || "—"}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
             <div style={tableWrapStyle}>
               <table style={tableStyle}>
@@ -600,18 +718,20 @@ const subtitleStyle: React.CSSProperties = {
   marginTop: 4,
   color: "#6b7280",
   fontSize: 14,
+  lineHeight: 1.45,
 };
 
 const backButtonStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  padding: "8px 12px",
+  padding: "10px 12px",
   background: "#ffffff",
   border: "1px solid #d1d5db",
   color: "#44403c",
   textDecoration: "none",
   fontSize: 13,
+  fontWeight: 700,
 };
 
 const topSectionStyle: React.CSSProperties = {
@@ -661,7 +781,7 @@ const labelStyle: React.CSSProperties = {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  padding: "9px 10px",
+  padding: "10px 10px",
   border: "1px solid #d1d5db",
   background: "#fff",
   fontSize: 14,
@@ -692,7 +812,7 @@ const actionsStyle: React.CSSProperties = {
 };
 
 const primaryButtonStyle: React.CSSProperties = {
-  padding: "10px 14px",
+  padding: "12px 14px",
   background: "#7f1d1d",
   color: "#ffffff",
   border: "1px solid #7f1d1d",
@@ -766,6 +886,7 @@ const sideStatValueStyle: React.CSSProperties = {
   fontSize: 16,
   fontWeight: 700,
   color: "#2f2f2f",
+  wordBreak: "break-word",
 };
 
 const sideStatValueStrongStyle: React.CSSProperties = {
@@ -782,6 +903,7 @@ const previewNoteStyle: React.CSSProperties = {
   fontSize: 14,
   color: "#334155",
   fontWeight: 700,
+  lineHeight: 1.45,
 };
 
 const archiveNoticeStyle: React.CSSProperties = {
@@ -791,6 +913,7 @@ const archiveNoticeStyle: React.CSSProperties = {
   color: "#9a3412",
   fontSize: 13,
   fontWeight: 700,
+  lineHeight: 1.45,
 };
 
 const tableWrapStyle: React.CSSProperties = {
@@ -841,4 +964,58 @@ const emptyStyle: React.CSSProperties = {
   padding: 12,
   color: "#6b7280",
   fontSize: 13,
+};
+
+const mobileListWrapStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 10,
+  padding: 12,
+};
+
+const mobileCardStyle: React.CSSProperties = {
+  border: "1px solid #e5e7eb",
+  background: "#ffffff",
+  padding: 12,
+  display: "grid",
+  gap: 8,
+};
+
+const mobileCardTopStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 8,
+};
+
+const mobileCardTitleStyle: React.CSSProperties = {
+  fontSize: 15,
+  fontWeight: 800,
+  color: "#2f2f2f",
+};
+
+const mobileSubStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#6b7280",
+  lineHeight: 1.4,
+};
+
+const mobileRowStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 4,
+  paddingTop: 6,
+  borderTop: "1px solid #f1f5f9",
+};
+
+const mobileLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#6b7280",
+  textTransform: "uppercase",
+  fontWeight: 700,
+};
+
+const mobileValueStyle: React.CSSProperties = {
+  fontSize: 14,
+  color: "#2f2f2f",
+  fontWeight: 600,
+  lineHeight: 1.4,
 };
