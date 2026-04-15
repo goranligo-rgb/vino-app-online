@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import LogoutButton from "@/components/LogoutButton";
 import SignatureAnimation from "@/components/SignatureAnimation";
+import DashboardTopActions from "@/components/DashboardTopActions";
 
 type AuthUser = {
   id: string;
@@ -82,7 +83,7 @@ export default async function DashboardPage() {
 
   return (
     <main
-      className="min-h-screen p-8"
+      className="relative min-h-screen p-8 pb-28"
       style={{
         fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
         background:
@@ -90,6 +91,7 @@ export default async function DashboardPage() {
       }}
     >
       <div className="mx-auto max-w-6xl">
+        {/* HEADER */}
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="mb-2 text-4xl font-semibold text-white">
@@ -100,9 +102,14 @@ export default async function DashboardPage() {
             </p>
           </div>
 
-          <LogoutButton />
+          {/* GUMBI DESNO */}
+          <div className="flex items-center gap-3">
+            <DashboardTopActions />
+            <LogoutButton />
+          </div>
         </div>
 
+        {/* GRID */}
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <DashboardCard
             href="/zadaci"
@@ -191,6 +198,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      {/* POTPIS DOLJE */}
       <SignatureAnimation />
     </main>
   );

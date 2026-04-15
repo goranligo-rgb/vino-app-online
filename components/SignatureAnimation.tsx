@@ -25,8 +25,18 @@ export default function SignatureAnimation() {
   }, []);
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50">
-      <span className="signature-handwriting">{displayedText}</span>
+    <div className="pointer-events-none fixed bottom-8 right-6 z-50">
+      <span
+        className="signature-handwriting"
+        style={{
+          fontSize: "38px", // ⬅️ duplo veće
+          lineHeight: "1.2",
+          color: "rgba(255,255,255,0.95)",
+          textShadow: "0 3px 12px rgba(0,0,0,0.6)",
+        }}
+      >
+        {displayedText}
+      </span>
     </div>
   );
 }

@@ -99,6 +99,21 @@ type GrupiranoPunjenje = {
   ukupnoKg: number;
 };
 
+type GodisnjiSazetak = {
+  litara: number;
+  kg: number;
+  sorte: number;
+  stavki: number;
+  avgSecer: number | null;
+  avgKiseline: number | null;
+  avgPh: number | null;
+};
+
+type GodisnjiSortaSazetak = {
+  sorta: string;
+  poGodinama: Record<string, GodisnjiSazetak>;
+};
+
 function formatBroj(v?: number | null, digits = 2) {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return "-";
   return Number(v).toLocaleString("hr-HR", {
@@ -128,6 +143,49 @@ function uniqueSorted(values: (string | number | null | undefined)[]) {
         .map(String)
     ),
   ].sort((a, b) => a.localeCompare(b, "hr"));
+}
+
+function prosjek(rows: Red[], key: "secer" | "kiseline" | "ph") {
+  const valid = rows.filter((r) => r[key] != null);
+  if (valid.length === 0) return null;
+  return valid.reduce((sum, r) => sum + Number(r[key] || 0), 0) / valid.length;
+}
+
+function prviUnosiPoSorti(rows: Red[]) {
+  const sortirani = [...rows].sort((a, b) => {
+    const diff = toTimestamp(a.datumBerbe) - toTimestamp(b.datumBerbe);
+    if (diff !== 0) return diff;
+    return toTimestamp(a.datumPunjenja) - toTimestamp(b.datumPunjenja);
+  });
+
+  const mapa = new Map<string, Red>();
+  for (const r of sortirani) {
+    const key = r.sorta || "Nepoznato";
+    if (!mapa.has(key)) {
+      mapa.set(key, r);
+    }
+  }
+
+  return [...mapa.values()];
+}
+
+function izracunajSazetakGodine(rows: Red[]): GodisnjiSazetak {
+  const litara = rows.reduce((s, r) => s + (r.kolicinaLitara || 0), 0);
+  const kg = rows.reduce((s, r) => s + (r.kolicinaKgGrozdja || 0), 0);
+  const sorte = new Set(rows.map((r) => r.sorta).filter(Boolean)).size;
+  const stavki = rows.length;
+
+  const pocetniZapisi = prviUnosiPoSorti(rows);
+
+  return {
+    litara,
+    kg,
+    sorte,
+    stavki,
+    avgSecer: prosjek(pocetniZapisi, "secer"),
+    avgKiseline: prosjek(pocetniZapisi, "kiseline"),
+    avgPh: prosjek(pocetniZapisi, "ph"),
+  };
 }
 
 function KarticaBroj({
@@ -202,9 +260,10 @@ export default function BerbaPage() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [aktivnaGodina, setAktivnaGodina] = useState("");
+  const [otvoriUsporedbu, setOtvoriUsporedbu] = useState(false);
+  const [godineUsporedba, setGodineUsporedba] = useState<string[]>([]);
 
   const [filterSorta, setFilterSorta] = useState("");
-  const [filterPolozaj, setFilterPolozaj] = useState("");
   const [filterTank, setFilterTank] = useState("");
   const [filterNazivVina, setFilterNazivVina] = useState("");
   const [filterTekst, setFilterTekst] = useState("");
@@ -330,6 +389,12 @@ export default function BerbaPage() {
     }
   }, [godine, aktivnaGodina]);
 
+  useEffect(() => {
+    if (aktivnaGodina && godineUsporedba.length === 0) {
+      setGodineUsporedba([aktivnaGodina]);
+    }
+  }, [aktivnaGodina, godineUsporedba.length]);
+
   const redoviAktivneGodine = useMemo(() => {
     if (!aktivnaGodina) return redovi;
     return redovi.filter((r) => String(r.godinaBerbe ?? "") === aktivnaGodina);
@@ -340,7 +405,6 @@ export default function BerbaPage() {
 
     return redoviAktivneGodine.filter((r) => {
       if (filterSorta && r.sorta !== filterSorta) return false;
-      if (filterPolozaj && (r.polozaj ?? "") !== filterPolozaj) return false;
       if (filterTank && String(r.tankBroj ?? "") !== filterTank) return false;
       if (filterNazivVina && (r.nazivVina ?? "") !== filterNazivVina) return false;
 
@@ -354,6 +418,8 @@ export default function BerbaPage() {
           r.napomenaPunjenja,
           r.opisStavke,
           r.napomenaBerbe,
+          r.parcela,
+          r.vinograd,
           String(r.tankBroj ?? ""),
           String(r.godinaBerbe ?? ""),
         ]
@@ -366,21 +432,10 @@ export default function BerbaPage() {
 
       return true;
     });
-  }, [
-    redoviAktivneGodine,
-    filterSorta,
-    filterPolozaj,
-    filterTank,
-    filterNazivVina,
-    filterTekst,
-  ]);
+  }, [redoviAktivneGodine, filterSorta, filterTank, filterNazivVina, filterTekst]);
 
   const sorte = useMemo(
     () => uniqueSorted(redoviAktivneGodine.map((r) => r.sorta)),
-    [redoviAktivneGodine]
-  );
-  const polozaji = useMemo(
-    () => uniqueSorted(redoviAktivneGodine.map((r) => r.polozaj)),
     [redoviAktivneGodine]
   );
   const tankovi = useMemo(
@@ -394,7 +449,6 @@ export default function BerbaPage() {
 
   const sazetak = useMemo(() => {
     const punjenjaIds = new Set(filtrirani.map((r) => r.punjenjeId));
-    const polozajiSet = new Set(filtrirani.map((r) => r.polozaj).filter(Boolean));
     const sorteSet = new Set(filtrirani.map((r) => r.sorta).filter(Boolean));
 
     const ukupnoLitara = filtrirani.reduce((sum, r) => sum + (r.kolicinaLitara || 0), 0);
@@ -409,47 +463,15 @@ export default function BerbaPage() {
     const najzastupljenijaSorta =
       [...poSortiLitara.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "-";
 
-    const sortiraniZaPrviUnos = [...filtrirani].sort((a, b) => {
-      const diff = toTimestamp(a.datumBerbe) - toTimestamp(b.datumBerbe);
-      if (diff !== 0) return diff;
-      return toTimestamp(a.datumPunjenja) - toTimestamp(b.datumPunjenja);
-    });
+    const pocetniZapisi = prviUnosiPoSorti(filtrirani);
 
-    const prviUnosPoSorti = new Map<string, Red>();
-    for (const r of sortiraniZaPrviUnos) {
-      const key = r.sorta || "Nepoznato";
-      if (!prviUnosPoSorti.has(key)) {
-        prviUnosPoSorti.set(key, r);
-      }
-    }
-
-    const pocetniZapisi = [...prviUnosPoSorti.values()];
-
-    const zapisiSaSecerom = pocetniZapisi.filter((r) => r.secer != null);
-    const prosjecniSecer =
-      zapisiSaSecerom.length > 0
-        ? zapisiSaSecerom.reduce((sum, r) => sum + Number(r.secer || 0), 0) /
-          zapisiSaSecerom.length
-        : null;
-
-    const zapisiSaKiselinama = pocetniZapisi.filter((r) => r.kiseline != null);
-    const prosjecneKiseline =
-      zapisiSaKiselinama.length > 0
-        ? zapisiSaKiselinama.reduce((sum, r) => sum + Number(r.kiseline || 0), 0) /
-          zapisiSaKiselinama.length
-        : null;
-
-    const zapisiSaPh = pocetniZapisi.filter((r) => r.ph != null);
-    const prosjecniPh =
-      zapisiSaPh.length > 0
-        ? zapisiSaPh.reduce((sum, r) => sum + Number(r.ph || 0), 0) /
-          zapisiSaPh.length
-        : null;
+    const prosjecniSecer = prosjek(pocetniZapisi, "secer");
+    const prosjecneKiseline = prosjek(pocetniZapisi, "kiseline");
+    const prosjecniPh = prosjek(pocetniZapisi, "ph");
 
     return {
       brojPunjenja: punjenjaIds.size,
       brojStavki: filtrirani.length,
-      brojPolozaja: polozajiSet.size,
       brojSorti: sorteSet.size,
       ukupnoLitara,
       ukupnoKg,
@@ -468,49 +490,31 @@ export default function BerbaPage() {
         litara: number;
         kg: number;
         stavki: number;
+        avgSecer: number | null;
+        avgKiseline: number | null;
+        avgPh: number | null;
       }
     >();
 
+    const grupe = new Map<string, Red[]>();
     for (const r of filtrirani) {
       const key = r.sorta || "Nepoznato";
-      const postojeci = mapa.get(key) || {
-        sorta: key,
-        litara: 0,
-        kg: 0,
-        stavki: 0,
-      };
-      postojeci.litara += r.kolicinaLitara || 0;
-      postojeci.kg += r.kolicinaKgGrozdja || 0;
-      postojeci.stavki += 1;
-      mapa.set(key, postojeci);
+      const lista = grupe.get(key) || [];
+      lista.push(r);
+      grupe.set(key, lista);
     }
 
-    return [...mapa.values()].sort((a, b) => b.litara - a.litara);
-  }, [filtrirani]);
-
-  const poPolozaju = useMemo(() => {
-    const mapa = new Map<
-      string,
-      {
-        polozaj: string;
-        litara: number;
-        kg: number;
-        stavki: number;
-      }
-    >();
-
-    for (const r of filtrirani) {
-      const key = r.polozaj || "Bez položaja";
-      const postojeci = mapa.get(key) || {
-        polozaj: key,
-        litara: 0,
-        kg: 0,
-        stavki: 0,
-      };
-      postojeci.litara += r.kolicinaLitara || 0;
-      postojeci.kg += r.kolicinaKgGrozdja || 0;
-      postojeci.stavki += 1;
-      mapa.set(key, postojeci);
+    for (const [sorta, rows] of grupe.entries()) {
+      const pocetniZapisi = prviUnosiPoSorti(rows);
+      mapa.set(sorta, {
+        sorta,
+        litara: rows.reduce((s, r) => s + (r.kolicinaLitara || 0), 0),
+        kg: rows.reduce((s, r) => s + (r.kolicinaKgGrozdja || 0), 0),
+        stavki: rows.length,
+        avgSecer: prosjek(pocetniZapisi, "secer"),
+        avgKiseline: prosjek(pocetniZapisi, "kiseline"),
+        avgPh: prosjek(pocetniZapisi, "ph"),
+      });
     }
 
     return [...mapa.values()].sort((a, b) => b.litara - a.litara);
@@ -549,6 +553,53 @@ export default function BerbaPage() {
     );
   }, [filtrirani]);
 
+  const usporedbaUkupno = useMemo<Record<string, GodisnjiSazetak>>(() => {
+    const result: Record<string, GodisnjiSazetak> = {};
+
+    for (const godina of godineUsporedba) {
+      const rows = redovi.filter((r) => String(r.godinaBerbe ?? "") === godina);
+      result[godina] = izracunajSazetakGodine(rows);
+    }
+
+    return result;
+  }, [redovi, godineUsporedba]);
+
+  const usporedbaPoSortama = useMemo<GodisnjiSortaSazetak[]>(() => {
+    const sveSorte = uniqueSorted(
+      redovi
+        .filter((r) => godineUsporedba.includes(String(r.godinaBerbe ?? "")))
+        .map((r) => r.sorta)
+    );
+
+    const rezultat: GodisnjiSortaSazetak[] = sveSorte.map((sorta) => {
+      const poGodinama: Record<string, GodisnjiSazetak> = {};
+
+      for (const godina of godineUsporedba) {
+        const rows = redovi.filter(
+          (r) =>
+            String(r.godinaBerbe ?? "") === godina &&
+            String(r.sorta ?? "") === String(sorta)
+        );
+
+        poGodinama[godina] = izracunajSazetakGodine(rows);
+      }
+
+      return { sorta, poGodinama };
+    });
+
+    return rezultat.sort((a, b) => {
+      const litA = godineUsporedba.reduce(
+        (sum, g) => sum + (a.poGodinama[g]?.litara || 0),
+        0
+      );
+      const litB = godineUsporedba.reduce(
+        (sum, g) => sum + (b.poGodinama[g]?.litara || 0),
+        0
+      );
+      return litB - litA;
+    });
+  }, [redovi, godineUsporedba]);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f6f2_0%,#eef5ef_45%,#eaf3ed_100%)] px-4 py-4 text-stone-800 [font-family:Calibri,Segoe_UI,Arial,sans-serif] md:px-6">
       <div className="mx-auto max-w-[1540px]">
@@ -561,10 +612,9 @@ export default function BerbaPage() {
               <h1 className="mt-1 text-[30px] font-semibold tracking-tight">
                 Izvještaj o berbi
               </h1>
-              <p className="mt-2 max-w-[780px] text-[14px] leading-6 text-white/80">
-                Pregled unosa iz punjenja, sorti, položaja i osnovnih parametara
-                berbe, sa sažecima po sorti i položaju te detaljnim prikazom po
-                punjenju.
+              <p className="mt-2 max-w-[860px] text-[14px] leading-6 text-white/80">
+                Pregled unosa iz punjenja, ukupnih količina, osnovnih parametara i
+                detaljna usporedba godišta ukupno te po sortama.
               </p>
             </div>
 
@@ -598,7 +648,6 @@ export default function BerbaPage() {
                   onChange={(e) => {
                     setAktivnaGodina(e.target.value);
                     setFilterSorta("");
-                    setFilterPolozaj("");
                     setFilterTank("");
                     setFilterNazivVina("");
                     setFilterTekst("");
@@ -631,78 +680,499 @@ export default function BerbaPage() {
             <KarticaBroj naslov="Punjenja" vrijednost={String(sazetak.brojPunjenja)} />
             <KarticaBroj naslov="Stavke berbe" vrijednost={String(sazetak.brojStavki)} />
             <KarticaBroj naslov="Sorte" vrijednost={String(sazetak.brojSorti)} />
-            <KarticaBroj naslov="Položaji" vrijednost={String(sazetak.brojPolozaja)} />
             <KarticaBroj
               naslov="Prosječni šećer"
               vrijednost={formatBroj(sazetak.prosjecniSecer, 2)}
-              podnaslov="samo prvi unos po sorti"
+              podnaslov="prvi unos po sorti"
             />
             <KarticaBroj
               naslov="Prosječne kiseline"
               vrijednost={formatBroj(sazetak.prosjecneKiseline, 2)}
-              podnaslov={sazetak.najzastupljenijaSorta !== "-" ? `glavna sorta: ${sazetak.najzastupljenijaSorta}` : undefined}
+              podnaslov="prvi unos po sorti"
+            />
+            <KarticaBroj
+              naslov="Prosječni pH"
+              vrijednost={formatBroj(sazetak.prosjecniPh, 2)}
+              podnaslov={
+                sazetak.najzastupljenijaSorta !== "-"
+                  ? `glavna sorta: ${sazetak.najzastupljenijaSorta}`
+                  : undefined
+              }
             />
           </div>
         </div>
 
-        <div className="mb-4 grid gap-4 xl:grid-cols-2">
-          <div className="border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/60 p-4 shadow-sm">
-            <h2 className="mb-3 text-[16px] font-semibold text-stone-800">
-              Pregled po sorti
-            </h2>
+        <div className="mb-4 border border-emerald-200 bg-white px-4 py-3 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.14em] text-emerald-800/70">
+                Usporedba berbi
+              </div>
+              <div className="mt-1 text-[14px] text-stone-700">
+                Najprije ukupna usporedba godišta, a ispod detaljno po sortama.
+              </div>
+            </div>
 
-            {poSorti.length === 0 ? (
-              <p className="text-[13px] text-stone-500">Nema podataka.</p>
-            ) : (
-              <div className="space-y-2">
-                {poSorti.map((r) => (
-                  <div
-                    key={r.sorta}
-                    className="border border-emerald-200 bg-white px-4 py-3"
+            <button
+              type="button"
+              onClick={() => {
+                setOtvoriUsporedbu((prev) => {
+                  const next = !prev;
+                  if (!prev && aktivnaGodina && godineUsporedba.length === 0) {
+                    setGodineUsporedba([aktivnaGodina]);
+                  }
+                  return next;
+                });
+              }}
+              className="border border-emerald-300 bg-gradient-to-b from-emerald-100 to-lime-100 px-4 py-2 text-[13px] font-semibold text-emerald-950 transition hover:brightness-105"
+            >
+              {otvoriUsporedbu ? "Zatvori usporedbu" : "Usporedi berbe"}
+            </button>
+          </div>
+        </div>
+
+        {otvoriUsporedbu && (
+          <div className="mb-4 border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/60 p-4 shadow-sm">
+            <div className="mb-3 text-[16px] font-semibold text-stone-800">
+              Odaberi godišta za usporedbu
+            </div>
+
+            <div className="mb-4 flex flex-wrap gap-2">
+              {godine.map((g) => {
+                const godina = String(g);
+                const aktivno = godineUsporedba.includes(godina);
+
+                return (
+                  <button
+                    key={godina}
+                    type="button"
+                    onClick={() => {
+                      setGodineUsporedba((prev) => {
+                        if (prev.includes(godina)) {
+                          return prev.filter((x) => x !== godina);
+                        }
+
+                        if (prev.length >= 3) return prev;
+
+                        return [...prev, godina].sort((a, b) => Number(b) - Number(a));
+                      });
+                    }}
+                    className={`px-3 py-2 text-[13px] font-semibold border transition ${
+                      aktivno
+                        ? "border-emerald-500 bg-emerald-600 text-white"
+                        : "border-emerald-200 bg-white text-stone-700 hover:bg-emerald-50"
+                    }`}
                   >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-[14px] font-semibold text-stone-800">
-                        {r.sorta}
-                      </div>
-                      <Oznaka variant="soft">{r.stavki} stavki</Oznaka>
-                    </div>
-                    <div className="mt-1 text-[13px] text-stone-600">
-                      {formatBroj(r.litara, 0)} L / {formatBroj(r.kg, 0)} kg
+                    {godina}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mb-3 text-[12px] text-stone-500">
+              Možeš odabrati najviše 3 godišta.
+            </div>
+
+            {godineUsporedba.length > 0 ? (
+              <div className="space-y-6">
+                <div className="border border-emerald-200 bg-white">
+                  <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-3">
+                    <div className="text-[15px] font-semibold text-stone-800">
+                      Ukupna usporedba berbi
                     </div>
                   </div>
-                ))}
+
+                  <div className="hidden overflow-x-auto md:block">
+                    <table className="min-w-full border-collapse">
+                      <thead>
+                        <tr className="bg-emerald-100/70 text-left text-[12px] uppercase tracking-[0.12em] text-emerald-900">
+                          <th className="border border-emerald-200 px-3 py-2">Parametar</th>
+                          {godineUsporedba.map((g) => (
+                            <th key={g} className="border border-emerald-200 px-3 py-2">
+                              {g}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="bg-white text-[13px] text-stone-700">
+                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                            Ukupno litara
+                          </td>
+                          {godineUsporedba.map((g) => (
+                            <td key={g} className="border border-emerald-100 px-3 py-2">
+                              {formatBroj(usporedbaUkupno[g]?.litara, 0)} L
+                            </td>
+                          ))}
+                        </tr>
+
+                        <tr className="bg-white text-[13px] text-stone-700">
+                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                            Ukupno kg grožđa
+                          </td>
+                          {godineUsporedba.map((g) => (
+                            <td key={g} className="border border-emerald-100 px-3 py-2">
+                              {formatBroj(usporedbaUkupno[g]?.kg, 0)} kg
+                            </td>
+                          ))}
+                        </tr>
+
+                        <tr className="bg-white text-[13px] text-stone-700">
+                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                            Broj sorti
+                          </td>
+                          {godineUsporedba.map((g) => (
+                            <td key={g} className="border border-emerald-100 px-3 py-2">
+                              {usporedbaUkupno[g]?.sorte ?? "-"}
+                            </td>
+                          ))}
+                        </tr>
+
+                        <tr className="bg-white text-[13px] text-stone-700">
+                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                            Broj stavki
+                          </td>
+                          {godineUsporedba.map((g) => (
+                            <td key={g} className="border border-emerald-100 px-3 py-2">
+                              {usporedbaUkupno[g]?.stavki ?? "-"}
+                            </td>
+                          ))}
+                        </tr>
+
+                        <tr className="bg-white text-[13px] text-stone-700">
+                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                            Prosječni šećer
+                          </td>
+                          {godineUsporedba.map((g) => (
+                            <td key={g} className="border border-emerald-100 px-3 py-2">
+                              {formatBroj(usporedbaUkupno[g]?.avgSecer, 2)}
+                            </td>
+                          ))}
+                        </tr>
+
+                        <tr className="bg-white text-[13px] text-stone-700">
+                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                            Prosječne kiseline
+                          </td>
+                          {godineUsporedba.map((g) => (
+                            <td key={g} className="border border-emerald-100 px-3 py-2">
+                              {formatBroj(usporedbaUkupno[g]?.avgKiseline, 2)}
+                            </td>
+                          ))}
+                        </tr>
+
+                        <tr className="bg-white text-[13px] text-stone-700">
+                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                            Prosječni pH
+                          </td>
+                          {godineUsporedba.map((g) => (
+                            <td key={g} className="border border-emerald-100 px-3 py-2">
+                              {formatBroj(usporedbaUkupno[g]?.avgPh, 2)}
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="space-y-3 p-4 md:hidden">
+                    {godineUsporedba.map((g) => {
+                      const d = usporedbaUkupno[g];
+                      return (
+                        <div
+                          key={g}
+                          className="border border-emerald-200 bg-white p-4 shadow-sm"
+                        >
+                          <div className="mb-3 text-[16px] font-semibold text-emerald-800">
+                            Berba {g}
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-[13px]">
+                            <div>Litara</div>
+                            <div className="font-semibold">
+                              {formatBroj(d?.litara, 0)} L
+                            </div>
+
+                            <div>Kg grožđa</div>
+                            <div className="font-semibold">
+                              {formatBroj(d?.kg, 0)} kg
+                            </div>
+
+                            <div>Broj sorti</div>
+                            <div className="font-semibold">{d?.sorte ?? "-"}</div>
+
+                            <div>Broj stavki</div>
+                            <div className="font-semibold">{d?.stavki ?? "-"}</div>
+
+                            <div>Šećer</div>
+                            <div className="font-semibold">
+                              {formatBroj(d?.avgSecer, 2)}
+                            </div>
+
+                            <div>Kiseline</div>
+                            <div className="font-semibold">
+                              {formatBroj(d?.avgKiseline, 2)}
+                            </div>
+
+                            <div>pH</div>
+                            <div className="font-semibold">
+                              {formatBroj(d?.avgPh, 2)}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="border border-emerald-200 bg-white">
+                  <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-3">
+                    <div className="text-[15px] font-semibold text-stone-800">
+                      Usporedba po sortama
+                    </div>
+                  </div>
+
+                  {usporedbaPoSortama.length === 0 ? (
+                    <div className="p-4 text-[13px] text-stone-500">
+                      Nema podataka za odabrana godišta.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="hidden space-y-5 p-4 md:block">
+                        {usporedbaPoSortama.map((sortaRow) => (
+                          <div
+                            key={sortaRow.sorta}
+                            className="border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/40"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-200 px-4 py-3">
+                              <div className="text-[16px] font-semibold text-stone-800">
+                                {sortaRow.sorta}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {godineUsporedba.map((g) => (
+                                  <Oznaka key={g} variant="soft">
+                                    {g}: {formatBroj(sortaRow.poGodinama[g]?.litara, 0)} L
+                                  </Oznaka>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full border-collapse">
+                                <thead>
+                                  <tr className="bg-emerald-100/70 text-left text-[12px] uppercase tracking-[0.12em] text-emerald-900">
+                                    <th className="border border-emerald-200 px-3 py-2">
+                                      Parametar
+                                    </th>
+                                    {godineUsporedba.map((g) => (
+                                      <th
+                                        key={g}
+                                        className="border border-emerald-200 px-3 py-2"
+                                      >
+                                        {g}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr className="bg-white text-[13px] text-stone-700">
+                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                                      Ukupno litara
+                                    </td>
+                                    {godineUsporedba.map((g) => (
+                                      <td
+                                        key={g}
+                                        className="border border-emerald-100 px-3 py-2"
+                                      >
+                                        {formatBroj(sortaRow.poGodinama[g]?.litara, 0)} L
+                                      </td>
+                                    ))}
+                                  </tr>
+
+                                  <tr className="bg-white text-[13px] text-stone-700">
+                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                                      Ukupno kg grožđa
+                                    </td>
+                                    {godineUsporedba.map((g) => (
+                                      <td
+                                        key={g}
+                                        className="border border-emerald-100 px-3 py-2"
+                                      >
+                                        {formatBroj(sortaRow.poGodinama[g]?.kg, 0)} kg
+                                      </td>
+                                    ))}
+                                  </tr>
+
+                                  <tr className="bg-white text-[13px] text-stone-700">
+                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                                      Broj stavki
+                                    </td>
+                                    {godineUsporedba.map((g) => (
+                                      <td
+                                        key={g}
+                                        className="border border-emerald-100 px-3 py-2"
+                                      >
+                                        {sortaRow.poGodinama[g]?.stavki ?? "-"}
+                                      </td>
+                                    ))}
+                                  </tr>
+
+                                  <tr className="bg-white text-[13px] text-stone-700">
+                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                                      Prosječni šećer
+                                    </td>
+                                    {godineUsporedba.map((g) => (
+                                      <td
+                                        key={g}
+                                        className="border border-emerald-100 px-3 py-2"
+                                      >
+                                        {formatBroj(sortaRow.poGodinama[g]?.avgSecer, 2)}
+                                      </td>
+                                    ))}
+                                  </tr>
+
+                                  <tr className="bg-white text-[13px] text-stone-700">
+                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                                      Prosječne kiseline
+                                    </td>
+                                    {godineUsporedba.map((g) => (
+                                      <td
+                                        key={g}
+                                        className="border border-emerald-100 px-3 py-2"
+                                      >
+                                        {formatBroj(sortaRow.poGodinama[g]?.avgKiseline, 2)}
+                                      </td>
+                                    ))}
+                                  </tr>
+
+                                  <tr className="bg-white text-[13px] text-stone-700">
+                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                                      Prosječni pH
+                                    </td>
+                                    {godineUsporedba.map((g) => (
+                                      <td
+                                        key={g}
+                                        className="border border-emerald-100 px-3 py-2"
+                                      >
+                                        {formatBroj(sortaRow.poGodinama[g]?.avgPh, 2)}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="space-y-4 p-4 md:hidden">
+                        {usporedbaPoSortama.map((sortaRow) => (
+                          <div
+                            key={sortaRow.sorta}
+                            className="border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/40"
+                          >
+                            <div className="border-b border-emerald-200 px-4 py-3">
+                              <div className="text-[16px] font-semibold text-stone-800">
+                                {sortaRow.sorta}
+                              </div>
+                            </div>
+
+                            <div className="space-y-3 p-3">
+                              {godineUsporedba.map((g) => {
+                                const d = sortaRow.poGodinama[g];
+                                return (
+                                  <div
+                                    key={g}
+                                    className="border border-emerald-200 bg-white p-3"
+                                  >
+                                    <div className="mb-2 text-[14px] font-semibold text-emerald-800">
+                                      Berba {g}
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2 text-[13px]">
+                                      <div>Litara</div>
+                                      <div className="font-semibold">
+                                        {formatBroj(d?.litara, 0)} L
+                                      </div>
+
+                                      <div>Kg grožđa</div>
+                                      <div className="font-semibold">
+                                        {formatBroj(d?.kg, 0)} kg
+                                      </div>
+
+                                      <div>Broj stavki</div>
+                                      <div className="font-semibold">
+                                        {d?.stavki ?? "-"}
+                                      </div>
+
+                                      <div>Šećer</div>
+                                      <div className="font-semibold">
+                                        {formatBroj(d?.avgSecer, 2)}
+                                      </div>
+
+                                      <div>Kiseline</div>
+                                      <div className="font-semibold">
+                                        {formatBroj(d?.avgKiseline, 2)}
+                                      </div>
+
+                                      <div>pH</div>
+                                      <div className="font-semibold">
+                                        {formatBroj(d?.avgPh, 2)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="text-[13px] text-stone-500">
+                Odaberi barem jedno godište za usporedbu.
               </div>
             )}
           </div>
+        )}
 
-          <div className="border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/60 p-4 shadow-sm">
-            <h2 className="mb-3 text-[16px] font-semibold text-stone-800">
-              Pregled po položaju
-            </h2>
+        <div className="mb-4 border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/60 p-4 shadow-sm">
+          <h2 className="mb-3 text-[16px] font-semibold text-stone-800">
+            Pregled po sorti
+          </h2>
 
-            {poPolozaju.length === 0 ? (
-              <p className="text-[13px] text-stone-500">Nema podataka.</p>
-            ) : (
-              <div className="space-y-2">
-                {poPolozaju.map((r) => (
-                  <div
-                    key={r.polozaj}
-                    className="border border-emerald-200 bg-white px-4 py-3"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-[14px] font-semibold text-stone-800">
-                        {r.polozaj}
-                      </div>
-                      <Oznaka variant="soft">{r.stavki} stavki</Oznaka>
+          {poSorti.length === 0 ? (
+            <p className="text-[13px] text-stone-500">Nema podataka.</p>
+          ) : (
+            <div className="grid gap-3 xl:grid-cols-2">
+              {poSorti.map((r) => (
+                <div
+                  key={r.sorta}
+                  className="border border-emerald-200 bg-white px-4 py-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[15px] font-semibold text-stone-800">
+                      {r.sorta}
                     </div>
-                    <div className="mt-1 text-[13px] text-stone-600">
-                      {formatBroj(r.litara, 0)} L / {formatBroj(r.kg, 0)} kg
-                    </div>
+                    <Oznaka variant="soft">{r.stavki} stavki</Oznaka>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+
+                  <div className="mt-2 text-[13px] text-stone-600">
+                    {formatBroj(r.litara, 0)} L / {formatBroj(r.kg, 0)} kg
+                  </div>
+
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    <Polje label="Šećer" value={formatBroj(r.avgSecer, 2)} />
+                    <Polje label="Kiseline" value={formatBroj(r.avgKiseline, 2)} />
+                    <Polje label="pH" value={formatBroj(r.avgPh, 2)} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/60 p-4 shadow-sm">
@@ -735,7 +1205,6 @@ export default function BerbaPage() {
                   g.stavke.map((s) => (s.datumBerbe ? formatDatum(s.datumBerbe) : null))
                 );
                 const godineBerbe = uniqueSorted(g.stavke.map((s) => s.godinaBerbe));
-                const polozajiBerbe = uniqueSorted(g.stavke.map((s) => s.polozaj));
 
                 return (
                   <div
@@ -779,11 +1248,10 @@ export default function BerbaPage() {
                       </div>
                     </div>
 
-                    <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="mb-4 grid gap-3 md:grid-cols-3">
                       <Polje label="Sorta" value={sorteBerbe.join(", ") || "-"} />
                       <Polje label="Datum berbe" value={datumiBerbe.join(", ") || "-"} />
                       <Polje label="Godina berbe" value={godineBerbe.join(", ") || "-"} />
-                      <Polje label="Položaj" value={polozajiBerbe.join(", ") || "-"} />
                     </div>
 
                     <div className="mb-4 overflow-x-auto">
@@ -924,7 +1392,6 @@ export default function BerbaPage() {
               type="button"
               onClick={() => {
                 setFilterSorta("");
-                setFilterPolozaj("");
                 setFilterTank("");
                 setFilterNazivVina("");
                 setFilterTekst("");
@@ -935,7 +1402,7 @@ export default function BerbaPage() {
             </button>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div>
               <label className="mb-1 block text-[12px] font-semibold text-stone-700">
                 Sorta
@@ -949,24 +1416,6 @@ export default function BerbaPage() {
                 {sorte.map((s) => (
                   <option key={s} value={s}>
                     {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
-                Položaj
-              </label>
-              <select
-                value={filterPolozaj}
-                onChange={(e) => setFilterPolozaj(e.target.value)}
-                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
-              >
-                <option value="">Svi položaji</option>
-                {polozaji.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
                   </option>
                 ))}
               </select>
@@ -1015,7 +1464,7 @@ export default function BerbaPage() {
               <input
                 value={filterTekst}
                 onChange={(e) => setFilterTekst(e.target.value)}
-                placeholder="sorta, položaj, oznaka..."
+                placeholder="sorta, oznaka, vinograd..."
                 className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
               />
             </div>
