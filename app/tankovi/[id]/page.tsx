@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type React from "react";
 import { prisma } from "@/lib/prisma";
 import { notFound, redirect } from "next/navigation";
 import { cookies } from "next/headers";
@@ -797,6 +798,10 @@ export default async function TankPregledPage({
       >
         Izvještaj
       </Link>
+
+      {tank.nazivVina?.trim() ? (
+        <div style={nazivVinaStyle}>{tank.nazivVina}</div>
+      ) : null}
 
       <div style={topParamsGridStyle}>
         <ParamTop
@@ -1870,6 +1875,17 @@ const headerActionsStyle: React.CSSProperties = {
   gap: 8,
   flexWrap: "wrap",
   alignItems: "center",
+};
+
+const nazivVinaStyle: React.CSSProperties = {
+  marginTop: 12,
+  marginBottom: 10,
+  textAlign: "center",
+  fontSize: 24,
+  fontWeight: 800,
+  color: "#7f1d1d",
+  lineHeight: 1.15,
+  letterSpacing: 0.2,
 };
 
 const topParamsGridStyle: React.CSSProperties = {
