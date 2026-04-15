@@ -24,32 +24,31 @@ function datumIliNull(v: unknown): Date | null {
 export async function GET() {
   try {
     const punjenjaRaw = await prisma.punjenjeTanka.findMany({
+  orderBy: {
+    datumPunjenja: "desc",
+  },
+  include: {
+    tank: {
+      select: {
+        id: true,
+        broj: true,
+        tip: true,
+      },
+    },
+    stavke: {
+      where: {
+        obrisano: false,
+      },
       orderBy: {
-        datumPunjenja: "desc",
+        createdAt: "asc",
       },
-      take: 50,
       include: {
-        tank: {
-          select: {
-            id: true,
-            broj: true,
-            tip: true,
-          },
-        },
-        stavke: {
-          where: {
-            obrisano: false,
-          },
-          orderBy: {
-            createdAt: "asc",
-          },
-          include: {
-            sorta: true,
-          },
-        },
-        pocetnoMjerenje: true,
+        sorta: true,
       },
-    });
+    },
+    pocetnoMjerenje: true,
+  },
+});
 
     const punjenja = punjenjaRaw.map((p) => {
       const ukupnoLitara = p.stavke.reduce(

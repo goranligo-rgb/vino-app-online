@@ -114,6 +114,12 @@ function formatDatum(v?: string | null) {
   return d.toLocaleDateString("hr-HR");
 }
 
+function toTimestamp(v?: string | null) {
+  if (!v) return Number.MAX_SAFE_INTEGER;
+  const t = new Date(v).getTime();
+  return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t;
+}
+
 function uniqueSorted(values: (string | number | null | undefined)[]) {
   return [
     ...new Set(
@@ -195,9 +201,10 @@ export default function BerbaPage() {
   const [deletingId, setDeletingId] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
 
+  const [aktivnaGodina, setAktivnaGodina] = useState("");
+
   const [filterSorta, setFilterSorta] = useState("");
   const [filterPolozaj, setFilterPolozaj] = useState("");
-  const [filterGodina, setFilterGodina] = useState("");
   const [filterTank, setFilterTank] = useState("");
   const [filterNazivVina, setFilterNazivVina] = useState("");
   const [filterTekst, setFilterTekst] = useState("");
@@ -311,19 +318,29 @@ export default function BerbaPage() {
     return result;
   }, [data]);
 
-  const sorte = useMemo(() => uniqueSorted(redovi.map((r) => r.sorta)), [redovi]);
-  const polozaji = useMemo(() => uniqueSorted(redovi.map((r) => r.polozaj)), [redovi]);
-  const godine = useMemo(() => uniqueSorted(redovi.map((r) => r.godinaBerbe)), [redovi]);
-  const tankovi = useMemo(() => uniqueSorted(redovi.map((r) => r.tankBroj)), [redovi]);
-  const naziviVina = useMemo(() => uniqueSorted(redovi.map((r) => r.nazivVina)), [redovi]);
+  const godine = useMemo(() => {
+    return uniqueSorted(redovi.map((r) => r.godinaBerbe)).sort(
+      (a, b) => Number(b) - Number(a)
+    );
+  }, [redovi]);
+
+  useEffect(() => {
+    if (!aktivnaGodina && godine.length > 0) {
+      setAktivnaGodina(String(godine[0]));
+    }
+  }, [godine, aktivnaGodina]);
+
+  const redoviAktivneGodine = useMemo(() => {
+    if (!aktivnaGodina) return redovi;
+    return redovi.filter((r) => String(r.godinaBerbe ?? "") === aktivnaGodina);
+  }, [redovi, aktivnaGodina]);
 
   const filtrirani = useMemo(() => {
     const tekst = filterTekst.trim().toLowerCase();
 
-    return redovi.filter((r) => {
+    return redoviAktivneGodine.filter((r) => {
       if (filterSorta && r.sorta !== filterSorta) return false;
       if (filterPolozaj && (r.polozaj ?? "") !== filterPolozaj) return false;
-      if (filterGodina && String(r.godinaBerbe ?? "") !== filterGodina) return false;
       if (filterTank && String(r.tankBroj ?? "") !== filterTank) return false;
       if (filterNazivVina && (r.nazivVina ?? "") !== filterNazivVina) return false;
 
@@ -350,14 +367,30 @@ export default function BerbaPage() {
       return true;
     });
   }, [
-    redovi,
+    redoviAktivneGodine,
     filterSorta,
     filterPolozaj,
-    filterGodina,
     filterTank,
     filterNazivVina,
     filterTekst,
   ]);
+
+  const sorte = useMemo(
+    () => uniqueSorted(redoviAktivneGodine.map((r) => r.sorta)),
+    [redoviAktivneGodine]
+  );
+  const polozaji = useMemo(
+    () => uniqueSorted(redoviAktivneGodine.map((r) => r.polozaj)),
+    [redoviAktivneGodine]
+  );
+  const tankovi = useMemo(
+    () => uniqueSorted(redoviAktivneGodine.map((r) => r.tankBroj)),
+    [redoviAktivneGodine]
+  );
+  const naziviVina = useMemo(
+    () => uniqueSorted(redoviAktivneGodine.map((r) => r.nazivVina)),
+    [redoviAktivneGodine]
+  );
 
   const sazetak = useMemo(() => {
     const punjenjaIds = new Set(filtrirani.map((r) => r.punjenjeId));
@@ -367,6 +400,52 @@ export default function BerbaPage() {
     const ukupnoLitara = filtrirani.reduce((sum, r) => sum + (r.kolicinaLitara || 0), 0);
     const ukupnoKg = filtrirani.reduce((sum, r) => sum + (r.kolicinaKgGrozdja || 0), 0);
 
+    const poSortiLitara = new Map<string, number>();
+    for (const r of filtrirani) {
+      const key = r.sorta || "Nepoznato";
+      poSortiLitara.set(key, (poSortiLitara.get(key) || 0) + (r.kolicinaLitara || 0));
+    }
+
+    const najzastupljenijaSorta =
+      [...poSortiLitara.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "-";
+
+    const sortiraniZaPrviUnos = [...filtrirani].sort((a, b) => {
+      const diff = toTimestamp(a.datumBerbe) - toTimestamp(b.datumBerbe);
+      if (diff !== 0) return diff;
+      return toTimestamp(a.datumPunjenja) - toTimestamp(b.datumPunjenja);
+    });
+
+    const prviUnosPoSorti = new Map<string, Red>();
+    for (const r of sortiraniZaPrviUnos) {
+      const key = r.sorta || "Nepoznato";
+      if (!prviUnosPoSorti.has(key)) {
+        prviUnosPoSorti.set(key, r);
+      }
+    }
+
+    const pocetniZapisi = [...prviUnosPoSorti.values()];
+
+    const zapisiSaSecerom = pocetniZapisi.filter((r) => r.secer != null);
+    const prosjecniSecer =
+      zapisiSaSecerom.length > 0
+        ? zapisiSaSecerom.reduce((sum, r) => sum + Number(r.secer || 0), 0) /
+          zapisiSaSecerom.length
+        : null;
+
+    const zapisiSaKiselinama = pocetniZapisi.filter((r) => r.kiseline != null);
+    const prosjecneKiseline =
+      zapisiSaKiselinama.length > 0
+        ? zapisiSaKiselinama.reduce((sum, r) => sum + Number(r.kiseline || 0), 0) /
+          zapisiSaKiselinama.length
+        : null;
+
+    const zapisiSaPh = pocetniZapisi.filter((r) => r.ph != null);
+    const prosjecniPh =
+      zapisiSaPh.length > 0
+        ? zapisiSaPh.reduce((sum, r) => sum + Number(r.ph || 0), 0) /
+          zapisiSaPh.length
+        : null;
+
     return {
       brojPunjenja: punjenjaIds.size,
       brojStavki: filtrirani.length,
@@ -374,11 +453,23 @@ export default function BerbaPage() {
       brojSorti: sorteSet.size,
       ukupnoLitara,
       ukupnoKg,
+      najzastupljenijaSorta,
+      prosjecniSecer,
+      prosjecneKiseline,
+      prosjecniPh,
     };
   }, [filtrirani]);
 
   const poSorti = useMemo(() => {
-    const mapa = new Map<string, { sorta: string; litara: number; kg: number; stavki: number }>();
+    const mapa = new Map<
+      string,
+      {
+        sorta: string;
+        litara: number;
+        kg: number;
+        stavki: number;
+      }
+    >();
 
     for (const r of filtrirani) {
       const key = r.sorta || "Nepoznato";
@@ -398,7 +489,15 @@ export default function BerbaPage() {
   }, [filtrirani]);
 
   const poPolozaju = useMemo(() => {
-    const mapa = new Map<string, { polozaj: string; litara: number; kg: number; stavki: number }>();
+    const mapa = new Map<
+      string,
+      {
+        polozaj: string;
+        litara: number;
+        kg: number;
+        stavki: number;
+      }
+    >();
 
     for (const r of filtrirani) {
       const key = r.polozaj || "Bez položaja";
@@ -487,142 +586,62 @@ export default function BerbaPage() {
           </div>
         </div>
 
-        <div className="mb-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <KarticaBroj naslov="Punjenja" vrijednost={String(sazetak.brojPunjenja)} />
-          <KarticaBroj naslov="Stavke berbe" vrijednost={String(sazetak.brojStavki)} />
-          <KarticaBroj
-            naslov="Ukupno litara"
-            vrijednost={`${formatBroj(sazetak.ukupnoLitara, 0)} L`}
-          />
-          <KarticaBroj
-            naslov="Ukupno kg grožđa"
-            vrijednost={`${formatBroj(sazetak.ukupnoKg, 0)} kg`}
-          />
-          <KarticaBroj naslov="Sorte" vrijednost={String(sazetak.brojSorti)} />
-          <KarticaBroj naslov="Položaji" vrijednost={String(sazetak.brojPolozaja)} />
-        </div>
+        <div className="mb-4 border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/70 p-4 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.14em] text-emerald-800/70">
+                Aktivna berba
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <select
+                  value={aktivnaGodina}
+                  onChange={(e) => {
+                    setAktivnaGodina(e.target.value);
+                    setFilterSorta("");
+                    setFilterPolozaj("");
+                    setFilterTank("");
+                    setFilterNazivVina("");
+                    setFilterTekst("");
+                  }}
+                  className="border border-emerald-300 bg-white px-4 py-3 text-[18px] font-semibold text-stone-800 outline-none focus:border-emerald-500"
+                >
+                  {godine.map((g) => (
+                    <option key={g} value={g}>
+                      Berba {g}
+                    </option>
+                  ))}
+                </select>
 
-        <div className="mb-4 border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/60 p-4 shadow-sm">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-[17px] font-semibold text-stone-800">Filteri</h2>
-            <button
-              type="button"
-              onClick={() => {
-                setFilterSorta("");
-                setFilterPolozaj("");
-                setFilterGodina("");
-                setFilterTank("");
-                setFilterNazivVina("");
-                setFilterTekst("");
-              }}
-              className="border border-emerald-200 bg-white px-3 py-2 text-[12px] font-medium text-stone-700 transition hover:bg-emerald-50"
-            >
-              Očisti filtere
-            </button>
+                {aktivnaGodina ? (
+                  <Oznaka variant="strong">Godina {aktivnaGodina}</Oznaka>
+                ) : null}
+              </div>
+            </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
-                Sorta
-              </label>
-              <select
-                value={filterSorta}
-                onChange={(e) => setFilterSorta(e.target.value)}
-                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
-              >
-                <option value="">Sve sorte</option>
-                {sorte.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
-                Položaj
-              </label>
-              <select
-                value={filterPolozaj}
-                onChange={(e) => setFilterPolozaj(e.target.value)}
-                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
-              >
-                <option value="">Svi položaji</option>
-                {polozaji.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
-                Godina berbe
-              </label>
-              <select
-                value={filterGodina}
-                onChange={(e) => setFilterGodina(e.target.value)}
-                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
-              >
-                <option value="">Sve godine</option>
-                {godine.map((g) => (
-                  <option key={g} value={g}>
-                    {g}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
-                Tank
-              </label>
-              <select
-                value={filterTank}
-                onChange={(e) => setFilterTank(e.target.value)}
-                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
-              >
-                <option value="">Svi tankovi</option>
-                {tankovi.map((t) => (
-                  <option key={t} value={t}>
-                    Tank {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
-                Naziv vina
-              </label>
-              <select
-                value={filterNazivVina}
-                onChange={(e) => setFilterNazivVina(e.target.value)}
-                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
-              >
-                <option value="">Sva vina</option>
-                {naziviVina.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
-                Pretraga
-              </label>
-              <input
-                value={filterTekst}
-                onChange={(e) => setFilterTekst(e.target.value)}
-                placeholder="sorta, položaj, oznaka..."
-                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
-              />
-            </div>
+          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-8">
+            <KarticaBroj
+              naslov="Ukupno litara"
+              vrijednost={`${formatBroj(sazetak.ukupnoLitara, 0)} L`}
+            />
+            <KarticaBroj
+              naslov="Ukupno kg grožđa"
+              vrijednost={`${formatBroj(sazetak.ukupnoKg, 0)} kg`}
+            />
+            <KarticaBroj naslov="Punjenja" vrijednost={String(sazetak.brojPunjenja)} />
+            <KarticaBroj naslov="Stavke berbe" vrijednost={String(sazetak.brojStavki)} />
+            <KarticaBroj naslov="Sorte" vrijednost={String(sazetak.brojSorti)} />
+            <KarticaBroj naslov="Položaji" vrijednost={String(sazetak.brojPolozaja)} />
+            <KarticaBroj
+              naslov="Prosječni šećer"
+              vrijednost={formatBroj(sazetak.prosjecniSecer, 2)}
+              podnaslov="samo prvi unos po sorti"
+            />
+            <KarticaBroj
+              naslov="Prosječne kiseline"
+              vrijednost={formatBroj(sazetak.prosjecneKiseline, 2)}
+              podnaslov={sazetak.najzastupljenijaSorta !== "-" ? `glavna sorta: ${sazetak.najzastupljenijaSorta}` : undefined}
+            />
           </div>
         </div>
 
@@ -706,7 +725,7 @@ export default function BerbaPage() {
             </div>
           ) : detaljiPoPunjenju.length === 0 ? (
             <div className="border border-dashed border-emerald-300 bg-white p-8 text-center text-[13px] text-stone-500">
-              Nema podataka za odabrane filtere.
+              Nema podataka za odabranu godinu.
             </div>
           ) : (
             <div className="space-y-5">
@@ -894,6 +913,113 @@ export default function BerbaPage() {
               })}
             </div>
           )}
+        </div>
+
+        <div className="mt-4 border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/60 p-4 shadow-sm">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-[17px] font-semibold text-stone-800">
+              Dodatni filteri
+            </h2>
+            <button
+              type="button"
+              onClick={() => {
+                setFilterSorta("");
+                setFilterPolozaj("");
+                setFilterTank("");
+                setFilterNazivVina("");
+                setFilterTekst("");
+              }}
+              className="border border-emerald-200 bg-white px-3 py-2 text-[12px] font-medium text-stone-700 transition hover:bg-emerald-50"
+            >
+              Očisti filtere
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
+                Sorta
+              </label>
+              <select
+                value={filterSorta}
+                onChange={(e) => setFilterSorta(e.target.value)}
+                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
+              >
+                <option value="">Sve sorte</option>
+                {sorte.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
+                Položaj
+              </label>
+              <select
+                value={filterPolozaj}
+                onChange={(e) => setFilterPolozaj(e.target.value)}
+                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
+              >
+                <option value="">Svi položaji</option>
+                {polozaji.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
+                Tank
+              </label>
+              <select
+                value={filterTank}
+                onChange={(e) => setFilterTank(e.target.value)}
+                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
+              >
+                <option value="">Svi tankovi</option>
+                {tankovi.map((t) => (
+                  <option key={t} value={t}>
+                    Tank {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
+                Naziv vina
+              </label>
+              <select
+                value={filterNazivVina}
+                onChange={(e) => setFilterNazivVina(e.target.value)}
+                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
+              >
+                <option value="">Sva vina</option>
+                {naziviVina.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
+                Pretraga
+              </label>
+              <input
+                value={filterTekst}
+                onChange={(e) => setFilterTekst(e.target.value)}
+                placeholder="sorta, položaj, oznaka..."
+                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
+              />
+            </div>
+          </div>
         </div>
       </div>
     </main>
