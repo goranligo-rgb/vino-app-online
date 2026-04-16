@@ -378,6 +378,108 @@ function jeSamoBentotest(m: Mjerenje) {
   return !imaKlasicneParametre(m) && !!(m.bentotestDatum || m.bentotestStatus);
 }
 
+function ConfirmModal({
+  open,
+  title,
+  description,
+  confirmText,
+  cancelText = "Odustani",
+  loading = false,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  description: React.ReactNode;
+  confirmText: string;
+  cancelText?: string;
+  loading?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15,23,42,0.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        zIndex: 9999,
+      }}
+      onClick={onCancel}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 520,
+          background: "#ffffff",
+          border: "1px solid #dbeafe",
+          boxShadow: "0 20px 50px rgba(15,23,42,0.20)",
+          padding: 22,
+          display: "grid",
+          gap: 14,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            fontSize: 22,
+            fontWeight: 800,
+            color: "#1e3a5f",
+            margin: 0,
+          }}
+        >
+          {title}
+        </div>
+
+        <div
+          style={{
+            color: "#475569",
+            lineHeight: 1.6,
+            fontSize: 15,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {description}
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 10,
+            flexWrap: "wrap",
+            marginTop: 4,
+          }}
+        >
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={loading}
+            style={btnGhost}
+          >
+            {cancelText}
+          </button>
+
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            style={btnDanger}
+          >
+            {loading ? "Brišem..." : confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MjerenjePage() {
   const [tankovi, setTankovi] = useState<Tank[]>([]);
   const [mjerenja, setMjerenja] = useState<Mjerenje[]>([]);
@@ -385,6 +487,10 @@ export default function MjerenjePage() {
   const [formData, setFormData] = useState<FormDataType>(praznaForma());
   const [otvorenoMjerenjeId, setOtvorenoMjerenjeId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [odabranoZaBrisanje, setOdabranoZaBrisanje] = useState<Mjerenje | null>(null);
+  const [brisanjeLoading, setBrisanjeLoading] = useState(false);
 
   const formaRef = useRef<HTMLFormElement | null>(null);
 
@@ -565,6 +671,56 @@ export default function MjerenjePage() {
     }
   }
 
+  function otvoriBrisanjeMjerenja(m: Mjerenje) {
+    setOdabranoZaBrisanje(m);
+    setConfirmOpen(true);
+  }
+
+  async function potvrdiBrisanjeMjerenja() {
+    if (!odabranoZaBrisanje?.id) return;
+
+    setBrisanjeLoading(true);
+    setPoruka("");
+
+    try {
+      const res = await fetch("/api/mjerenje", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: odabranoZaBrisanje.id,
+        }),
+      });
+
+      let data: any = null;
+      const text = await res.text();
+
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        setPoruka(data?.error || "Brisanje mjerenja nije uspjelo.");
+        return;
+      }
+
+      setPoruka(data?.message || "Mjerenje je obrisano.");
+      setOtvorenoMjerenjeId((prev) =>
+        prev === odabranoZaBrisanje.id ? null : prev
+      );
+      setConfirmOpen(false);
+      setOdabranoZaBrisanje(null);
+      await ucitajMjerenja();
+    } catch {
+      setPoruka("Brisanje mjerenja nije uspjelo.");
+    } finally {
+      setBrisanjeLoading(false);
+    }
+  }
+
   return (
     <div
       style={{
@@ -574,6 +730,34 @@ export default function MjerenjePage() {
         fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
       }}
     >
+      <ConfirmModal
+        open={confirmOpen}
+        title="Obriši mjerenje"
+        description={
+          odabranoZaBrisanje ? (
+            <>
+              Jeste li sigurni da želite obrisati ovo mjerenje?
+              {"\n\n"}
+              <strong>{opisTankaKratko(odabranoZaBrisanje.tank)}</strong>
+              {"\n"}
+              Datum: {formatDatum(odabranoZaBrisanje.izmjerenoAt)}
+              {"\n\n"}
+              Ova radnja je trajna i ne može se poništiti.
+            </>
+          ) : (
+            "Jeste li sigurni da želite obrisati ovo mjerenje?"
+          )
+        }
+        confirmText="Obriši"
+        loading={brisanjeLoading}
+        onConfirm={potvrdiBrisanjeMjerenja}
+        onCancel={() => {
+          if (brisanjeLoading) return;
+          setConfirmOpen(false);
+          setOdabranoZaBrisanje(null);
+        }}
+      />
+
       <div
         style={{
           maxWidth: 1700,
@@ -1075,6 +1259,7 @@ export default function MjerenjePage() {
 
                     {otvoreno ? (
                       <div
+                        onClick={(e) => e.stopPropagation()}
                         style={{
                           marginTop: 12,
                           background: "#ffffff",
@@ -1226,6 +1411,22 @@ export default function MjerenjePage() {
                             </div>
                           </div>
                         ) : null}
+
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "flex-end",
+                            marginTop: 4,
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => otvoriBrisanjeMjerenja(m)}
+                            style={btnDeleteInline}
+                          >
+                            Obriši mjerenje
+                          </button>
+                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -1352,4 +1553,34 @@ const btnWarm: React.CSSProperties = {
   cursor: "pointer",
   fontSize: 15,
   boxShadow: "0 10px 20px rgba(59,130,246,0.25)",
+};
+
+const btnGhost: React.CSSProperties = {
+  padding: "12px 16px",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#334155",
+  fontWeight: 800,
+  cursor: "pointer",
+  fontSize: 14,
+};
+
+const btnDanger: React.CSSProperties = {
+  padding: "12px 16px",
+  border: "1px solid #fecaca",
+  background: "linear-gradient(180deg, #fff1f2 0%, #ffe4e6 100%)",
+  color: "#b91c1c",
+  fontWeight: 900,
+  cursor: "pointer",
+  fontSize: 14,
+};
+
+const btnDeleteInline: React.CSSProperties = {
+  padding: "11px 14px",
+  border: "1px solid #fecaca",
+  background: "#fff1f2",
+  color: "#b91c1c",
+  fontWeight: 900,
+  cursor: "pointer",
+  fontSize: 13,
 };

@@ -59,7 +59,9 @@ model Tank {
   pretociKaoCilj  Pretok[]      @relation("CiljniPretoci")
   pretociKaoIzvor PretokIzvor[] @relation("IzvorniPretoci")
 
-  punjenja PunjenjeTanka[]
+  punjenja        PunjenjeTanka[]
+  pretokSnapshoti PretokSnapshot[]
+  pretokMjerenja  PretokMjerenje[]
 }
 
 model Pretok {
@@ -69,10 +71,17 @@ model Pretok {
   ciljTankId String
   ciljTank   Tank   @relation("CiljniPretoci", fields: [ciljTankId], references: [id])
 
+  tip       TipPretokaDb @default(OBICNI)
   napomena  String?
-  createdAt DateTime @default(now())
+  createdAt DateTime     @default(now())
 
-  izvori PretokIzvor[]
+  izvori    PretokIzvor[]
+  snapshoti PretokSnapshot[]
+  mjerenja  PretokMjerenje[]
+
+  @@index([ciljTankId])
+  @@index([createdAt])
+  @@index([tip])
 }
 
 model PretokIzvor {
@@ -82,6 +91,79 @@ model PretokIzvor {
   tankId   String
   tank     Tank   @relation("IzvorniPretoci", fields: [tankId], references: [id])
   kolicina Float
+
+  @@index([pretokId])
+  @@index([tankId])
+}
+
+model PretokSnapshot {
+  id       String @id @default(uuid())
+  pretokId String
+  tankId   String
+  uloga    String // "CILJ" | "IZVOR"
+
+  brojTanka      Int?
+  kolicinaPrije  Float?
+  sortaPrije     String?
+  nazivVinaPrije String?
+  godistePrije   Int?
+  kapacitetPrije Float?
+  tipTankaPrije  String?
+  opisPrije      String?
+
+  createdAt DateTime @default(now())
+
+  pretok Pretok @relation(fields: [pretokId], references: [id], onDelete: Cascade)
+  tank   Tank   @relation(fields: [tankId], references: [id])
+
+  sorte    PretokSnapshotSorta[]
+  blendovi PretokSnapshotBlend[]
+
+  @@index([pretokId])
+  @@index([tankId])
+  @@index([uloga])
+}
+
+model PretokSnapshotSorta {
+  id         String   @id @default(uuid())
+  snapshotId String
+  nazivSorte String
+  postotak   Float
+  createdAt  DateTime @default(now())
+
+  snapshot PretokSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+}
+
+model PretokSnapshotBlend {
+  id                String   @id @default(uuid())
+  snapshotId        String
+  izvorTankId       String?
+  izvorArhivaVinaId String?
+  nazivVina         String?
+  sorta             String?
+  kolicina          Float
+  postotak          Float
+  createdAt         DateTime @default(now())
+
+  snapshot PretokSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@index([izvorTankId])
+  @@index([izvorArhivaVinaId])
+}
+
+model PretokMjerenje {
+  id         String   @id @default(uuid())
+  pretokId   String
+  mjerenjeId String   @unique
+  tankId     String
+  createdAt  DateTime @default(now())
+
+  pretok   Pretok   @relation(fields: [pretokId], references: [id], onDelete: Cascade)
+  mjerenje Mjerenje @relation(fields: [mjerenjeId], references: [id], onDelete: Cascade)
+  tank     Tank     @relation(fields: [tankId], references: [id])
 
   @@index([pretokId])
   @@index([tankId])
@@ -315,7 +397,8 @@ model Mjerenje {
   tank     Tank  @relation(fields: [tankId], references: [id], onDelete: Cascade)
   korisnik User? @relation(fields: [korisnikId], references: [id])
 
-  pocetnoZaPunjenja PunjenjeTanka[] @relation("PocetnoMjerenjePunjenja")
+  pocetnoZaPunjenja PunjenjeTanka[]  @relation("PocetnoMjerenjePunjenja")
+  pretokVeze        PretokMjerenje[]
 
   @@index([tankId, izmjerenoAt])
 }
@@ -454,6 +537,12 @@ enum KorekcijaTip {
   PH
   ALKOHOL
   SECER
+}
+
+enum TipPretokaDb {
+  OBICNI
+  CUVEE
+  BLEND_ISTE_SORTE
 }
 
 model ArhivaVina {
@@ -706,7 +795,7 @@ model ArhivaPunjenjeTanka {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  arhivaVina ArhivaVina @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
+  arhivaVina ArhivaVina             @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
   stavke     ArhivaPunjenjeStavka[]
 
   @@index([arhivaVinaId])
@@ -714,30 +803,30 @@ model ArhivaPunjenjeTanka {
 }
 
 model ArhivaPunjenjeStavka {
-  id                      String   @id @default(uuid())
+  id                      String  @id @default(uuid())
   arhivaPunjenjeId        String
   izvornaPunjenjeStavkaId String?
 
-  nazivSorte              String
-  sortaId                 String?
-  opis                    String?
-  kolicinaKgGrozdja       Float?
-  kolicinaLitara          Float
-  datumBerbe              DateTime?
-  godinaBerbe             Int?
-  polozaj                 String?
-  parcela                 String?
-  vinograd                String?
-  oznakaBerbe             String?
-  secer                   Float?
-  kiseline                Float?
-  ph                      Float?
-  napomenaBerbe           String?
+  nazivSorte        String
+  sortaId           String?
+  opis              String?
+  kolicinaKgGrozdja Float?
+  kolicinaLitara    Float
+  datumBerbe        DateTime?
+  godinaBerbe       Int?
+  polozaj           String?
+  parcela           String?
+  vinograd          String?
+  oznakaBerbe       String?
+  secer             Float?
+  kiseline          Float?
+  ph                Float?
+  napomenaBerbe     String?
 
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  arhivaPunjenje          ArhivaPunjenjeTanka @relation(fields: [arhivaPunjenjeId], references: [id], onDelete: Cascade)
+  arhivaPunjenje ArhivaPunjenjeTanka @relation(fields: [arhivaPunjenjeId], references: [id], onDelete: Cascade)
 
   @@index([arhivaPunjenjeId])
   @@index([izvornaPunjenjeStavkaId])

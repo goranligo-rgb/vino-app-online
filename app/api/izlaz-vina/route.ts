@@ -276,6 +276,8 @@ async function arhivirajPrazanTank(
 
   await tx.punjenjeTanka.deleteMany({ where: { tankId } });
 
+  await tx.izlazVina.deleteMany({ where: { tankId } });
+
   await tx.tank.update({
     where: { id: tankId },
     data: {

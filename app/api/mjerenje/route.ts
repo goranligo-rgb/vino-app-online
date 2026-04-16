@@ -276,8 +276,30 @@ export async function DELETE(req: Request) {
       );
     }
 
-    await prisma.mjerenje.delete({
-      where: { id: String(id) },
+    await prisma.$transaction(async (tx) => {
+      const postojece = await tx.mjerenje.findUnique({
+        where: { id: String(id) },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!postojece) {
+        throw new Error("Mjerenje nije pronađeno.");
+      }
+
+      await tx.punjenjeTanka.updateMany({
+        where: {
+          pocetnoMjerenjeId: String(id),
+        },
+        data: {
+          pocetnoMjerenjeId: null,
+        },
+      });
+
+      await tx.mjerenje.delete({
+        where: { id: String(id) },
+      });
     });
 
     return NextResponse.json({
