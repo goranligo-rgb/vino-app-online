@@ -340,11 +340,13 @@ model Unit {
   faktor Float?
 
   preparations                    Preparation[]
+  preparationStockUnits           Preparation[]         @relation("PreparationStockUnit")
+  stockEntries                    PreparationStockEntry[]
   radnje                          Radnja[]
-  zadaciKaoIzlaznaJedinica        Zadatak[]       @relation("ZadatakIzlaznaJedinica")
-  zadaciKaoJedinica               Zadatak[]       @relation("ZadatakJedinica")
-  zadatakStavkeKaoJedinica        ZadatakStavka[] @relation("ZadatakStavkaJedinica")
-  zadatakStavkeKaoIzlaznaJedinica ZadatakStavka[] @relation("ZadatakStavkaIzlaznaJedinica")
+  zadaciKaoIzlaznaJedinica        Zadatak[]             @relation("ZadatakIzlaznaJedinica")
+  zadaciKaoJedinica               Zadatak[]             @relation("ZadatakJedinica")
+  zadatakStavkeKaoJedinica        ZadatakStavka[]       @relation("ZadatakStavkaJedinica")
+  zadatakStavkeKaoIzlaznaJedinica ZadatakStavka[]       @relation("ZadatakStavkaIzlaznaJedinica")
 }
 
 model Preparation {
@@ -369,11 +371,36 @@ model Preparation {
   referentniVolumen          Float?
   referentniVolumenJedinica  String?
 
-  unit          Unit?           @relation(fields: [unitId], references: [id])
-  additions     Addition[]
-  zadaci        Zadatak[]
-  radnje        Radnja[]
-  zadatakStavke ZadatakStavka[]
+  stanjeNaSkladistu   Float   @default(0)
+  minimalnaKolicina   Float   @default(0)
+  skladisnaJedinicaId String?
+  aktivan             Boolean @default(true)
+
+  unit              Unit?                  @relation(fields: [unitId], references: [id])
+  skladisnaJedinica Unit?                  @relation("PreparationStockUnit", fields: [skladisnaJedinicaId], references: [id])
+  additions         Addition[]
+  zadaci            Zadatak[]
+  radnje            Radnja[]
+  zadatakStavke     ZadatakStavka[]
+  skladisniUlazi    PreparationStockEntry[]
+}
+
+model PreparationStockEntry {
+  id             String   @id @default(uuid())
+  preparationId  String
+  kolicina       Float
+  unitId         String
+  datum          DateTime @default(now())
+  dobavljac      String?
+  brojDokumenta  String?
+  napomena       String?
+  createdAt      DateTime @default(now())
+
+  preparation Preparation @relation(fields: [preparationId], references: [id], onDelete: Cascade)
+  unit        Unit        @relation(fields: [unitId], references: [id])
+
+  @@index([preparationId])
+  @@index([datum])
 }
 
 model Mjerenje {

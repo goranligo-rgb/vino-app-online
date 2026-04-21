@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 type KorekcijaTipApi =
   | "SLOBODNI_SO2"
@@ -44,6 +44,8 @@ type Preparat = {
   dozaOd?: number | null;
   dozaDo?: number | null;
   unitId?: string | null;
+
+  aktivan?: boolean;
 
   isKorekcijski?: boolean;
   korekcijaTip?: KorekcijaTipApi | null;
@@ -225,7 +227,10 @@ export default function KorekcijaModal({
   const filtriraniPreparati = useMemo(() => {
     if (!tipKorekcijeApi) return [];
     return preparati.filter(
-      (p) => p.isKorekcijski && p.korekcijaTip === tipKorekcijeApi
+      (p) =>
+        p.aktivan !== false &&
+        p.isKorekcijski &&
+        p.korekcijaTip === tipKorekcijeApi
     );
   }, [preparati, tipKorekcijeApi]);
 
@@ -370,11 +375,23 @@ export default function KorekcijaModal({
           tankId: tank.id,
           vrsta: "KOREKCIJA",
           naslov: `Korekcija: ${LABELS[vrsta]}`,
-          napomena: `Trenutno: ${fmt(trenutnoStanje, 2)} ${korekcijskaJedinica}, željeno: ${fmt(zeljenaVrijednost, 2)} ${korekcijskaJedinica}, povećanje: ${fmt(razlika, 2)} ${korekcijskaJedinica}, doza: ${fmtKolicina(izracun.dozaPoHL)} ${jedinicaZaPreparat}/hL, dodati: ${fmtKolicina(izracun.prikazna)} ${jedinicaZaPreparat}`,
+          napomena: `Trenutno: ${fmt(
+            trenutnoStanje,
+            2
+          )} ${korekcijskaJedinica}, željeno: ${fmt(
+            zeljenaVrijednost,
+            2
+          )} ${korekcijskaJedinica}, povećanje: ${fmt(
+            razlika,
+            2
+          )} ${korekcijskaJedinica}, doza: ${fmtKolicina(
+            izracun.dozaPoHL
+          )} ${jedinicaZaPreparat}/hL, dodati: ${fmtKolicina(
+            izracun.prikazna
+          )} ${jedinicaZaPreparat}`,
           tipKorekcije: tipKorekcijeApi,
           trenutnaVrijednost: trenutnoStanje,
-          zeljenaVrijednost: zeljenaVrijednost,
-
+          zeljenaVrijednost,
           preparatId,
           doza: izracun.dozaPoHL,
           jedinicaId: odabraniPreparat.unitId ?? odabraniPreparat.unit?.id ?? null,
@@ -412,76 +429,18 @@ export default function KorekcijaModal({
   if (!otvoren || !tank) return null;
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(33, 18, 24, 0.45)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 20,
-        zIndex: 9999,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "100%",
-          maxWidth: 580,
-          background: "#fffdfd",
-          border: "1px solid #eadde1",
-          borderRadius: 22,
-          boxShadow: "0 24px 60px rgba(72, 23, 39, 0.22)",
-          padding: 22,
-          display: "grid",
-          gap: 16,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "start",
-            gap: 12,
-          }}
-        >
+    <div onClick={onClose} style={overlayStyle}>
+      <div onClick={(e) => e.stopPropagation()} style={modalStyle}>
+        <div style={topRowStyle}>
           <div>
-            <div
-              style={{
-                fontSize: 24,
-                fontWeight: 800,
-                color: "#4a1f2d",
-                marginBottom: 8,
-              }}
-            >
-              Korekcija
-            </div>
-
-            <div style={{ color: "#5a2534", fontWeight: 700, fontSize: 15 }}>
-              Tank {tank.broj}
-            </div>
-
-            <div style={{ color: "#7a5b63", fontSize: 14, marginTop: 4 }}>
+            <div style={titleStyle}>Korekcija</div>
+            <div style={tankStyle}>Tank {tank.broj}</div>
+            <div style={subInfoStyle}>
               Količina vina: {fmt(tank.kolicinaVinaUTanku, 2)} L
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              border: "1px solid #dcc9cf",
-              background: "#fff",
-              color: "#5a2534",
-              borderRadius: 10,
-              width: 38,
-              height: 38,
-              cursor: "pointer",
-              fontWeight: 700,
-            }}
-          >
+          <button type="button" onClick={onClose} style={closeButtonStyle}>
             ✕
           </button>
         </div>
@@ -546,18 +505,7 @@ export default function KorekcijaModal({
         </div>
 
         {odabraniPreparat && (
-          <div
-            style={{
-              padding: "12px 14px",
-              borderRadius: 12,
-              background: "#faf4f5",
-              border: "1px solid #eadde1",
-              color: "#4d343b",
-              display: "grid",
-              gap: 8,
-              fontSize: 14,
-            }}
-          >
+          <div style={formulaBoxStyle}>
             <div>
               <strong>Formula preparata:</strong>{" "}
               {fmt(odabraniPreparat.referentnaKolicina, 2)}{" "}
@@ -584,7 +532,8 @@ export default function KorekcijaModal({
             </div>
 
             <div>
-              <strong>Doza:</strong> {fmtKolicina(izracun?.dozaPoHL)} {jedinicaZaPreparat}/hL
+              <strong>Doza:</strong> {fmtKolicina(izracun?.dozaPoHL)}{" "}
+              {jedinicaZaPreparat}/hL
             </div>
 
             <div>
@@ -600,37 +549,20 @@ export default function KorekcijaModal({
         {poruka ? (
           <div
             style={{
-              padding: "12px 14px",
-              borderRadius: 12,
-              background: poruka.includes("spremljena")
-                ? "#eef8f1"
-                : "#fff1f1",
+              ...messageStyle,
+              background: poruka.includes("spremljena") ? "#eef8f1" : "#fff1f1",
               border: poruka.includes("spremljena")
                 ? "1px solid #cfe7d5"
                 : "1px solid #efc1c1",
               color: poruka.includes("spremljena") ? "#245b39" : "#9f1d1d",
-              fontWeight: 700,
-              fontSize: 14,
             }}
           >
             {poruka}
           </div>
         ) : null}
 
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: 10,
-            flexWrap: "wrap",
-            marginTop: 4,
-          }}
-        >
-          <button
-            type="button"
-            onClick={onClose}
-            style={secondaryButtonStyle}
-          >
+        <div style={buttonsWrapStyle}>
+          <button type="button" onClick={onClose} style={secondaryButtonStyle}>
             Odustani
           </button>
 
@@ -652,7 +584,67 @@ export default function KorekcijaModal({
   );
 }
 
-const labelStyle: React.CSSProperties = {
+const overlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(33, 18, 24, 0.45)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 20,
+  zIndex: 9999,
+};
+
+const modalStyle: CSSProperties = {
+  width: "100%",
+  maxWidth: 580,
+  background: "#fffdfd",
+  border: "1px solid #eadde1",
+  borderRadius: 22,
+  boxShadow: "0 24px 60px rgba(72, 23, 39, 0.22)",
+  padding: 22,
+  display: "grid",
+  gap: 16,
+};
+
+const topRowStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "start",
+  gap: 12,
+};
+
+const titleStyle: CSSProperties = {
+  fontSize: 24,
+  fontWeight: 800,
+  color: "#4a1f2d",
+  marginBottom: 8,
+};
+
+const tankStyle: CSSProperties = {
+  color: "#5a2534",
+  fontWeight: 700,
+  fontSize: 15,
+};
+
+const subInfoStyle: CSSProperties = {
+  color: "#7a5b63",
+  fontSize: 14,
+  marginTop: 4,
+};
+
+const closeButtonStyle: CSSProperties = {
+  border: "1px solid #dcc9cf",
+  background: "#fff",
+  color: "#5a2534",
+  borderRadius: 10,
+  width: 38,
+  height: 38,
+  cursor: "pointer",
+  fontWeight: 700,
+};
+
+const labelStyle: CSSProperties = {
   display: "block",
   marginBottom: "7px",
   fontWeight: 700,
@@ -660,7 +652,7 @@ const labelStyle: React.CSSProperties = {
   color: "#5a2534",
 };
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: "100%",
   padding: "11px 12px",
   border: "1px solid #d9c3ca",
@@ -670,7 +662,33 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
 };
 
-const primaryButtonStyle: React.CSSProperties = {
+const formulaBoxStyle: CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "#faf4f5",
+  border: "1px solid #eadde1",
+  color: "#4d343b",
+  display: "grid",
+  gap: 8,
+  fontSize: 14,
+};
+
+const messageStyle: CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  fontWeight: 700,
+  fontSize: 14,
+};
+
+const buttonsWrapStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: 10,
+  flexWrap: "wrap",
+  marginTop: 4,
+};
+
+const primaryButtonStyle: CSSProperties = {
   padding: "11px 16px",
   border: "none",
   borderRadius: "12px",
@@ -680,7 +698,7 @@ const primaryButtonStyle: React.CSSProperties = {
   boxShadow: "0 8px 18px rgba(91, 35, 51, 0.22)",
 };
 
-const secondaryButtonStyle: React.CSSProperties = {
+const secondaryButtonStyle: CSSProperties = {
   padding: "11px 16px",
   border: "1px solid #dcc9cf",
   borderRadius: "12px",

@@ -179,6 +179,7 @@ export async function GET() {
     const data = await prisma.preparation.findMany({
       include: {
         unit: true,
+        skladisnaJedinica: true,
       },
       orderBy: {
         naziv: "asc",
@@ -223,6 +224,13 @@ export async function POST(req: Request) {
     const dozaOd = toNumber(body?.dozaOd);
     const dozaDo = toNumber(body?.dozaDo);
 
+    const stanjeNaSkladistu = toNumber(body?.stanjeNaSkladistu) ?? 0;
+    const minimalnaKolicina = toNumber(body?.minimalnaKolicina) ?? 0;
+    const skladisnaJedinicaId =
+      String(body?.skladisnaJedinicaId ?? "").trim() || null;
+    const aktivan =
+      body?.aktivan === false || body?.aktivan === "false" ? false : true;
+
     const isKorekcijski =
       body?.isKorekcijski === true ||
       body?.isKorekcijski === "true" ||
@@ -266,6 +274,20 @@ export async function POST(req: Request) {
     if (dozaOd != null && dozaDo != null && dozaDo < dozaOd) {
       return NextResponse.json(
         { error: "Doza do ne može biti manja od doze od." },
+        { status: 400 }
+      );
+    }
+
+    if (stanjeNaSkladistu < 0) {
+      return NextResponse.json(
+        { error: "Stanje na skladištu ne može biti manje od 0." },
+        { status: 400 }
+      );
+    }
+
+    if (minimalnaKolicina < 0) {
+      return NextResponse.json(
+        { error: "Minimalna količina ne može biti manja od 0." },
         { status: 400 }
       );
     }
@@ -332,6 +354,10 @@ export async function POST(req: Request) {
         unitId,
         dozaOd,
         dozaDo,
+        stanjeNaSkladistu,
+        minimalnaKolicina,
+        skladisnaJedinicaId,
+        aktivan,
 
         isKorekcijski,
         korekcijaTip: isKorekcijski ? (korekcijaTip as any) : null,
@@ -350,6 +376,7 @@ export async function POST(req: Request) {
       },
       include: {
         unit: true,
+        skladisnaJedinica: true,
       },
     });
 
@@ -391,6 +418,13 @@ export async function PUT(req: Request) {
 
     const dozaOd = toNumber(body?.dozaOd);
     const dozaDo = toNumber(body?.dozaDo);
+
+    const stanjeNaSkladistu = toNumber(body?.stanjeNaSkladistu) ?? 0;
+    const minimalnaKolicina = toNumber(body?.minimalnaKolicina) ?? 0;
+    const skladisnaJedinicaId =
+      String(body?.skladisnaJedinicaId ?? "").trim() || null;
+    const aktivan =
+      body?.aktivan === false || body?.aktivan === "false" ? false : true;
 
     const isKorekcijski =
       body?.isKorekcijski === true ||
@@ -442,6 +476,20 @@ export async function PUT(req: Request) {
     if (dozaOd != null && dozaDo != null && dozaDo < dozaOd) {
       return NextResponse.json(
         { error: "Doza do ne može biti manja od doze od." },
+        { status: 400 }
+      );
+    }
+
+    if (stanjeNaSkladistu < 0) {
+      return NextResponse.json(
+        { error: "Stanje na skladištu ne može biti manje od 0." },
+        { status: 400 }
+      );
+    }
+
+    if (minimalnaKolicina < 0) {
+      return NextResponse.json(
+        { error: "Minimalna količina ne može biti manja od 0." },
         { status: 400 }
       );
     }
@@ -506,6 +554,10 @@ export async function PUT(req: Request) {
         unitId,
         dozaOd,
         dozaDo,
+        stanjeNaSkladistu,
+        minimalnaKolicina,
+        skladisnaJedinicaId,
+        aktivan,
 
         isKorekcijski,
         korekcijaTip: isKorekcijski ? (korekcijaTip as any) : null,
@@ -524,6 +576,7 @@ export async function PUT(req: Request) {
       },
       include: {
         unit: true,
+        skladisnaJedinica: true,
       },
     });
 

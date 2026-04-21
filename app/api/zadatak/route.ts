@@ -37,6 +37,44 @@ function canExecute(user: AuthUser | null) {
   );
 }
 
+function normalizeUnit(v?: string | null) {
+  return String(v ?? "").trim().toLowerCase();
+}
+
+function convertValue(value: number, from?: string | null, to?: string | null) {
+  const f = normalizeUnit(from);
+  const t = normalizeUnit(to);
+
+  if (!f || !t || f === t) return Number(value);
+
+  const mass: Record<string, number> = {
+    mg: 0.001,
+    g: 1,
+    dkg: 10,
+    kg: 1000,
+  };
+
+  const volume: Record<string, number> = {
+    ml: 1,
+    dl: 100,
+    dcl: 100,
+    l: 1000,
+    hl: 100000,
+  };
+
+  if (mass[f] && mass[t]) {
+    const grams = value * mass[f];
+    return Number((grams / mass[t]).toFixed(4));
+  }
+
+  if (volume[f] && volume[t]) {
+    const ml = value * volume[f];
+    return Number((ml / volume[t]).toFixed(4));
+  }
+
+  return Number(value);
+}
+
 export async function GET() {
   try {
     const user = await getAuthUser();
@@ -57,6 +95,7 @@ export async function GET() {
         preparat: {
           include: {
             unit: true,
+            skladisnaJedinica: true,
           },
         },
         jedinica: true,
@@ -68,6 +107,7 @@ export async function GET() {
             preparat: {
               include: {
                 unit: true,
+                skladisnaJedinica: true,
               },
             },
             jedinica: true,
@@ -136,6 +176,7 @@ export async function PUT(req: Request) {
             preparat: {
               include: {
                 unit: true,
+                skladisnaJedinica: true,
               },
             },
             jedinica: true,
@@ -146,6 +187,7 @@ export async function PUT(req: Request) {
                 preparat: {
                   include: {
                     unit: true,
+                    skladisnaJedinica: true,
                   },
                 },
                 jedinica: true,
@@ -168,6 +210,71 @@ export async function PUT(req: Request) {
 
         if (zadatak.zakljucanDo && new Date() < new Date(zadatak.zakljucanDo)) {
           throw new Error("Vezani zadatak još nije dostupan za izvršenje.");
+        }
+
+        // ===== PROVJERA I SKIDANJE SA SKLADIŠTA =====
+        const stavkeZaSkladiste =
+          zadatak.stavke.length > 0
+            ? zadatak.stavke
+            : [
+                {
+                  preparatId: zadatak.preparatId,
+                  izracunataKolicina: zadatak.izracunataKolicina,
+                  izlaznaJedinica: zadatak.izlaznaJedinica,
+                  preparat: zadatak.preparat,
+                },
+              ].filter(
+                (s) => s.preparatId && s.izracunataKolicina != null
+              );
+
+        for (const stavka of stavkeZaSkladiste) {
+          if (!stavka.preparatId || stavka.izracunataKolicina == null) continue;
+
+          const preparation = await tx.preparation.findUnique({
+            where: { id: stavka.preparatId },
+            include: {
+              unit: true,
+              skladisnaJedinica: true,
+            },
+          });
+
+          if (!preparation) {
+            throw new Error("Preparat nije pronađen.");
+          }
+
+          const fromUnit =
+            stavka.izlaznaJedinica?.naziv ??
+            stavka.preparat?.unit?.naziv ??
+            preparation.unit?.naziv ??
+            null;
+
+          const stockUnit =
+            preparation.skladisnaJedinica?.naziv ??
+            preparation.unit?.naziv ??
+            null;
+
+          const potrebno = convertValue(
+            Number(stavka.izracunataKolicina),
+            fromUnit,
+            stockUnit
+          );
+
+          const trenutno = Number(preparation.stanjeNaSkladistu ?? 0);
+
+          if (trenutno < potrebno) {
+            throw new Error(
+              `Nema dovoljno preparata na skladištu: ${preparation.naziv}.`
+            );
+          }
+
+          await tx.preparation.update({
+            where: { id: preparation.id },
+            data: {
+              stanjeNaSkladistu: {
+                decrement: potrebno,
+              },
+            },
+          });
         }
 
         // Ako zadatak ima više stavki, upiši radnju za SVAKU stavku
@@ -226,6 +333,7 @@ export async function PUT(req: Request) {
             preparat: {
               include: {
                 unit: true,
+                skladisnaJedinica: true,
               },
             },
             jedinica: true,
@@ -237,6 +345,7 @@ export async function PUT(req: Request) {
                 preparat: {
                   include: {
                     unit: true,
+                    skladisnaJedinica: true,
                   },
                 },
                 jedinica: true,
@@ -332,6 +441,7 @@ export async function PUT(req: Request) {
         preparat: {
           include: {
             unit: true,
+            skladisnaJedinica: true,
           },
         },
         jedinica: true,
@@ -343,6 +453,7 @@ export async function PUT(req: Request) {
             preparat: {
               include: {
                 unit: true,
+                skladisnaJedinica: true,
               },
             },
             jedinica: true,
@@ -365,7 +476,15 @@ export async function PUT(req: Request) {
         "Zadatak nije pronađen.",
         "Zadatak je već izvršen.",
         "Vezani zadatak još nije dostupan za izvršenje.",
+        "Preparat nije pronađen.",
       ].includes(error.message)
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    if (
+      error instanceof Error &&
+      error.message.startsWith("Nema dovoljno preparata na skladištu:")
     ) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

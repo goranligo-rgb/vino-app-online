@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import KorekcijaModal from "@/components/KorekcijaModal";
 
@@ -137,6 +137,16 @@ type Preparat = {
   dozaDo: number | null;
   unitId: string | null;
 
+  stanjeNaSkladistu?: number | null;
+  minimalnaKolicina?: number | null;
+  skladisnaJedinicaId?: string | null;
+  skladisnaJedinica?: {
+    id: string;
+    naziv: string;
+  } | null;
+
+  aktivan?: boolean;
+
   isKorekcijski?: boolean;
   korekcijaTip?: KorekcijaTip | null;
   korekcijaJedinica?: string | null;
@@ -174,6 +184,23 @@ type NovaStavka = {
   preparatId: string;
   doza: string;
   izlaznaJedinica: string;
+};
+
+type ObradenaStavka = NovaStavka & {
+  preparat: Preparat | null;
+  mjernaJedinica: string;
+  baznaIzlaznaJedinica: string;
+  dostupneIzlazneJedinice: string[];
+  dozaBroj: number | null;
+  izracunataKolicina: number | null;
+  stanjeNaSkladistu: number | null;
+  potrebnoUSkladisnojJedinici: number | null;
+  nakonDodavanja: number | null;
+  minimalna: number | null;
+  skladisnaJedinicaNaziv: string;
+  nemaDovoljno: boolean;
+  isPodMinimuma: boolean;
+  statusSkladista: "OK" | "MIN" | "NEMA";
 };
 
 function randomId() {
@@ -496,8 +523,8 @@ export default function ZadaciPage() {
 
   useEffect(() => {
     if (!user) return;
-    ucitajSve();
-  }, [user]);
+    void ucitajSve();
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (vrstaZadatka === "DODAVANJE") setNaslov("Dodavanje preparata");
@@ -526,12 +553,12 @@ export default function ZadaciPage() {
   const jeKorekcija = vrstaZadatka === "KOREKCIJA";
 
   const preparatiZaDodavanje = useMemo(
-    () => preparati.filter((p) => !p.isKorekcijski),
+    () => preparati.filter((p) => !p.isKorekcijski && p.aktivan !== false),
     [preparati]
   );
 
   const preparatiZaKorekciju = useMemo(
-    () => preparati.filter((p) => p.isKorekcijski),
+    () => preparati.filter((p) => p.isKorekcijski && p.aktivan !== false),
     [preparati]
   );
 
@@ -541,7 +568,7 @@ export default function ZadaciPage() {
   const volumenUHl =
     volumenUTanku != null ? Number(volumenUTanku) / 100 : null;
 
-  const obradeneStavke = useMemo(() => {
+  const obradeneStavke = useMemo<ObradenaStavka[]>(() => {
     return stavke.map((stavka) => {
       const preparat =
         preparatiZaDodavanje.find((p) => p.id === stavka.preparatId) ?? null;
@@ -567,6 +594,45 @@ export default function ZadaciPage() {
         izlaznaJedinica
       );
 
+      const stanjeNaSkladistu = preparat?.stanjeNaSkladistu ?? null;
+      const minimalna = preparat?.minimalnaKolicina ?? null;
+      const skladisnaJedinicaNaziv =
+        preparat?.skladisnaJedinica?.naziv ??
+        preparat?.unit?.naziv ??
+        izlaznaJedinica ??
+        "";
+
+      const potrebnoUSkladisnojJedinici =
+        izracunataKolicina != null
+          ? pretvori(
+              izracunataKolicina,
+              izlaznaJedinica,
+              skladisnaJedinicaNaziv
+            )
+          : null;
+
+      const nakonDodavanja =
+        stanjeNaSkladistu != null && potrebnoUSkladisnojJedinici != null
+          ? Number((stanjeNaSkladistu - potrebnoUSkladisnojJedinici).toFixed(2))
+          : null;
+
+      const nemaDovoljno =
+        stanjeNaSkladistu != null &&
+        potrebnoUSkladisnojJedinici != null &&
+        nakonDodavanja < 0;
+
+      const isPodMinimuma =
+        nakonDodavanja != null &&
+        minimalna != null &&
+        nakonDodavanja < minimalna;
+
+      let statusSkladista: "OK" | "MIN" | "NEMA" = "OK";
+      if (nemaDovoljno) {
+        statusSkladista = "NEMA";
+      } else if (isPodMinimuma) {
+        statusSkladista = "MIN";
+      }
+
       return {
         ...stavka,
         preparat,
@@ -576,6 +642,14 @@ export default function ZadaciPage() {
         izlaznaJedinica,
         dozaBroj: doza,
         izracunataKolicina,
+        stanjeNaSkladistu,
+        potrebnoUSkladisnojJedinici,
+        nakonDodavanja,
+        minimalna,
+        skladisnaJedinicaNaziv,
+        nemaDovoljno,
+        isPodMinimuma,
+        statusSkladista,
       };
     });
   }, [stavke, preparatiZaDodavanje, volumenUHl]);
@@ -704,6 +778,7 @@ export default function ZadaciPage() {
 
       setPoruka("Zadatak je izvršen.");
       await ucitajZadatke();
+      await ucitajPreparate();
     } catch (error) {
       console.error(error);
       setPoruka("Greška kod izvršenja zadatka.");
@@ -743,6 +818,14 @@ export default function ZadaciPage() {
 
         if (ispravneStavke.length === 0) {
           setPoruka("Dodaj barem jedan preparat.");
+          return;
+        }
+
+        const bezDovoljno = ispravneStavke.find((s) => s.nemaDovoljno);
+        if (bezDovoljno) {
+          setPoruka(
+            `Nema dovoljno preparata na skladištu: ${bezDovoljno.preparat?.naziv ?? "-"}`
+          );
           return;
         }
       }
@@ -802,7 +885,18 @@ export default function ZadaciPage() {
         return;
       }
 
-      setPoruka("Novi zadatak je spremljen.");
+      const upozorenjeMinimum = obradeneStavke
+        .filter((s) => s.preparatId && s.dozaBroj != null && s.isPodMinimuma)
+        .map((s) => s.preparat?.naziv)
+        .filter(Boolean) as string[];
+
+      if (upozorenjeMinimum.length > 0) {
+        setPoruka(
+          `Novi zadatak je spremljen. Upozorenje: nakon izvršenja ispod minimuma će biti ${upozorenjeMinimum.join(", ")}.`
+        );
+      } else {
+        setPoruka("Novi zadatak je spremljen.");
+      }
 
       setOdabraniTankId("");
       setVrstaZadatka("DODAVANJE");
@@ -818,6 +912,7 @@ export default function ZadaciPage() {
       setVezanaNapomena("");
 
       await ucitajZadatke();
+      await ucitajPreparate();
     } catch (error) {
       console.error(error);
       setPoruka("Greška kod spremanja zadatka.");
@@ -934,18 +1029,14 @@ export default function ZadaciPage() {
             gridTemplateColumns: isMobile
               ? "1fr"
               : isLevel1
-              ? "minmax(430px, 520px) minmax(0, 1fr)"
+              ? "minmax(0, 1.9fr) minmax(360px, 0.95fr)"
               : "1fr",
-            gap: "12px",
+            gap: "14px",
             alignItems: "start",
           }}
         >
           {isLevel1 && (
-            <section
-              style={{
-                ...panelStyle,
-              }}
-            >
+            <section style={{ ...panelStyle, minWidth: 0 }}>
               <div style={panelHeaderStyle}>
                 <h2 style={sectionTitleStyle}>Dodaj zadatak</h2>
                 <div style={sectionSubtitleStyle}>
@@ -1100,10 +1191,55 @@ export default function ZadaciPage() {
 
                     <div style={{ display: "grid", gap: "10px" }}>
                       {obradeneStavke.map((stavka, index) => (
-                        <div key={stavka.localId} style={stavkaBoxStyle}>
+                        <div
+                          key={stavka.localId}
+                          style={{
+                            ...stavkaBoxStyle,
+                            border:
+                              stavka.statusSkladista === "NEMA"
+                                ? "2px solid #dc2626"
+                                : stavka.statusSkladista === "MIN"
+                                ? "2px solid #f59e0b"
+                                : stavkaBoxStyle.border,
+                            background:
+                              stavka.statusSkladista === "NEMA"
+                                ? "#fef2f2"
+                                : stavka.statusSkladista === "MIN"
+                                ? "#fffbeb"
+                                : stavkaBoxStyle.background,
+                          }}
+                        >
                           <div style={stavkaHeaderStyle}>
-                            <div style={subSectionTitleStyle}>
-                              Preparat {index + 1}
+                            <div>
+                              <div style={subSectionTitleStyle}>
+                                Preparat {index + 1}
+                              </div>
+
+                              {stavka.statusSkladista === "NEMA" && (
+                                <div
+                                  style={{
+                                    color: "#b91c1c",
+                                    fontWeight: 700,
+                                    fontSize: "13px",
+                                    marginTop: "4px",
+                                  }}
+                                >
+                                  ⚠ Nema dovoljno preparata na skladištu
+                                </div>
+                              )}
+
+                              {stavka.statusSkladista === "MIN" && (
+                                <div
+                                  style={{
+                                    color: "#b45309",
+                                    fontWeight: 700,
+                                    fontSize: "13px",
+                                    marginTop: "4px",
+                                  }}
+                                >
+                                  ⚠ Nakon izvršenja ide ispod minimalne količine
+                                </div>
+                              )}
                             </div>
 
                             <button
@@ -1142,6 +1278,13 @@ export default function ZadaciPage() {
                                       ? ` - ${preparat.dozaDo}`
                                       : ""}{" "}
                                     {dohvatiMjernuJedinicu(preparat)})
+                                    {preparat.stanjeNaSkladistu != null
+                                      ? ` — lager ${fmtKolicina(
+                                          preparat.stanjeNaSkladistu
+                                        )} ${
+                                          preparat.skladisnaJedinica?.naziv ?? ""
+                                        }`
+                                      : ""}
                                   </option>
                                 ))}
                               </select>
@@ -1222,6 +1365,50 @@ export default function ZadaciPage() {
                                     }`
                                   : "-"}
                               </div>
+
+                              {stavka.stanjeNaSkladistu != null && (
+                                <div>
+                                  <strong>Stanje skladišta:</strong>{" "}
+                                  {fmtKolicina(stavka.stanjeNaSkladistu)}{" "}
+                                  {stavka.skladisnaJedinicaNaziv}
+                                </div>
+                              )}
+
+                              {stavka.potrebnoUSkladisnojJedinici != null && (
+                                <div>
+                                  <strong>Potrebno sa skladišta:</strong>{" "}
+                                  {fmtKolicina(stavka.potrebnoUSkladisnojJedinici)}{" "}
+                                  {stavka.skladisnaJedinicaNaziv}
+                                </div>
+                              )}
+
+                              {stavka.nakonDodavanja != null && (
+                                <div>
+                                  <strong>Ostaje nakon zadatka:</strong>{" "}
+                                  {fmtKolicina(stavka.nakonDodavanja)}{" "}
+                                  {stavka.skladisnaJedinicaNaziv}
+                                </div>
+                              )}
+
+                              {stavka.minimalna != null && (
+                                <div>
+                                  <strong>Minimalno stanje:</strong>{" "}
+                                  {fmtKolicina(stavka.minimalna)}{" "}
+                                  {stavka.skladisnaJedinicaNaziv}
+                                </div>
+                              )}
+
+                              {stavka.nemaDovoljno && (
+                                <div style={{ color: "#991b1b", fontWeight: 700 }}>
+                                  ⚠ Nema dovoljno preparata na skladištu.
+                                </div>
+                              )}
+
+                              {!stavka.nemaDovoljno && stavka.isPodMinimuma && (
+                                <div style={{ color: "#b45309", fontWeight: 700 }}>
+                                  ⚠ Nakon izvršenja past će ispod minimalne količine.
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1359,7 +1546,7 @@ export default function ZadaciPage() {
             </section>
           )}
 
-          <section style={panelStyle}>
+          <section style={{ ...panelStyle, minWidth: 0 }}>
             <div style={panelHeaderStyle}>
               <h2 style={sectionTitleStyle}>Nerealizirani zadaci</h2>
               <div style={sectionSubtitleStyle}>
@@ -1570,7 +1757,9 @@ export default function ZadaciPage() {
                             <div style={infoCardStyle}>
                               <strong>Preparat</strong>
                               <span>
-                                {zadatak.preparat?.naziv ?? prvaStavka?.preparat?.naziv ?? "-"}
+                                {zadatak.preparat?.naziv ??
+                                  prvaStavka?.preparat?.naziv ??
+                                  "-"}
                               </span>
                             </div>
 
@@ -1648,7 +1837,11 @@ export default function ZadaciPage() {
 
                           <div style={infoCardStyle}>
                             <strong>Korekcijski preparat</strong>
-                            <span>{zadatak.preparat?.naziv ?? prvaStavka?.preparat?.naziv ?? "-"}</span>
+                            <span>
+                              {zadatak.preparat?.naziv ??
+                                prvaStavka?.preparat?.naziv ??
+                                "-"}
+                            </span>
                           </div>
                         </div>
                       )}
@@ -1711,7 +1904,7 @@ export default function ZadaciPage() {
                             ? `Ovaj zadatak može se izvršiti od ${formatirajDatum(
                                 zadatak.zakljucanDo
                               )}`
-                            : `Vezani zadatak je otključan i spreman za izvršenje.`}
+                            : "Vezani zadatak je otključan i spreman za izvršenje."}
                         </div>
                       )}
 
@@ -1795,13 +1988,14 @@ export default function ZadaciPage() {
           setNaslov("Dodavanje preparata");
           setNapomena("");
           await ucitajZadatke();
+          await ucitajPreparate();
         }}
       />
     </>
   );
 }
 
-const pageStyle: React.CSSProperties = {
+const pageStyle: CSSProperties = {
   padding: "16px",
   maxWidth: "1600px",
   margin: "0 auto",
@@ -1811,7 +2005,7 @@ const pageStyle: React.CSSProperties = {
   color: "#2f2f2f",
 };
 
-const headerStyle: React.CSSProperties = {
+const headerStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "flex-start",
@@ -1820,55 +2014,55 @@ const headerStyle: React.CSSProperties = {
   marginBottom: "12px",
 };
 
-const pageTitleStyle: React.CSSProperties = {
+const pageTitleStyle: CSSProperties = {
   fontSize: "24px",
   fontWeight: 600,
   margin: 0,
   color: "#3b2b31",
 };
 
-const pageSubtitleStyle: React.CSSProperties = {
+const pageSubtitleStyle: CSSProperties = {
   color: "#6b6470",
   marginTop: "4px",
   fontSize: "13px",
 };
 
-const statsWrapStyle: React.CSSProperties = {
+const statsWrapStyle: CSSProperties = {
   display: "flex",
   gap: "8px",
   flexWrap: "wrap",
   justifyContent: "flex-end",
 };
 
-const panelStyle: React.CSSProperties = {
+const panelStyle: CSSProperties = {
   background: "#ffffff",
   border: "1px solid rgba(127,29,29,0.18)",
   padding: "14px",
 };
 
-const panelHeaderStyle: React.CSSProperties = {
+const panelHeaderStyle: CSSProperties = {
   marginBottom: "12px",
 };
 
-const sectionTitleStyle: React.CSSProperties = {
+const sectionTitleStyle: CSSProperties = {
   margin: 0,
   fontSize: "18px",
   fontWeight: 600,
   color: "#3b2b31",
 };
 
-const sectionSubtitleStyle: React.CSSProperties = {
+const sectionSubtitleStyle: CSSProperties = {
   color: "#6b6470",
   marginTop: "4px",
   fontSize: "13px",
 };
 
-const formGridStyle: React.CSSProperties = {
+const formGridStyle: CSSProperties = {
   display: "grid",
   gap: "12px",
 };
 
-const infoCardStyle: React.CSSProperties = {
+const infoCardStyle: CSSProperties = {
   background: "#fbfbfb",
   border: "1px solid rgba(127,29,29,0.10)",
   padding: "10px",
@@ -1878,7 +2072,7 @@ const infoCardStyle: React.CSSProperties = {
   fontSize: "13px",
 };
 
-const summaryBoxStyle: React.CSSProperties = {
+const summaryBoxStyle: CSSProperties = {
   padding: "12px",
   background: "#fbfbfb",
   border: "1px solid rgba(127,29,29,0.10)",
@@ -1888,7 +2082,7 @@ const summaryBoxStyle: React.CSSProperties = {
   fontSize: "13px",
 };
 
-const softPanelStyle: React.CSSProperties = {
+const softPanelStyle: CSSProperties = {
   padding: "10px",
   background: "#fafafa",
   border: "1px solid rgba(127,29,29,0.10)",
@@ -1898,7 +2092,7 @@ const softPanelStyle: React.CSSProperties = {
   fontSize: "13px",
 };
 
-const subSectionStyle: React.CSSProperties = {
+const subSectionStyle: CSSProperties = {
   padding: "12px",
   border: "1px solid rgba(127,29,29,0.12)",
   background: "#fcfcfc",
@@ -1906,13 +2100,13 @@ const subSectionStyle: React.CSSProperties = {
   gap: "10px",
 };
 
-const subSectionTitleStyle: React.CSSProperties = {
+const subSectionTitleStyle: CSSProperties = {
   fontWeight: 600,
   color: "#3b2b31",
   fontSize: "14px",
 };
 
-const stavkaBoxStyle: React.CSSProperties = {
+const stavkaBoxStyle: CSSProperties = {
   padding: "12px",
   border: "1px solid rgba(127,29,29,0.12)",
   background: "#ffffff",
@@ -1920,7 +2114,7 @@ const stavkaBoxStyle: React.CSSProperties = {
   gap: "10px",
 };
 
-const stavkaHeaderStyle: React.CSSProperties = {
+const stavkaHeaderStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
@@ -1928,7 +2122,7 @@ const stavkaHeaderStyle: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
-const stavkaListBoxStyle: React.CSSProperties = {
+const stavkaListBoxStyle: CSSProperties = {
   padding: "10px",
   border: "1px solid rgba(127,29,29,0.10)",
   background: "#fcfcfc",
@@ -1936,13 +2130,13 @@ const stavkaListBoxStyle: React.CSSProperties = {
   gap: "8px",
 };
 
-const stavkaListGridStyle: React.CSSProperties = {
+const stavkaListGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
   gap: "8px",
 };
 
-const messageBoxStyle: React.CSSProperties = {
+const messageBoxStyle: CSSProperties = {
   marginBottom: "12px",
   padding: "10px 12px",
   background: "#faf6f7",
@@ -1952,7 +2146,7 @@ const messageBoxStyle: React.CSSProperties = {
   fontSize: "13px",
 };
 
-const emptyBoxStyle: React.CSSProperties = {
+const emptyBoxStyle: CSSProperties = {
   padding: "12px",
   background: "#fbfbfb",
   border: "1px dashed rgba(127,29,29,0.16)",
@@ -1960,7 +2154,7 @@ const emptyBoxStyle: React.CSSProperties = {
   fontSize: "13px",
 };
 
-const lateWarningStyle: React.CSSProperties = {
+const lateWarningStyle: CSSProperties = {
   padding: "10px",
   background: "#fbf5f5",
   border: "1px solid #efcfcf",
@@ -1969,7 +2163,7 @@ const lateWarningStyle: React.CSSProperties = {
   fontSize: "13px",
 };
 
-const statCardStyle: React.CSSProperties = {
+const statCardStyle: CSSProperties = {
   minWidth: "120px",
   padding: "8px 12px",
   border: "1px solid rgba(127,29,29,0.18)",
@@ -1977,7 +2171,7 @@ const statCardStyle: React.CSSProperties = {
   color: "#4a2d36",
 };
 
-const statCardNeutralStyle: React.CSSProperties = {
+const statCardNeutralStyle: CSSProperties = {
   minWidth: "120px",
   padding: "8px 12px",
   border: "1px solid rgba(127,29,29,0.12)",
@@ -1985,18 +2179,18 @@ const statCardNeutralStyle: React.CSSProperties = {
   color: "#4a2d36",
 };
 
-const statLabelStyle: React.CSSProperties = {
+const statLabelStyle: CSSProperties = {
   fontSize: "12px",
   fontWeight: 600,
 };
 
-const statValueStyle: React.CSSProperties = {
+const statValueStyle: CSSProperties = {
   fontSize: "22px",
   fontWeight: 600,
   marginTop: "2px",
 };
 
-const labelStyle: React.CSSProperties = {
+const labelStyle: CSSProperties = {
   display: "block",
   marginBottom: "5px",
   fontWeight: 600,
@@ -2004,7 +2198,7 @@ const labelStyle: React.CSSProperties = {
   color: "#3b2b31",
 };
 
-const smallLabelStyle: React.CSSProperties = {
+const smallLabelStyle: CSSProperties = {
   display: "block",
   marginBottom: "5px",
   fontWeight: 600,
@@ -2012,7 +2206,7 @@ const smallLabelStyle: React.CSSProperties = {
   color: "#3b2b31",
 };
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: "100%",
   padding: "9px 10px",
   border: "1px solid rgba(127,29,29,0.18)",
@@ -2024,7 +2218,7 @@ const inputStyle: React.CSSProperties = {
   fontSize: "13px",
 };
 
-const primaryButtonStyle: React.CSSProperties = {
+const primaryButtonStyle: CSSProperties = {
   padding: "9px 14px",
   border: "1px solid rgba(127,29,29,0.22)",
   cursor: "pointer",
@@ -2035,7 +2229,7 @@ const primaryButtonStyle: React.CSSProperties = {
   fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
 };
 
-const actionButtonStyle: React.CSSProperties = {
+const actionButtonStyle: CSSProperties = {
   padding: "9px 14px",
   border: "1px solid rgba(127,29,29,0.22)",
   cursor: "pointer",
@@ -2046,7 +2240,7 @@ const actionButtonStyle: React.CSSProperties = {
   fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
 };
 
-const secondaryButtonStyle: React.CSSProperties = {
+const secondaryButtonStyle: CSSProperties = {
   padding: "9px 14px",
   border: "1px solid rgba(127,29,29,0.18)",
   cursor: "pointer",
@@ -2057,7 +2251,7 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
 };
 
-const deleteButtonStyle: React.CSSProperties = {
+const deleteButtonStyle: CSSProperties = {
   padding: "9px 14px",
   border: "1px solid rgba(127,29,29,0.16)",
   cursor: "pointer",
@@ -2068,7 +2262,7 @@ const deleteButtonStyle: React.CSSProperties = {
   fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
 };
 
-const badgeWineStyle: React.CSSProperties = {
+const badgeWineStyle: CSSProperties = {
   padding: "4px 10px",
   background: "#fafafa",
   color: "#7f1d1d",
@@ -2077,7 +2271,7 @@ const badgeWineStyle: React.CSSProperties = {
   fontWeight: 600,
 };
 
-const badgePurpleStyle: React.CSSProperties = {
+const badgePurpleStyle: CSSProperties = {
   padding: "4px 10px",
   background: "#fafafa",
   color: "#5b3b63",
@@ -2086,7 +2280,7 @@ const badgePurpleStyle: React.CSSProperties = {
   fontWeight: 600,
 };
 
-const badgeBlueStyle: React.CSSProperties = {
+const badgeBlueStyle: CSSProperties = {
   padding: "4px 10px",
   background: "#fafafa",
   color: "#3b546d",
@@ -2095,7 +2289,7 @@ const badgeBlueStyle: React.CSSProperties = {
   fontWeight: 600,
 };
 
-const badgeLateStyle: React.CSSProperties = {
+const badgeLateStyle: CSSProperties = {
   padding: "4px 10px",
   background: "#fbf5f5",
   color: "#991b1b",
@@ -2104,7 +2298,7 @@ const badgeLateStyle: React.CSSProperties = {
   fontWeight: 600,
 };
 
-const taskHeaderStyle: React.CSSProperties = {
+const taskHeaderStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: "12px",
@@ -2112,19 +2306,19 @@ const taskHeaderStyle: React.CSSProperties = {
   alignItems: "center",
 };
 
-const taskTitleStyle: React.CSSProperties = {
+const taskTitleStyle: CSSProperties = {
   fontWeight: 600,
   fontSize: "16px",
   color: "#3b2b31",
 };
 
-const taskSubStyle: React.CSSProperties = {
+const taskSubStyle: CSSProperties = {
   color: "#6b6470",
   marginTop: "3px",
   fontSize: "12px",
 };
 
-const buttonsRowStyle: React.CSSProperties = {
+const buttonsRowStyle: CSSProperties = {
   display: "flex",
   gap: "8px",
   flexWrap: "wrap",

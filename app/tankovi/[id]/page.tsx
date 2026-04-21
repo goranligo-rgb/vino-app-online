@@ -624,112 +624,126 @@ export default async function TankPregledPage({
   const izlaziZaPrikaz = tankJePrazan ? [] : (tank.izlaziVina ?? []);
 
   const punjenja = !tankJePrazan
-    ? await prisma.punjenjeTanka.findMany({
-        where: { tankId: id },
-        orderBy: { datumPunjenja: "desc" },
-        take: 1,
-        include: {
-          stavke: {
-            orderBy: {
-              createdAt: "asc",
-            },
-          },
-        },
-      })
-    : [];
-
-  const otvoreniZadaci = await prisma.zadatak.findMany({
-    where: { tankId: id, status: "OTVOREN" },
-    include: {
-      preparat: {
-        select: {
-          id: true,
-          naziv: true,
-          dozaOd: true,
-          dozaDo: true,
-          unit: {
-            select: {
-              naziv: true,
-            },
+  ? await prisma.punjenjeTanka.findMany({
+      where: {
+        tankId: id,
+        stavke: {
+          some: {
+            obrisano: false,
           },
         },
       },
-      jedinica: true,
-      izlaznaJedinica: true,
-      zadaoKorisnik: true,
-      izvrsioKorisnik: true,
-      stavke: {
-        include: {
-          preparat: {
-            select: {
-              id: true,
-              naziv: true,
-              dozaOd: true,
-              dozaDo: true,
-              unit: {
-                select: {
-                  naziv: true,
-                },
+      orderBy: { datumPunjenja: "desc" },
+      take: 1,
+      include: {
+        stavke: {
+          where: {
+            obrisano: false,
+          },
+          orderBy: {
+            createdAt: "asc",
+          },
+        },
+      },
+    })
+  : [];
+
+  const otvoreniZadaci = tankJePrazan
+  ? []
+  : await prisma.zadatak.findMany({
+      where: { tankId: id, status: "OTVOREN" },
+      include: {
+        preparat: {
+          select: {
+            id: true,
+            naziv: true,
+            dozaOd: true,
+            dozaDo: true,
+            unit: {
+              select: {
+                naziv: true,
               },
             },
           },
-          jedinica: true,
-          izlaznaJedinica: true,
         },
-        orderBy: {
-          redoslijed: "asc",
-        },
-      },
-    },
-    orderBy: { zadanoAt: "desc" },
-  });
-
-  const izvrseniZadaci = await prisma.zadatak.findMany({
-    where: { tankId: id, status: { in: ["IZVRSEN", "OTKAZAN"] } },
-    include: {
-      preparat: {
-        select: {
-          id: true,
-          naziv: true,
-          dozaOd: true,
-          dozaDo: true,
-          unit: {
-            select: {
-              naziv: true,
-            },
-          },
-        },
-      },
-      jedinica: true,
-      izlaznaJedinica: true,
-      zadaoKorisnik: true,
-      izvrsioKorisnik: true,
-      stavke: {
-        include: {
-          preparat: {
-            select: {
-              id: true,
-              naziv: true,
-              dozaOd: true,
-              dozaDo: true,
-              unit: {
-                select: {
-                  naziv: true,
+        jedinica: true,
+        izlaznaJedinica: true,
+        zadaoKorisnik: true,
+        izvrsioKorisnik: true,
+        stavke: {
+          include: {
+            preparat: {
+              select: {
+                id: true,
+                naziv: true,
+                dozaOd: true,
+                dozaDo: true,
+                unit: {
+                  select: {
+                    naziv: true,
+                  },
                 },
               },
             },
+            jedinica: true,
+            izlaznaJedinica: true,
           },
-          jedinica: true,
-          izlaznaJedinica: true,
-        },
-        orderBy: {
-          redoslijed: "asc",
+          orderBy: {
+            redoslijed: "asc",
+          },
         },
       },
-    },
-    orderBy: [{ izvrsenoAt: "desc" }, { zadanoAt: "desc" }],
-    take: 30,
-  });
+      orderBy: { zadanoAt: "desc" },
+    });
+
+const izvrseniZadaci = tankJePrazan
+  ? []
+  : await prisma.zadatak.findMany({
+      where: { tankId: id, status: { in: ["IZVRSEN", "OTKAZAN"] } },
+      include: {
+        preparat: {
+          select: {
+            id: true,
+            naziv: true,
+            dozaOd: true,
+            dozaDo: true,
+            unit: {
+              select: {
+                naziv: true,
+              },
+            },
+          },
+        },
+        jedinica: true,
+        izlaznaJedinica: true,
+        zadaoKorisnik: true,
+        izvrsioKorisnik: true,
+        stavke: {
+          include: {
+            preparat: {
+              select: {
+                id: true,
+                naziv: true,
+                dozaOd: true,
+                dozaDo: true,
+                unit: {
+                  select: {
+                    naziv: true,
+                  },
+                },
+              },
+            },
+            jedinica: true,
+            izlaznaJedinica: true,
+          },
+          orderBy: {
+            redoslijed: "asc",
+          },
+        },
+      },
+      orderBy: [{ izvrsenoAt: "desc" }, { zadanoAt: "desc" }],
+      take: 30,
+    });
 
   const zadnje = sloziZadnjeMjerenjePoPoljima(mjerenjaZaTop);
   const from = `/tankovi/${tank.id}`;
