@@ -9,45 +9,6 @@ type Params = {
   }>;
 };
 
-function faktorJedinice(naziv?: string | null) {
-  const key = String(naziv || "").trim().toLowerCase();
-
-  if (key === "mg") return { grupa: "masa", faktor: 0.001 };
-  if (key === "g") return { grupa: "masa", faktor: 1 };
-  if (key === "dkg") return { grupa: "masa", faktor: 10 };
-  if (key === "kg") return { grupa: "masa", faktor: 1000 };
-
-  if (key === "ml") return { grupa: "volumen", faktor: 1 };
-  if (key === "dl" || key === "dcl") return { grupa: "volumen", faktor: 100 };
-  if (key === "l") return { grupa: "volumen", faktor: 1000 };
-
-  return null;
-}
-
-function pretvoriKolicinu(
-  vrijednost: number,
-  izNaziva?: string | null,
-  uNaziv?: string | null
-) {
-  const from = faktorJedinice(izNaziva);
-  const to = faktorJedinice(uNaziv);
-
-  if (!from || !to) {
-    throw new Error(
-      `Nedostaje ili je nepoznata jedinica (${izNaziva ?? "?"} -> ${uNaziv ?? "?"}).`
-    );
-  }
-
-  if (from.grupa !== to.grupa) {
-    throw new Error(
-      `Nije moguće pretvoriti jedinicu ${izNaziva ?? "?"} u ${uNaziv ?? "?"}.`
-    );
-  }
-
-  const bazno = vrijednost * from.faktor;
-  return bazno / to.faktor;
-}
-
 export async function DELETE(_req: Request, { params }: Params) {
   try {
     const { id } = await params;
@@ -76,9 +37,15 @@ export async function DELETE(_req: Request, { params }: Params) {
             nazivVina: true,
             datumPunjenja: true,
             pocetnoMjerenjeId: true,
+            prethodnaKolicinaUTanku: true,
+            prethodnaSorta: true,
+            prethodniNazivVina: true,
+            prethodnoGodiste: true,
+            prethodniSastavJson: true,
             tank: {
               select: {
                 broj: true,
+                tip: true,
               },
             },
           },
@@ -110,202 +77,127 @@ export async function DELETE(_req: Request, { params }: Params) {
     await prisma.$transaction(async (tx) => {
       const tankId = stavka.punjenje!.tankId;
       const datumPunjenja = stavka.punjenje?.datumPunjenja ?? null;
-      const brojTanka = stavka.punjenje?.tank?.broj ?? null;
 
       if (!datumPunjenja) {
-        throw new Error("Punjenje nema datum, rollback nije moguće sigurno napraviti.");
+        throw new Error("Punjenje nema datum.");
       }
 
       /**
-       * 1. Dohvati sve zadatke za ovo punjenje i nakon njega
-       * - otvorene i otkazane ćemo samo obrisati
-       * - izvršene ćemo prvo vratiti na skladište pa obrisati
+       * 1. Provjeri koliko aktivnih stavki ima to punjenje prije brisanja
        */
-      const zadaciZaRollback = await tx.zadatak.findMany({
+      const brojAktivnihStavkiPrije = await tx.punjenjeStavka.count({
         where: {
-          tankId,
-          OR: [
-            {
-              zadanoAt: {
-                gte: datumPunjenja,
+          punjenjeId: stavka.punjenjeId,
+          obrisano: false,
+        },
+      });
+
+      const briseZadnjuAktivnuStavku = brojAktivnihStavkiPrije === 1;
+
+      /**
+       * 2. Ako nakon ovog punjenja postoje novija aktivna punjenja,
+       * ne dopuštamo brisanje zadnje stavke tog punjenja
+       */
+      if (briseZadnjuAktivnuStavku) {
+        const postojiKasnijeAktivnoPunjenje = await tx.punjenjeTanka.count({
+          where: {
+            tankId,
+            datumPunjenja: {
+              gt: datumPunjenja,
+            },
+            stavke: {
+              some: {
+                obrisano: false,
               },
             },
+          },
+        });
+
+        if (postojiKasnijeAktivnoPunjenje > 0) {
+          throw new Error(
+            "Ovo punjenje se ne može obrisati jer nakon njega postoje novija aktivna punjenja u istom tanku."
+          );
+        }
+      }
+
+      /**
+       * 3. Izvršeni zadaci od ovog punjenja nadalje = nema brisanja
+       */
+      const brojIzvrsenihZadataka = await tx.zadatak.count({
+        where: {
+          tankId,
+          status: "IZVRSEN",
+          OR: [
             {
               izvrsenoAt: {
                 gte: datumPunjenja,
               },
             },
-          ],
-        },
-        include: {
-          preparat: {
-            select: {
-              id: true,
-              naziv: true,
-              stanjeNaSkladistu: true,
-              skladisnaJedinicaId: true,
-              skladisnaJedinica: {
-                select: {
-                  id: true,
-                  naziv: true,
-                },
-              },
-            },
-          },
-          izlaznaJedinica: {
-            select: {
-              id: true,
-              naziv: true,
-            },
-          },
-          stavke: {
-            include: {
-              preparat: {
-                select: {
-                  id: true,
-                  naziv: true,
-                  stanjeNaSkladistu: true,
-                  skladisnaJedinicaId: true,
-                  skladisnaJedinica: {
-                    select: {
-                      id: true,
-                      naziv: true,
-                    },
+            {
+              AND: [
+                { izvrsenoAt: null },
+                {
+                  zadanoAt: {
+                    gte: datumPunjenja,
                   },
                 },
-              },
-              izlaznaJedinica: {
-                select: {
-                  id: true,
-                  naziv: true,
-                },
-              },
+              ],
+            },
+          ],
+        },
+      });
+
+      if (brojIzvrsenihZadataka > 0) {
+        throw new Error(
+          "Ova berba se više ne može obrisati jer su na njoj već izvršeni zadaci. Brisanje je moguće samo dok nema izvršenih radnji."
+        );
+      }
+
+      /**
+       * 4. OTVOREN i OTKAZAN zadatak od ovog punjenja nadalje brišemo automatski
+       */
+      await tx.zadatakStavka.deleteMany({
+        where: {
+          zadatak: {
+            tankId,
+            status: {
+              in: ["OTVOREN", "OTKAZAN"],
+            },
+            zadanoAt: {
+              gte: datumPunjenja,
             },
           },
         },
       });
 
-      const izvrseniZadaci = zadaciZaRollback.filter((z) => z.status === "IZVRSEN");
-      const ostaliZadaci = zadaciZaRollback.filter(
-        (z) => z.status === "OTVOREN" || z.status === "OTKAZAN"
-      );
-
-      /**
-       * 2. Vrati preparate na skladište za izvršene zadatke
-       */
-      for (const z of izvrseniZadaci) {
-        if (z.stavke && z.stavke.length > 0) {
-          for (const s of z.stavke) {
-            if (!s.preparatId || s.izracunataKolicina == null || !s.preparat) continue;
-
-            const izlaznaJedinicaNaziv = s.izlaznaJedinica?.naziv ?? null;
-            const skladisnaJedinicaNaziv = s.preparat.skladisnaJedinica?.naziv ?? null;
-
-            const kolicinaZaVratiti = pretvoriKolicinu(
-              Number(s.izracunataKolicina),
-              izlaznaJedinicaNaziv,
-              skladisnaJedinicaNaziv
-            );
-
-            await tx.preparation.update({
-              where: { id: s.preparatId },
-              data: {
-                stanjeNaSkladistu: {
-                  increment: kolicinaZaVratiti,
-                },
-              },
-            });
-
-            if (!s.preparat.skladisnaJedinicaId) {
-              throw new Error(
-                `Preparat "${s.preparat.naziv}" nema skladišnu jedinicu pa rollback nije moguće evidentirati.`
-              );
-            }
-
-            await tx.preparationStockEntry.create({
-              data: {
-                preparationId: s.preparatId,
-                kolicina: kolicinaZaVratiti,
-                unitId: s.preparat.skladisnaJedinicaId,
-                datum: new Date(),
-                napomena: `Povrat na skladište zbog brisanja berbe / rollbacka za tank ${brojTanka ?? tankId}`,
-                brojDokumenta: `ROLLBACK-${stavka.punjenjeId}`,
-                dobavljac: "Automatski rollback",
-              },
-            });
-          }
-        } else if (z.preparatId && z.izracunataKolicina != null && z.preparat) {
-          const izlaznaJedinicaNaziv = z.izlaznaJedinica?.naziv ?? null;
-          const skladisnaJedinicaNaziv = z.preparat.skladisnaJedinica?.naziv ?? null;
-
-          const kolicinaZaVratiti = pretvoriKolicinu(
-            Number(z.izracunataKolicina),
-            izlaznaJedinicaNaziv,
-            skladisnaJedinicaNaziv
-          );
-
-          await tx.preparation.update({
-            where: { id: z.preparatId },
-            data: {
-              stanjeNaSkladistu: {
-                increment: kolicinaZaVratiti,
-              },
+      await tx.radnja.deleteMany({
+        where: {
+          zadatak: {
+            tankId,
+            status: {
+              in: ["OTVOREN", "OTKAZAN"],
             },
-          });
-
-          if (!z.preparat.skladisnaJedinicaId) {
-            throw new Error(
-              `Preparat "${z.preparat.naziv}" nema skladišnu jedinicu pa rollback nije moguće evidentirati.`
-            );
-          }
-
-          await tx.preparationStockEntry.create({
-            data: {
-              preparationId: z.preparatId,
-              kolicina: kolicinaZaVratiti,
-              unitId: z.preparat.skladisnaJedinicaId,
-              datum: new Date(),
-              napomena: `Povrat na skladište zbog brisanja berbe / rollbacka za tank ${brojTanka ?? tankId}`,
-              brojDokumenta: `ROLLBACK-${stavka.punjenjeId}`,
-              dobavljac: "Automatski rollback",
-            },
-          });
-        }
-      }
-
-      /**
-       * 3. Obriši radnje vezane uz zadatke od tog punjenja nadalje
-       */
-      const zadatakIdsZaBrisanje = zadaciZaRollback.map((z) => z.id);
-
-      if (zadatakIdsZaBrisanje.length > 0) {
-        await tx.radnja.deleteMany({
-          where: {
-            zadatakId: {
-              in: zadatakIdsZaBrisanje,
+            zadanoAt: {
+              gte: datumPunjenja,
             },
           },
-        });
+        },
+      });
 
-        await tx.zadatakStavka.deleteMany({
-          where: {
-            zadatakId: {
-              in: zadatakIdsZaBrisanje,
-            },
+      await tx.zadatak.deleteMany({
+        where: {
+          tankId,
+          status: {
+            in: ["OTVOREN", "OTKAZAN"],
           },
-        });
-
-        await tx.zadatak.deleteMany({
-          where: {
-            id: {
-              in: zadatakIdsZaBrisanje,
-            },
+          zadanoAt: {
+            gte: datumPunjenja,
           },
-        });
-      }
+        },
+      });
 
       /**
-       * 4. Soft delete stavke berbe
+       * 5. Soft delete stavke
        */
       await tx.punjenjeStavka.update({
         where: { id },
@@ -316,7 +208,7 @@ export async function DELETE(_req: Request, { params }: Params) {
       });
 
       /**
-       * 5. Aktivne stavke tog punjenja
+       * 6. Aktivne stavke tog punjenja nakon brisanja
        */
       const aktivneStavkePunjenja = await tx.punjenjeStavka.findMany({
         where: {
@@ -325,8 +217,10 @@ export async function DELETE(_req: Request, { params }: Params) {
         },
         select: {
           id: true,
+          nazivSorte: true,
           kolicinaLitara: true,
           kolicinaKgGrozdja: true,
+          godinaBerbe: true,
         },
       });
 
@@ -349,196 +243,251 @@ export async function DELETE(_req: Request, { params }: Params) {
       });
 
       /**
-       * 6. Ako punjenje ostane bez aktivnih stavki -> obriši početno mjerenje
+       * 7. Ako su još ostale stavke u ISTOM punjenju,
+       * samo preračunamo tank iz svih aktivnih punjenja
        */
-      if (aktivneStavkePunjenja.length === 0) {
-        await tx.punjenjeTanka.update({
-          where: { id: stavka.punjenjeId },
-          data: {
-            pocetnoMjerenjeId: null,
+      if (aktivneStavkePunjenja.length > 0) {
+        const aktivnaPunjenjaTanka = await tx.punjenjeTanka.findMany({
+          where: {
+            tankId,
+            stavke: {
+              some: {
+                obrisano: false,
+              },
+            },
+          },
+          orderBy: {
+            datumPunjenja: "desc",
+          },
+          select: {
+            id: true,
+            nazivVina: true,
+            datumPunjenja: true,
+            stavke: {
+              where: {
+                obrisano: false,
+              },
+              select: {
+                nazivSorte: true,
+                kolicinaLitara: true,
+                godinaBerbe: true,
+              },
+            },
           },
         });
 
-        if (stavka.punjenje?.pocetnoMjerenjeId) {
-          await tx.mjerenje.deleteMany({
-            where: {
-              id: stavka.punjenje.pocetnoMjerenjeId,
+        const sveAktivneStavkeTanka = aktivnaPunjenjaTanka.flatMap((p) => p.stavke);
+
+        const novaKolicinaUTanku = sveAktivneStavkeTanka.reduce(
+          (sum, s) => sum + Number(s.kolicinaLitara || 0),
+          0
+        );
+
+        if (aktivnaPunjenjaTanka.length === 0 || novaKolicinaUTanku <= 0) {
+          await tx.tank.update({
+            where: { id: tankId },
+            data: {
+              kolicinaVinaUTanku: 0,
+              sorta: null,
+              nazivVina: null,
+              godiste: null,
             },
           });
+
+          await tx.tankContent.deleteMany({
+            where: { tankId },
+          });
+
+          await tx.tankSortaUdio.deleteMany({
+            where: { tankId },
+          });
+
+          return;
         }
-      }
 
-      /**
-       * 7. Sva aktivna punjenja za taj tank koja još imaju aktivne stavke
-       */
-      const aktivnaPunjenjaTanka = await tx.punjenjeTanka.findMany({
-        where: {
-          tankId,
-          stavke: {
-            some: {
-              obrisano: false,
-            },
-          },
-        },
-        orderBy: {
-          datumPunjenja: "desc",
-        },
-        select: {
-          id: true,
-          nazivVina: true,
-          datumPunjenja: true,
-          stavke: {
-            where: {
-              obrisano: false,
-            },
-            select: {
-              nazivSorte: true,
-              kolicinaLitara: true,
-              godinaBerbe: true,
-            },
-          },
-        },
-      });
+        const litaraPoSorti = new Map<string, number>();
 
-      const sveAktivneStavkeTanka = aktivnaPunjenjaTanka.flatMap((p) => p.stavke);
+        for (const s of sveAktivneStavkeTanka) {
+          const naziv = String(s.nazivSorte || "").trim();
+          if (!naziv) continue;
+          litaraPoSorti.set(
+            naziv,
+            (litaraPoSorti.get(naziv) ?? 0) + Number(s.kolicinaLitara || 0)
+          );
+        }
 
-      const novaKolicinaUTanku = sveAktivneStavkeTanka.reduce(
-        (sum, s) => sum + Number(s.kolicinaLitara || 0),
-        0
-      );
-
-      /**
-       * 8. Ako je tank ostao prazan -> očisti ga
-       */
-      if (novaKolicinaUTanku <= 0) {
-        await tx.tank.update({
-          where: { id: tankId },
-          data: {
-            kolicinaVinaUTanku: 0,
-            sorta: null,
-            nazivVina: null,
-            godiste: null,
-          },
-        });
-
-        await tx.tankContent.deleteMany({
-          where: { tankId },
-        });
+        const noviUdjeli = Array.from(litaraPoSorti.entries())
+          .map(([nazivSorte, litara]) => ({
+            nazivSorte,
+            postotak:
+              novaKolicinaUTanku > 0 ? (litara / novaKolicinaUTanku) * 100 : 0,
+          }))
+          .filter((u) => u.postotak > 0);
 
         await tx.tankSortaUdio.deleteMany({
           where: { tankId },
+        });
+
+        if (noviUdjeli.length > 0) {
+          await tx.tankSortaUdio.createMany({
+            data: noviUdjeli.map((u) => ({
+              tankId,
+              nazivSorte: u.nazivSorte,
+              postotak: u.postotak,
+            })),
+          });
+        }
+
+        const jedinstveneSorte = Array.from(
+          new Set(
+            sveAktivneStavkeTanka
+              .map((s) => String(s.nazivSorte || "").trim())
+              .filter(Boolean)
+          )
+        );
+
+        const jedinstenaGodista = Array.from(
+          new Set(
+            sveAktivneStavkeTanka
+              .map((s) => s.godinaBerbe)
+              .filter((g): g is number => g !== null && g !== undefined)
+          )
+        );
+
+        const zadnjeAktivnoPunjenje = aktivnaPunjenjaTanka[0] ?? null;
+
+        const novaSorta =
+          jedinstveneSorte.length === 1
+            ? jedinstveneSorte[0]
+            : zadnjeAktivnoPunjenje?.nazivVina || "Cuvée";
+
+        const novoGodiste =
+          jedinstveneSorte.length === 1 && jedinstenaGodista.length === 1
+            ? jedinstenaGodista[0]
+            : null;
+
+        const noviNazivVina =
+          zadnjeAktivnoPunjenje?.nazivVina ??
+          (jedinstveneSorte.length === 1 ? jedinstveneSorte[0] : null);
+
+        await tx.tank.update({
+          where: { id: tankId },
+          data: {
+            kolicinaVinaUTanku: novaKolicinaUTanku,
+            sorta: novaSorta,
+            nazivVina: noviNazivVina,
+            godiste: novoGodiste,
+          },
+        });
+
+        await tx.tankContent.upsert({
+          where: { tankId },
+          update: {
+            sorta:
+              jedinstveneSorte.length === 1
+                ? jedinstveneSorte[0]
+                : noviNazivVina || "Mješavina",
+            kolicina: novaKolicinaUTanku,
+            datumUlaza: zadnjeAktivnoPunjenje?.datumPunjenja ?? new Date(),
+          },
+          create: {
+            tankId,
+            sorta:
+              jedinstveneSorte.length === 1
+                ? jedinstveneSorte[0]
+                : noviNazivVina || "Mješavina",
+            kolicina: novaKolicinaUTanku,
+            datumUlaza: zadnjeAktivnoPunjenje?.datumPunjenja ?? new Date(),
+          },
         });
 
         return;
       }
 
       /**
-       * 9. Preračun udjela sorti
+       * 8. Ako je to punjenje ostalo bez ijedne stavke:
+       * - briši početno mjerenje
+       * - vrati tank na snapshot PRIJE tog punjenja
        */
-      const litaraPoSorti = new Map<string, number>();
+      await tx.punjenjeTanka.update({
+        where: { id: stavka.punjenjeId },
+        data: {
+          pocetnoMjerenjeId: null,
+        },
+      });
 
-      for (const s of sveAktivneStavkeTanka) {
-        const nazivSorte = String(s.nazivSorte || "").trim();
-        if (!nazivSorte) continue;
-
-        litaraPoSorti.set(
-          nazivSorte,
-          (litaraPoSorti.get(nazivSorte) ?? 0) + Number(s.kolicinaLitara || 0)
-        );
+      if (stavka.punjenje?.pocetnoMjerenjeId) {
+        await tx.mjerenje.deleteMany({
+          where: {
+            id: stavka.punjenje.pocetnoMjerenjeId,
+          },
+        });
       }
 
-      const noviUdjeli = Array.from(litaraPoSorti.entries())
-        .map(([nazivSorte, litara]) => ({
-          nazivSorte,
-          postotak: novaKolicinaUTanku > 0 ? (litara / novaKolicinaUTanku) * 100 : 0,
-        }))
-        .filter((u) => u.postotak > 0);
+      const prethodnaKolicina = Number(
+        stavka.punjenje.prethodnaKolicinaUTanku ?? 0
+      );
+      const prethodnaSorta = stavka.punjenje.prethodnaSorta ?? null;
+      const prethodniNazivVina = stavka.punjenje.prethodniNazivVina ?? null;
+      const prethodnoGodiste = stavka.punjenje.prethodnoGodiste ?? null;
+
+      const prethodniSastavJson = Array.isArray(
+        stavka.punjenje.prethodniSastavJson
+      )
+        ? stavka.punjenje.prethodniSastavJson
+        : [];
+
+      await tx.tank.update({
+        where: { id: tankId },
+        data: {
+          kolicinaVinaUTanku: prethodnaKolicina,
+          sorta: prethodnaSorta,
+          nazivVina: prethodniNazivVina,
+          godiste: prethodnoGodiste,
+        },
+      });
+
+      if (prethodnaKolicina > 0) {
+        await tx.tankContent.upsert({
+          where: { tankId },
+          update: {
+            sorta: prethodnaSorta || prethodniNazivVina || "Mješavina",
+            kolicina: prethodnaKolicina,
+            datumUlaza: datumPunjenja,
+          },
+          create: {
+            tankId,
+            sorta: prethodnaSorta || prethodniNazivVina || "Mješavina",
+            kolicina: prethodnaKolicina,
+            datumUlaza: datumPunjenja,
+          },
+        });
+      } else {
+        await tx.tankContent.deleteMany({
+          where: { tankId },
+        });
+      }
 
       await tx.tankSortaUdio.deleteMany({
         where: { tankId },
       });
 
-      if (noviUdjeli.length > 0) {
+      if (prethodnaKolicina > 0 && prethodniSastavJson.length > 0) {
         await tx.tankSortaUdio.createMany({
-          data: noviUdjeli.map((u) => ({
-            tankId,
-            nazivSorte: u.nazivSorte,
-            postotak: u.postotak,
-          })),
+          data: prethodniSastavJson
+            .filter(
+              (u: any) =>
+                u &&
+                typeof u.nazivSorte === "string" &&
+                typeof u.postotak === "number"
+            )
+            .map((u: any) => ({
+              tankId,
+              nazivSorte: u.nazivSorte,
+              postotak: u.postotak,
+            })),
         });
       }
-
-      /**
-       * 10. Sorta / naziv / godište za tank
-       */
-      const jedinstveneSorte = Array.from(
-        new Set(
-          sveAktivneStavkeTanka
-            .map((s) => String(s.nazivSorte || "").trim())
-            .filter(Boolean)
-        )
-      );
-
-      const jedinstenaGodista = Array.from(
-        new Set(
-          sveAktivneStavkeTanka
-            .map((s) => s.godinaBerbe)
-            .filter((g): g is number => g !== null && g !== undefined)
-        )
-      );
-
-      const zadnjeAktivnoPunjenje = aktivnaPunjenjaTanka[0] ?? null;
-
-      const novaSorta =
-        jedinstveneSorte.length === 1
-          ? jedinstveneSorte[0]
-          : zadnjeAktivnoPunjenje?.nazivVina || "Cuvée";
-
-      const novoGodiste =
-        jedinstveneSorte.length === 1 && jedinstenaGodista.length === 1
-          ? jedinstenaGodista[0]
-          : null;
-
-      const noviNazivVina =
-        zadnjeAktivnoPunjenje?.nazivVina ??
-        (jedinstveneSorte.length === 1 ? jedinstveneSorte[0] : null);
-
-      /**
-       * 11. Ažuriraj tank
-       */
-      await tx.tank.update({
-        where: { id: tankId },
-        data: {
-          kolicinaVinaUTanku: novaKolicinaUTanku,
-          sorta: novaSorta,
-          nazivVina: noviNazivVina,
-          godiste: novoGodiste,
-        },
-      });
-
-      /**
-       * 12. Ažuriraj tankContent
-       */
-      await tx.tankContent.upsert({
-        where: { tankId },
-        update: {
-          sorta:
-            jedinstveneSorte.length === 1
-              ? jedinstveneSorte[0]
-              : noviNazivVina || "Mješavina",
-          kolicina: novaKolicinaUTanku,
-          datumUlaza: zadnjeAktivnoPunjenje?.datumPunjenja ?? new Date(),
-        },
-        create: {
-          tankId,
-          sorta:
-            jedinstveneSorte.length === 1
-              ? jedinstveneSorte[0]
-              : noviNazivVina || "Mješavina",
-          kolicina: novaKolicinaUTanku,
-          datumUlaza: zadnjeAktivnoPunjenje?.datumPunjenja ?? new Date(),
-        },
-      });
     });
 
     return NextResponse.json({ success: true });

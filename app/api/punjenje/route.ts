@@ -24,31 +24,31 @@ function datumIliNull(v: unknown): Date | null {
 export async function GET() {
   try {
     const punjenjaRaw = await prisma.punjenjeTanka.findMany({
-  orderBy: {
-    datumPunjenja: "desc",
-  },
-  include: {
-    tank: {
-      select: {
-        id: true,
-        broj: true,
-        tip: true,
-      },
-    },
-    stavke: {
-      where: {
-        obrisano: false,
-      },
       orderBy: {
-        createdAt: "asc",
+        datumPunjenja: "desc",
       },
       include: {
-        sorta: true,
+        tank: {
+          select: {
+            id: true,
+            broj: true,
+            tip: true,
+          },
+        },
+        stavke: {
+          where: {
+            obrisano: false,
+          },
+          orderBy: {
+            createdAt: "asc",
+          },
+          include: {
+            sorta: true,
+          },
+        },
+        pocetnoMjerenje: true,
       },
-    },
-    pocetnoMjerenje: true,
-  },
-});
+    });
 
     const punjenja = punjenjaRaw.map((p) => {
       const ukupnoLitara = p.stavke.reduce(
@@ -283,6 +283,14 @@ export async function POST(req: Request) {
         createdMjerenjeId = createdMjerenje.id;
       }
 
+      const prethodniSastavJson =
+        tank.udjeliSorti && tank.udjeliSorti.length > 0
+          ? tank.udjeliSorti.map((u) => ({
+              nazivSorte: u.nazivSorte,
+              postotak: u.postotak,
+            }))
+          : [];
+
       const created = await tx.punjenjeTanka.create({
         data: {
           tankId,
@@ -293,6 +301,13 @@ export async function POST(req: Request) {
           ukupnoLitara,
           ukupnoKgGrozdja,
           pocetnoMjerenjeId: createdMjerenjeId,
+
+          prethodnaKolicinaUTanku: trenutnoUTanku,
+          prethodnaSorta: tank.sorta ?? null,
+          prethodniNazivVina: tank.nazivVina ?? null,
+          prethodnoGodiste: tank.godiste ?? null,
+          prethodniSastavJson: prethodniSastavJson,
+
           stavke: {
             create: cisteStavke.map((s) => ({
               sortaId: s.sortaId,

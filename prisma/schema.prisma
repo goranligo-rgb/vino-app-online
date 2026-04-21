@@ -744,6 +744,12 @@ model PunjenjeTanka {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
+  prethodnaKolicinaUTanku Float? @default(0)
+  prethodnaSorta          String?
+  prethodniNazivVina      String?
+  prethodnoGodiste        Int?
+  prethodniSastavJson     Json?
+
   tank            Tank             @relation(fields: [tankId], references: [id], onDelete: Cascade)
   stavke          PunjenjeStavka[]
   pocetnoMjerenje Mjerenje?        @relation("PocetnoMjerenjePunjenja", fields: [pocetnoMjerenjeId], references: [id])
