@@ -91,7 +91,6 @@ export default async function DashboardPage() {
       }}
     >
       <div className="mx-auto max-w-6xl">
-        {/* HEADER */}
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="mb-2 text-4xl font-semibold text-white">
@@ -102,14 +101,12 @@ export default async function DashboardPage() {
             </p>
           </div>
 
-          {/* GUMBI DESNO */}
           <div className="flex items-center gap-3">
             <DashboardTopActions />
             <LogoutButton />
           </div>
         </div>
 
-        {/* GRID */}
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <DashboardCard
             href="/zadaci"
@@ -187,18 +184,25 @@ export default async function DashboardPage() {
               />
 
               {isAdmin && (
-                <DashboardCard
-                  href="/dashboard/korisnici"
-                  title="Korisnici"
-                  description="Upravljanje korisnicima"
-                />
+                <>
+                  <DashboardCard
+                    href="/dashboard/korisnici"
+                    title="Korisnici"
+                    description="Upravljanje korisnicima"
+                  />
+
+                  <DashboardCard
+                    href="/dashboard/reset"
+                    title="Reset"
+                    description="Administratorsko brisanje podataka sustava"
+                  />
+                </>
               )}
             </>
           )}
         </div>
       </div>
 
-      {/* POTPIS DOLJE */}
       <SignatureAnimation />
     </main>
   );
