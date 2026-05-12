@@ -121,6 +121,12 @@ export default async function DashboardPage() {
             monitor
           />
 
+          <DashboardCard
+            href="/putnik"
+            title="Putnik"
+            description="CRM za teren: kupci, ankete, dogovori, ulaganja i rast prodaje — Level 2"
+          />
+
           {isLevel1 && (
             <>
               <DashboardCard

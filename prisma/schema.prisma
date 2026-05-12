@@ -7,15 +7,14 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  ime       String
-  username  String?  @unique
-  email     String   @unique
-  password  String
-  role      Role
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-
+  id             String        @id @default(uuid())
+  ime            String
+  username       String?       @unique
+  email          String        @unique
+  password       String
+  role           Role
+  active         Boolean       @default(true)
+  createdAt      DateTime      @default(now())
   activityLogs   ActivityLog[]
   additions      Addition[]
   measurements   Measurement[]
@@ -28,56 +27,49 @@ model User {
 }
 
 model Tank {
-  id                 String   @id @default(uuid())
-  broj               Int      @unique
+  id                 String           @id @default(uuid())
+  broj               Int              @unique
   kapacitet          Float
-  kolicinaVinaUTanku Float?   @default(0)
+  kolicinaVinaUTanku Float?           @default(0)
   tip                String?
   opis               String?
-  createdAt          DateTime @default(now())
+  createdAt          DateTime         @default(now())
   sorta              String?
   nazivVina          String?
   godiste            Int?
-
-  additions       Addition[]
-  documents       Document[]
-  measurements    Measurement[]
-  targetMixings   Mixing[]        @relation("TargetTankMixings")
-  mixingSources   MixingSource[]
-  mjerenja        Mjerenje[]
-  radnje          Radnja[]
-  currentContent  TankContent?
-  targetTransfers Transfer[]      @relation("TargetTankTransfers")
-  sourceTransfers Transfer[]      @relation("SourceTankTransfers")
-  zadaci          Zadatak[]
-  udjeliSorti     TankSortaUdio[]
-  izlaziVina      IzlazVina[]
-
-  blendIzvori    BlendIzvor[] @relation("CiljniBlendTank")
-  kaoIzvorBlenda BlendIzvor[] @relation("IzvorBlendTank")
-
-  pretociKaoCilj  Pretok[]      @relation("CiljniPretoci")
-  pretociKaoIzvor PretokIzvor[] @relation("IzvorniPretoci")
-
-  punjenja        PunjenjeTanka[]
-  pretokSnapshoti PretokSnapshot[]
-  pretokMjerenja  PretokMjerenje[]
+  additions          Addition[]
+  blendIzvori        BlendIzvor[]     @relation("CiljniBlendTank")
+  kaoIzvorBlenda     BlendIzvor[]     @relation("IzvorBlendTank")
+  documents          Document[]
+  izlaziVina         IzlazVina[]
+  measurements       Measurement[]
+  targetMixings      Mixing[]         @relation("TargetTankMixings")
+  mixingSources      MixingSource[]
+  mjerenja           Mjerenje[]
+  pretociKaoCilj     Pretok[]         @relation("CiljniPretoci")
+  pretociKaoIzvor    PretokIzvor[]    @relation("IzvorniPretoci")
+  pretokMjerenja     PretokMjerenje[]
+  pretokSnapshoti    PretokSnapshot[]
+  punjenja           PunjenjeTanka[]
+  radnje             Radnja[]
+  currentContent     TankContent?
+  udjeliSorti        TankSortaUdio[]
+  sourceTransfers    Transfer[]       @relation("SourceTankTransfers")
+  targetTransfers    Transfer[]       @relation("TargetTankTransfers")
+  zadaci             Zadatak[]
 }
 
 model Pretok {
-  id    String   @id @default(uuid())
-  datum DateTime @default(now())
-
+  id         String           @id @default(uuid())
+  datum      DateTime         @default(now())
   ciljTankId String
-  ciljTank   Tank   @relation("CiljniPretoci", fields: [ciljTankId], references: [id])
-
-  tip       TipPretokaDb @default(OBICNI)
-  napomena  String?
-  createdAt DateTime     @default(now())
-
-  izvori    PretokIzvor[]
-  snapshoti PretokSnapshot[]
-  mjerenja  PretokMjerenje[]
+  napomena   String?
+  createdAt  DateTime         @default(now())
+  tip        String           @default("OBICNI")
+  ciljTank   Tank             @relation("CiljniPretoci", fields: [ciljTankId], references: [id])
+  izvori     PretokIzvor[]
+  mjerenja   PretokMjerenje[]
+  snapshoti  PretokSnapshot[]
 
   @@index([ciljTankId])
   @@index([createdAt])
@@ -87,21 +79,20 @@ model Pretok {
 model PretokIzvor {
   id       String @id @default(uuid())
   pretokId String
-  pretok   Pretok @relation(fields: [pretokId], references: [id], onDelete: Cascade)
   tankId   String
-  tank     Tank   @relation("IzvorniPretoci", fields: [tankId], references: [id])
   kolicina Float
+  pretok   Pretok @relation(fields: [pretokId], references: [id], onDelete: Cascade)
+  tank     Tank   @relation("IzvorniPretoci", fields: [tankId], references: [id])
 
   @@index([pretokId])
   @@index([tankId])
 }
 
 model PretokSnapshot {
-  id       String @id @default(uuid())
-  pretokId String
-  tankId   String
-  uloga    String // "CILJ" | "IZVOR"
-
+  id             String                @id @default(uuid())
+  pretokId       String
+  tankId         String
+  uloga          String
   brojTanka      Int?
   kolicinaPrije  Float?
   sortaPrije     String?
@@ -110,14 +101,11 @@ model PretokSnapshot {
   kapacitetPrije Float?
   tipTankaPrije  String?
   opisPrije      String?
-
-  createdAt DateTime @default(now())
-
-  pretok Pretok @relation(fields: [pretokId], references: [id], onDelete: Cascade)
-  tank   Tank   @relation(fields: [tankId], references: [id])
-
-  sorte    PretokSnapshotSorta[]
-  blendovi PretokSnapshotBlend[]
+  createdAt      DateTime              @default(now())
+  pretok         Pretok                @relation(fields: [pretokId], references: [id], onDelete: Cascade)
+  tank           Tank                  @relation(fields: [tankId], references: [id])
+  blendovi       PretokSnapshotBlend[]
+  sorte          PretokSnapshotSorta[]
 
   @@index([pretokId])
   @@index([tankId])
@@ -125,19 +113,18 @@ model PretokSnapshot {
 }
 
 model PretokSnapshotSorta {
-  id         String   @id @default(uuid())
+  id         String         @id @default(uuid())
   snapshotId String
   nazivSorte String
   postotak   Float
-  createdAt  DateTime @default(now())
-
-  snapshot PretokSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  createdAt  DateTime       @default(now())
+  snapshot   PretokSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
   @@index([snapshotId])
 }
 
 model PretokSnapshotBlend {
-  id                String   @id @default(uuid())
+  id                String         @id @default(uuid())
   snapshotId        String
   izvorTankId       String?
   izvorArhivaVinaId String?
@@ -145,9 +132,8 @@ model PretokSnapshotBlend {
   sorta             String?
   kolicina          Float
   postotak          Float
-  createdAt         DateTime @default(now())
-
-  snapshot PretokSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  createdAt         DateTime       @default(now())
+  snapshot          PretokSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
   @@index([snapshotId])
   @@index([izvorTankId])
@@ -160,10 +146,9 @@ model PretokMjerenje {
   mjerenjeId String   @unique
   tankId     String
   createdAt  DateTime @default(now())
-
-  pretok   Pretok   @relation(fields: [pretokId], references: [id], onDelete: Cascade)
-  mjerenje Mjerenje @relation(fields: [mjerenjeId], references: [id], onDelete: Cascade)
-  tank     Tank     @relation(fields: [tankId], references: [id])
+  mjerenje   Mjerenje @relation(fields: [mjerenjeId], references: [id], onDelete: Cascade)
+  pretok     Pretok   @relation(fields: [pretokId], references: [id], onDelete: Cascade)
+  tank       Tank     @relation(fields: [tankId], references: [id])
 
   @@index([pretokId])
   @@index([tankId])
@@ -175,40 +160,37 @@ model TankSortaUdio {
   nazivSorte String
   postotak   Float
   createdAt  DateTime @default(now())
-
-  tank Tank @relation(fields: [tankId], references: [id], onDelete: Cascade)
+  tank       Tank     @relation(fields: [tankId], references: [id], onDelete: Cascade)
 }
 
 model Sorta {
-  id        String   @id @default(uuid())
-  naziv     String   @unique
-  aktivna   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
+  id             String           @id @default(uuid())
+  naziv          String           @unique
+  aktivna        Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
   punjenjeStavke PunjenjeStavka[]
 }
 
 model Preparat {
-  id              String   @id @default(uuid())
-  naziv           String   @unique
+  id              String     @id @default(uuid())
+  naziv           String     @unique
   strucnoIme      String
   preporucenaDoza Float
   mjernaJedinica  String
   izlaznaJedinica String
   opis            String?
-  active          Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  active          Boolean    @default(true)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
   dozaDo          Float?
   dozaOd          Float?
   unitId          String?
-
-  additions Addition[]
+  additions       Addition[]
 }
 
 model Addition {
-  id                 String   @id @default(uuid())
+  id                 String      @id @default(uuid())
   datum              DateTime
   userId             String
   tankId             String
@@ -219,13 +201,12 @@ model Addition {
   izracunataKolicina Float
   izlaznaJedinica    String
   napomena           String?
-  createdAt          DateTime @default(now())
+  createdAt          DateTime    @default(now())
   preparatId         String?
-
-  preparat    Preparat?   @relation(fields: [preparatId], references: [id])
-  preparation Preparation @relation(fields: [preparationId], references: [id])
-  tank        Tank        @relation(fields: [tankId], references: [id])
-  user        User        @relation(fields: [userId], references: [id])
+  preparat           Preparat?   @relation(fields: [preparatId], references: [id])
+  preparation        Preparation @relation(fields: [preparationId], references: [id])
+  tank               Tank        @relation(fields: [tankId], references: [id])
+  user               User        @relation(fields: [userId], references: [id])
 }
 
 model Transfer {
@@ -237,14 +218,13 @@ model Transfer {
   kolicina     Float
   napomena     String?
   createdAt    DateTime @default(now())
-
-  targetTank Tank @relation("TargetTankTransfers", fields: [targetTankId], references: [id])
-  sourceTank Tank @relation("SourceTankTransfers", fields: [sourceTankId], references: [id])
-  user       User @relation(fields: [userId], references: [id])
+  sourceTank   Tank     @relation("SourceTankTransfers", fields: [sourceTankId], references: [id])
+  targetTank   Tank     @relation("TargetTankTransfers", fields: [targetTankId], references: [id])
+  user         User     @relation(fields: [userId], references: [id])
 }
 
 model Mixing {
-  id           String   @id @default(uuid())
+  id           String         @id @default(uuid())
   datum        DateTime
   userId       String
   targetTankId String
@@ -252,11 +232,10 @@ model Mixing {
   alkohol      Float?
   kiseline     Float?
   napomena     String?
-  createdAt    DateTime @default(now())
-
-  targetTank Tank           @relation("TargetTankMixings", fields: [targetTankId], references: [id])
-  user       User           @relation(fields: [userId], references: [id])
-  sources    MixingSource[]
+  createdAt    DateTime       @default(now())
+  targetTank   Tank           @relation("TargetTankMixings", fields: [targetTankId], references: [id])
+  user         User           @relation(fields: [userId], references: [id])
+  sources      MixingSource[]
 }
 
 model MixingSource {
@@ -264,9 +243,8 @@ model MixingSource {
   mixingId     String
   sourceTankId String
   kolicina     Float
-
-  sourceTank Tank   @relation(fields: [sourceTankId], references: [id])
-  mixing     Mixing @relation(fields: [mixingId], references: [id], onDelete: Cascade)
+  mixing       Mixing @relation(fields: [mixingId], references: [id], onDelete: Cascade)
+  sourceTank   Tank   @relation(fields: [sourceTankId], references: [id])
 }
 
 model Measurement {
@@ -281,9 +259,8 @@ model Measurement {
   temperatura Float?
   napomena    String?
   createdAt   DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id])
-  tank Tank @relation(fields: [tankId], references: [id])
+  tank        Tank     @relation(fields: [tankId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
 }
 
 model Document {
@@ -299,8 +276,7 @@ model Document {
   uploadedByUserId String?
   uploadedByIme    String?
   createdAt        DateTime           @default(now())
-
-  tank Tank @relation(fields: [tankId], references: [id], onDelete: Cascade)
+  tank             Tank               @relation(fields: [tankId], references: [id], onDelete: Cascade)
 
   @@index([tankId])
   @@index([vrsta])
@@ -317,8 +293,7 @@ model ActivityLog {
   opis       String
   payload    Json?
   createdAt  DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
 }
 
 model TankContent {
@@ -329,109 +304,100 @@ model TankContent {
   datumUlaza DateTime
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-
-  tank Tank @relation(fields: [tankId], references: [id], onDelete: Cascade)
+  tank       Tank     @relation(fields: [tankId], references: [id], onDelete: Cascade)
 }
 
 model Unit {
-  id     String  @id @default(uuid())
-  naziv  String
-  tip    String?
-  faktor Float?
-
+  id                              String                  @id @default(uuid())
+  naziv                           String
+  tip                             String?
+  faktor                          Float?
+  preparationStockUnits           Preparation[]           @relation("PreparationStockUnit")
   preparations                    Preparation[]
-  preparationStockUnits           Preparation[]         @relation("PreparationStockUnit")
   stockEntries                    PreparationStockEntry[]
   radnje                          Radnja[]
-  zadaciKaoIzlaznaJedinica        Zadatak[]             @relation("ZadatakIzlaznaJedinica")
-  zadaciKaoJedinica               Zadatak[]             @relation("ZadatakJedinica")
-  zadatakStavkeKaoJedinica        ZadatakStavka[]       @relation("ZadatakStavkaJedinica")
-  zadatakStavkeKaoIzlaznaJedinica ZadatakStavka[]       @relation("ZadatakStavkaIzlaznaJedinica")
+  zadaciKaoIzlaznaJedinica        Zadatak[]               @relation("ZadatakIzlaznaJedinica")
+  zadaciKaoJedinica               Zadatak[]               @relation("ZadatakJedinica")
+  zadatakStavkeKaoIzlaznaJedinica ZadatakStavka[]         @relation("ZadatakStavkaIzlaznaJedinica")
+  zadatakStavkeKaoJedinica        ZadatakStavka[]         @relation("ZadatakStavkaJedinica")
 }
 
 model Preparation {
-  id         String   @id @default(uuid())
-  naziv      String
-  opis       String?
-  dozaOd     Float?
-  dozaDo     Float?
-  unitId     String?
-  strucnoIme String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  isKorekcijski     Boolean       @default(false)
-  korekcijaTip      KorekcijaTip?
-  korekcijaJedinica String?
-  ucinakPoJedinici  Float?
-
+  id                         String                  @id @default(uuid())
+  naziv                      String
+  opis                       String?
+  dozaOd                     Float?
+  dozaDo                     Float?
+  unitId                     String?
+  strucnoIme                 String?
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
+  isKorekcijski              Boolean                 @default(false)
+  korekcijaTip               KorekcijaTip?
+  korekcijaJedinica          String?
+  ucinakPoJedinici           Float?
   povecanjeParametra         Float?
   referentnaKolicina         Float?
   referentnaKolicinaJedinica String?
   referentniVolumen          Float?
   referentniVolumenJedinica  String?
-
-  stanjeNaSkladistu   Float   @default(0)
-  minimalnaKolicina   Float   @default(0)
-  skladisnaJedinicaId String?
-  aktivan             Boolean @default(true)
-
-  unit              Unit?                  @relation(fields: [unitId], references: [id])
-  skladisnaJedinica Unit?                  @relation("PreparationStockUnit", fields: [skladisnaJedinicaId], references: [id])
-  additions         Addition[]
-  zadaci            Zadatak[]
-  radnje            Radnja[]
-  zadatakStavke     ZadatakStavka[]
-  skladisniUlazi    PreparationStockEntry[]
+  stanjeNaSkladistu          Float?                  @default(0)
+  minimalnaKolicina          Float?                  @default(0)
+  skladisnaJedinicaId        String?
+  aktivan                    Boolean?                @default(true)
+  additions                  Addition[]
+  skladisnaJedinica          Unit?                   @relation("PreparationStockUnit", fields: [skladisnaJedinicaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unit                       Unit?                   @relation(fields: [unitId], references: [id])
+  skladisniUlazi             PreparationStockEntry[]
+  radnje                     Radnja[]
+  zadaci                     Zadatak[]
+  zadatakStavke              ZadatakStavka[]
 }
 
 model PreparationStockEntry {
-  id             String   @id @default(uuid())
-  preparationId  String
-  kolicina       Float
-  unitId         String
-  datum          DateTime @default(now())
-  dobavljac      String?
-  brojDokumenta  String?
-  napomena       String?
-  createdAt      DateTime @default(now())
-
-  preparation Preparation @relation(fields: [preparationId], references: [id], onDelete: Cascade)
-  unit        Unit        @relation(fields: [unitId], references: [id])
+  id            String      @id @default(uuid())
+  preparationId String
+  kolicina      Float
+  unitId        String
+  datum         DateTime?   @default(now()) @db.Timestamp(6)
+  dobavljac     String?
+  brojDokumenta String?
+  napomena      String?
+  createdAt     DateTime?   @default(now()) @db.Timestamp(6)
+  preparation   Preparation @relation(fields: [preparationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  unit          Unit        @relation(fields: [unitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([preparationId])
   @@index([datum])
 }
 
 model Mjerenje {
-  id              String    @id @default(cuid())
-  tankId          String
-  korisnikId      String?
-  alkohol         Float?
-  ukupneKiseline  Float?
-  hlapiveKiseline Float?
-  slobodniSO2     Float?
-  ukupniSO2       Float?
-  secer           Float?
-  ph              Float?
-  temperatura     Float?
-  bentotestDatum  DateTime?
-  bentotestStatus String?
-  izmjerenoAt     DateTime  @default(now())
-  napomena        String?
-  jeRucno         Boolean   @default(true)
-
-  tank     Tank  @relation(fields: [tankId], references: [id], onDelete: Cascade)
-  korisnik User? @relation(fields: [korisnikId], references: [id])
-
-  pocetnoZaPunjenja PunjenjeTanka[]  @relation("PocetnoMjerenjePunjenja")
-  pretokVeze        PretokMjerenje[]
+  id                String          @id @default(cuid())
+  tankId            String
+  korisnikId        String?
+  alkohol           Float?
+  ukupneKiseline    Float?
+  hlapiveKiseline   Float?
+  slobodniSO2       Float?
+  ukupniSO2         Float?
+  secer             Float?
+  ph                Float?
+  temperatura       Float?
+  bentotestDatum    DateTime?
+  bentotestStatus   String?
+  izmjerenoAt       DateTime        @default(now())
+  napomena          String?
+  jeRucno           Boolean         @default(true)
+  korisnik          User?           @relation(fields: [korisnikId], references: [id])
+  tank              Tank            @relation(fields: [tankId], references: [id], onDelete: Cascade)
+  pretokVeze        PretokMjerenje?
+  pocetnoZaPunjenja PunjenjeTanka[] @relation("PocetnoMjerenjePunjenja")
 
   @@index([tankId, izmjerenoAt])
 }
 
 model Zadatak {
-  id                 String        @id @default(uuid())
+  id                 String          @id @default(uuid())
   tankId             String
   zadaoKorisnikId    String
   izvrsioKorisnikId  String?
@@ -444,11 +410,11 @@ model Zadatak {
   volumenUTanku      Float?
   izracunataKolicina Float?
   izlaznaJedinicaId  String?
-  status             StatusZadatka @default(OTVOREN)
-  zadanoAt           DateTime      @default(now())
+  status             StatusZadatka   @default(OTVOREN)
+  zadanoAt           DateTime        @default(now())
   izvrsenoAt         DateTime?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
   tipZadatka         String?
   vezanaVrsta        VrstaZadatka?
   vezaniBrojDana     Int?
@@ -459,19 +425,18 @@ model Zadatak {
   tipKorekcije       KorekcijaTip?
   trenutnaVrijednost Float?
   zeljenaVrijednost  Float?
-
-  radnjas         Radnja[]
-  stavke          ZadatakStavka[]
-  izlaznaJedinica Unit?           @relation("ZadatakIzlaznaJedinica", fields: [izlaznaJedinicaId], references: [id])
-  jedinica        Unit?           @relation("ZadatakJedinica", fields: [jedinicaId], references: [id])
-  preparat        Preparation?    @relation(fields: [preparatId], references: [id])
-  izvrsioKorisnik User?           @relation("ZadatakIzvrsio", fields: [izvrsioKorisnikId], references: [id])
-  zadaoKorisnik   User            @relation("ZadatakZadao", fields: [zadaoKorisnikId], references: [id])
-  tank            Tank            @relation(fields: [tankId], references: [id])
+  radnjas            Radnja[]
+  izlaznaJedinica    Unit?           @relation("ZadatakIzlaznaJedinica", fields: [izlaznaJedinicaId], references: [id])
+  izvrsioKorisnik    User?           @relation("ZadatakIzvrsio", fields: [izvrsioKorisnikId], references: [id])
+  jedinica           Unit?           @relation("ZadatakJedinica", fields: [jedinicaId], references: [id])
+  preparat           Preparation?    @relation(fields: [preparatId], references: [id])
+  tank               Tank            @relation(fields: [tankId], references: [id])
+  zadaoKorisnik      User            @relation("ZadatakZadao", fields: [zadaoKorisnikId], references: [id])
+  stavke             ZadatakStavka[]
 }
 
 model ZadatakStavka {
-  id                 String   @id @default(uuid())
+  id                 String      @id @default(uuid())
   zadatakId          String
   preparatId         String
   doza               Float?
@@ -479,20 +444,19 @@ model ZadatakStavka {
   volumenUTanku      Float?
   izracunataKolicina Float?
   izlaznaJedinicaId  String?
-  redoslijed         Int      @default(0)
-  createdAt          DateTime @default(now())
-
-  zadatak         Zadatak     @relation(fields: [zadatakId], references: [id], onDelete: Cascade)
-  preparat        Preparation @relation(fields: [preparatId], references: [id])
-  jedinica        Unit?       @relation("ZadatakStavkaJedinica", fields: [jedinicaId], references: [id])
-  izlaznaJedinica Unit?       @relation("ZadatakStavkaIzlaznaJedinica", fields: [izlaznaJedinicaId], references: [id])
+  redoslijed         Int         @default(0)
+  createdAt          DateTime    @default(now())
+  izlaznaJedinica    Unit?       @relation("ZadatakStavkaIzlaznaJedinica", fields: [izlaznaJedinicaId], references: [id])
+  jedinica           Unit?       @relation("ZadatakStavkaJedinica", fields: [jedinicaId], references: [id])
+  preparat           Preparation @relation(fields: [preparatId], references: [id])
+  zadatak            Zadatak     @relation(fields: [zadatakId], references: [id], onDelete: Cascade)
 
   @@index([zadatakId])
   @@index([preparatId])
 }
 
 model Radnja {
-  id         String      @id @default(uuid())
+  id         String       @id @default(uuid())
   tankId     String
   korisnikId String
   zadatakId  String?
@@ -502,13 +466,284 @@ model Radnja {
   preparatId String?
   kolicina   Float?
   jedinicaId String?
-  createdAt  DateTime    @default(now())
+  createdAt  DateTime     @default(now())
+  jedinica   Unit?        @relation(fields: [jedinicaId], references: [id])
+  korisnik   User         @relation(fields: [korisnikId], references: [id])
+  preparat   Preparation? @relation(fields: [preparatId], references: [id])
+  tank       Tank         @relation(fields: [tankId], references: [id])
+  zadatak    Zadatak?     @relation(fields: [zadatakId], references: [id])
+}
 
-  jedinica Unit?        @relation(fields: [jedinicaId], references: [id])
-  preparat Preparation? @relation(fields: [preparatId], references: [id])
-  zadatak  Zadatak?     @relation(fields: [zadatakId], references: [id])
-  korisnik User         @relation(fields: [korisnikId], references: [id])
-  tank     Tank         @relation(fields: [tankId], references: [id])
+model ArhivaVina {
+  id             String                @id @default(uuid())
+  tankId         String?
+  brojTanka      Int?
+  sorta          String?
+  nazivVina      String?
+  godiste        Int?
+  kolicinaVina   Float
+  kapacitetTanka Float?
+  tipTanka       String?
+  tipArhive      String?
+  rokCuvanjaDo   DateTime?
+  arhiviranoAt   DateTime              @default(now())
+  napomena       String?
+  punjenja       ArhivaPunjenjeTanka[]
+  dokumenti      ArhivaVinaDokument[]
+  mjerenja       ArhivaVinaMjerenje[]
+  udjeliSorti    ArhivaVinaUdioSorte[]
+  zadaci         ArhivaVinaZadatak[]
+  blendIzvori    BlendIzvor[]
+
+  @@index([tankId])
+  @@index([arhiviranoAt])
+}
+
+model ArhivaVinaMjerenje {
+  id                String     @id @default(uuid())
+  arhivaVinaId      String
+  izvornoMjerenjeId String?
+  tankId            String?
+  korisnikId        String?
+  alkohol           Float?
+  ukupneKiseline    Float?
+  hlapiveKiseline   Float?
+  slobodniSO2       Float?
+  ukupniSO2         Float?
+  secer             Float?
+  ph                Float?
+  temperatura       Float?
+  bentotestDatum    DateTime?
+  bentotestStatus   String?
+  napomena          String?
+  izmjerenoAt       DateTime
+  arhiviranoAt      DateTime   @default(now())
+  arhivaVina        ArhivaVina @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
+
+  @@index([arhivaVinaId])
+  @@index([tankId])
+}
+
+model ArhivaVinaZadatak {
+  id                   String                    @id @default(uuid())
+  arhivaVinaId         String
+  izvorniZadatakId     String?
+  tankId               String?
+  vrsta                VrstaZadatka
+  status               StatusZadatka
+  naslov               String?
+  napomena             String?
+  doza                 Float?
+  volumenUTanku        Float?
+  izracunataKolicina   Float?
+  preparatId           String?
+  preparatNaziv        String?
+  jedinicaId           String?
+  jedinicaNaziv        String?
+  izlaznaJedinicaId    String?
+  izlaznaJedinicaNaziv String?
+  zadaoKorisnikId      String?
+  zadaoKorisnikIme     String?
+  izvrsioKorisnikId    String?
+  izvrsioKorisnikIme   String?
+  zadanoAt             DateTime
+  izvrsenoAt           DateTime?
+  arhiviranoAt         DateTime                  @default(now())
+  arhivaVina           ArhivaVina                @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
+  stavke               ArhivaVinaZadatakStavka[]
+
+  @@index([arhivaVinaId])
+  @@index([tankId])
+}
+
+model ArhivaVinaZadatakStavka {
+  id                   String            @id @default(uuid())
+  arhivaZadatakId      String
+  preparatId           String?
+  preparatNaziv        String?
+  doza                 Float?
+  volumenUTanku        Float?
+  izracunataKolicina   Float?
+  jedinicaId           String?
+  jedinicaNaziv        String?
+  izlaznaJedinicaId    String?
+  izlaznaJedinicaNaziv String?
+  redoslijed           Int               @default(0)
+  arhiviranoAt         DateTime          @default(now())
+  arhivaZadatak        ArhivaVinaZadatak @relation(fields: [arhivaZadatakId], references: [id], onDelete: Cascade)
+
+  @@index([arhivaZadatakId])
+}
+
+model ArhivaVinaUdioSorte {
+  id                 String     @id @default(uuid())
+  arhivaVinaId       String
+  izvorniUdioSorteId String?
+  nazivSorte         String
+  postotak           Float
+  arhiviranoAt       DateTime   @default(now())
+  arhivaVina         ArhivaVina @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
+
+  @@index([arhivaVinaId])
+}
+
+model BlendIzvor {
+  id                String      @id @default(uuid())
+  ciljTankId        String
+  izvorTankId       String?
+  izvorArhivaVinaId String?
+  nazivVina         String?
+  sorta             String?
+  kolicina          Float
+  postotak          Float
+  createdAt         DateTime    @default(now())
+  ciljTank          Tank        @relation("CiljniBlendTank", fields: [ciljTankId], references: [id], onDelete: Cascade)
+  izvorArhivaVina   ArhivaVina? @relation(fields: [izvorArhivaVinaId], references: [id])
+  izvorTank         Tank?       @relation("IzvorBlendTank", fields: [izvorTankId], references: [id])
+
+  @@index([ciljTankId])
+  @@index([izvorTankId])
+  @@index([izvorArhivaVinaId])
+}
+
+model ArhivaVinaDokument {
+  id               String             @id @default(uuid())
+  arhivaVinaId     String
+  vrsta            VrstaDokumentaVina
+  naziv            String
+  fileName         String
+  fileUrl          String
+  mimeType         String?
+  datumDokumenta   DateTime?
+  napomena         String?
+  uploadedByUserId String?
+  uploadedByIme    String?
+  createdAt        DateTime           @default(now())
+  arhivaVina       ArhivaVina         @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
+
+  @@index([arhivaVinaId])
+  @@index([vrsta])
+  @@index([datumDokumenta])
+}
+
+model PunjenjeTanka {
+  id                      String           @id @default(uuid())
+  tankId                  String
+  nazivVina               String?
+  datumPunjenja           DateTime         @default(now())
+  napomena                String?
+  opis                    String?
+  ukupnoLitara            Float            @default(0)
+  ukupnoKgGrozdja         Float            @default(0)
+  pocetnoMjerenjeId       String?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  prethodnaKolicinaUTanku Float?           @default(0)
+  prethodnaSorta          String?
+  prethodniNazivVina      String?
+  prethodnoGodiste        Int?
+  prethodniSastavJson     Json?
+  stavke                  PunjenjeStavka[]
+  pocetnoMjerenje         Mjerenje?        @relation("PocetnoMjerenjePunjenja", fields: [pocetnoMjerenjeId], references: [id])
+  tank                    Tank             @relation(fields: [tankId], references: [id], onDelete: Cascade)
+
+  @@index([tankId])
+  @@index([pocetnoMjerenjeId])
+}
+
+model PunjenjeStavka {
+  id                String        @id @default(uuid())
+  punjenjeId        String
+  nazivSorte        String
+  sortaId           String?
+  opis              String?
+  kolicinaKgGrozdja Float?
+  kolicinaLitara    Float
+  datumBerbe        DateTime?
+  godinaBerbe       Int?
+  polozaj           String?
+  parcela           String?
+  vinograd          String?
+  oznakaBerbe       String?
+  secer             Float?
+  kiseline          Float?
+  ph                Float?
+  napomenaBerbe     String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @default(now()) @updatedAt
+  obrisano          Boolean       @default(false)
+  obrisanoAt        DateTime?
+  obrisaoKorisnikId String?
+  punjenje          PunjenjeTanka @relation(fields: [punjenjeId], references: [id], onDelete: Cascade)
+  sorta             Sorta?        @relation(fields: [sortaId], references: [id])
+
+  @@index([punjenjeId])
+  @@index([sortaId])
+  @@index([obrisano])
+}
+
+model IzlazVina {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tankId         String
+  tip            TipIzlazaVina
+  datum          DateTime      @default(now()) @db.Timestamptz(6)
+  kolicinaLitara Float
+  brojBoca       Int?
+  volumenBoce    Float?
+  napomena       String?
+  createdAt      DateTime      @default(now()) @db.Timestamptz(6)
+  tank           Tank          @relation(fields: [tankId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tankId])
+  @@index([datum])
+  @@index([tip])
+}
+
+model ArhivaPunjenjeTanka {
+  id                String                 @id @default(uuid())
+  arhivaVinaId      String
+  izvornoPunjenjeId String?
+  nazivVina         String?
+  datumPunjenja     DateTime               @default(now()) @db.Timestamptz(6)
+  napomena          String?
+  opis              String?
+  ukupnoLitara      Float                  @default(0)
+  ukupnoKgGrozdja   Float                  @default(0)
+  pocetnoMjerenjeId String?
+  createdAt         DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime               @default(now()) @updatedAt @db.Timestamptz(6)
+  stavke            ArhivaPunjenjeStavka[]
+  arhivaVina        ArhivaVina             @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
+
+  @@index([arhivaVinaId])
+  @@index([izvornoPunjenjeId])
+}
+
+model ArhivaPunjenjeStavka {
+  id                      String              @id @default(uuid())
+  arhivaPunjenjeId        String
+  izvornaPunjenjeStavkaId String?
+  nazivSorte              String
+  sortaId                 String?
+  opis                    String?
+  kolicinaKgGrozdja       Float?
+  kolicinaLitara          Float
+  datumBerbe              DateTime?           @db.Timestamptz(6)
+  godinaBerbe             Int?
+  polozaj                 String?
+  parcela                 String?
+  vinograd                String?
+  oznakaBerbe             String?
+  secer                   Float?
+  kiseline                Float?
+  ph                      Float?
+  napomenaBerbe           String?
+  createdAt               DateTime            @default(now()) @db.Timestamptz(6)
+  updatedAt               DateTime            @default(now()) @updatedAt @db.Timestamptz(6)
+  arhivaPunjenje          ArhivaPunjenjeTanka @relation(fields: [arhivaPunjenjeId], references: [id], onDelete: Cascade)
+
+  @@index([arhivaPunjenjeId])
+  @@index([izvornaPunjenjeStavkaId])
 }
 
 enum Role {
@@ -544,7 +779,6 @@ enum VrstaRadnje {
   MJERENJE
   KOREKCIJA
   PUNJENJE
-  PRODAJA
   NAPOMENA
   OSTALO
 }
@@ -572,295 +806,434 @@ enum TipPretokaDb {
   BLEND_ISTE_SORTE
 }
 
-model ArhivaVina {
-  id             String    @id @default(uuid())
-  tankId         String?
-  brojTanka      Int?
-  sorta          String?
-  nazivVina      String?
-  godiste        Int?
-  kolicinaVina   Float
-  kapacitetTanka Float?
-  tipTanka       String?
-  tipArhive      String?
-  rokCuvanjaDo   DateTime?
-  arhiviranoAt   DateTime  @default(now())
-  napomena       String?
-
-  mjerenja    ArhivaVinaMjerenje[]
-  zadaci      ArhivaVinaZadatak[]
-  udjeliSorti ArhivaVinaUdioSorte[]
-  blendIzvori BlendIzvor[]
-  dokumenti   ArhivaVinaDokument[]
-  punjenja    ArhivaPunjenjeTanka[]
-
-  @@index([tankId])
-  @@index([arhiviranoAt])
-}
-
-model ArhivaVinaMjerenje {
-  id                String    @id @default(uuid())
-  arhivaVinaId      String
-  izvornoMjerenjeId String?
-  tankId            String?
-  korisnikId        String?
-  alkohol           Float?
-  ukupneKiseline    Float?
-  hlapiveKiseline   Float?
-  slobodniSO2       Float?
-  ukupniSO2         Float?
-  secer             Float?
-  ph                Float?
-  temperatura       Float?
-  bentotestDatum    DateTime?
-  bentotestStatus   String?
-  napomena          String?
-  izmjerenoAt       DateTime
-  arhiviranoAt      DateTime  @default(now())
-
-  arhivaVina ArhivaVina @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
-
-  @@index([arhivaVinaId])
-  @@index([tankId])
-}
-
-model ArhivaVinaZadatak {
-  id                   String        @id @default(uuid())
-  arhivaVinaId         String
-  izvorniZadatakId     String?
-  tankId               String?
-  vrsta                VrstaZadatka
-  status               StatusZadatka
-  naslov               String?
-  napomena             String?
-  doza                 Float?
-  volumenUTanku        Float?
-  izracunataKolicina   Float?
-  preparatId           String?
-  preparatNaziv        String?
-  jedinicaId           String?
-  jedinicaNaziv        String?
-  izlaznaJedinicaId    String?
-  izlaznaJedinicaNaziv String?
-  zadaoKorisnikId      String?
-  zadaoKorisnikIme     String?
-  izvrsioKorisnikId    String?
-  izvrsioKorisnikIme   String?
-  zadanoAt             DateTime
-  izvrsenoAt           DateTime?
-  arhiviranoAt         DateTime      @default(now())
-
-  arhivaVina ArhivaVina                @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
-  stavke     ArhivaVinaZadatakStavka[]
-
-  @@index([arhivaVinaId])
-  @@index([tankId])
-}
-
-model ArhivaVinaZadatakStavka {
-  id                   String   @id @default(uuid())
-  arhivaZadatakId      String
-  preparatId           String?
-  preparatNaziv        String?
-  doza                 Float?
-  volumenUTanku        Float?
-  izracunataKolicina   Float?
-  jedinicaId           String?
-  jedinicaNaziv        String?
-  izlaznaJedinicaId    String?
-  izlaznaJedinicaNaziv String?
-  redoslijed           Int      @default(0)
-  arhiviranoAt         DateTime @default(now())
-
-  arhivaZadatak ArhivaVinaZadatak @relation(fields: [arhivaZadatakId], references: [id], onDelete: Cascade)
-
-  @@index([arhivaZadatakId])
-}
-
-model ArhivaVinaUdioSorte {
-  id                 String   @id @default(uuid())
-  arhivaVinaId       String
-  izvorniUdioSorteId String?
-  nazivSorte         String
-  postotak           Float
-  arhiviranoAt       DateTime @default(now())
-
-  arhivaVina ArhivaVina @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
-
-  @@index([arhivaVinaId])
-}
-
-model BlendIzvor {
-  id                String   @id @default(uuid())
-  ciljTankId        String
-  izvorTankId       String?
-  izvorArhivaVinaId String?
-  nazivVina         String?
-  sorta             String?
-  kolicina          Float
-  postotak          Float
-  createdAt         DateTime @default(now())
-
-  ciljTank        Tank        @relation("CiljniBlendTank", fields: [ciljTankId], references: [id], onDelete: Cascade)
-  izvorTank       Tank?       @relation("IzvorBlendTank", fields: [izvorTankId], references: [id])
-  izvorArhivaVina ArhivaVina? @relation(fields: [izvorArhivaVinaId], references: [id])
-
-  @@index([ciljTankId])
-  @@index([izvorTankId])
-  @@index([izvorArhivaVinaId])
-}
-
-model ArhivaVinaDokument {
-  id               String             @id @default(uuid())
-  arhivaVinaId     String
-  vrsta            VrstaDokumentaVina
-  naziv            String
-  fileName         String
-  fileUrl          String
-  mimeType         String?
-  datumDokumenta   DateTime?
-  napomena         String?
-  uploadedByUserId String?
-  uploadedByIme    String?
-  createdAt        DateTime           @default(now())
-
-  arhivaVina ArhivaVina @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
-
-  @@index([arhivaVinaId])
-  @@index([vrsta])
-  @@index([datumDokumenta])
-}
-
-model PunjenjeTanka {
-  id                String   @id @default(uuid())
-  tankId            String
-  nazivVina         String?
-  datumPunjenja     DateTime @default(now())
-  napomena          String?
-  opis              String?
-  ukupnoLitara      Float    @default(0)
-  ukupnoKgGrozdja   Float    @default(0)
-  pocetnoMjerenjeId String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  prethodnaKolicinaUTanku Float? @default(0)
-  prethodnaSorta          String?
-  prethodniNazivVina      String?
-  prethodnoGodiste        Int?
-  prethodniSastavJson     Json?
-
-  tank            Tank             @relation(fields: [tankId], references: [id], onDelete: Cascade)
-  stavke          PunjenjeStavka[]
-  pocetnoMjerenje Mjerenje?        @relation("PocetnoMjerenjePunjenja", fields: [pocetnoMjerenjeId], references: [id])
-
-  @@index([tankId])
-  @@index([pocetnoMjerenjeId])
-}
-
-model PunjenjeStavka {
-  id                String    @id @default(uuid())
-  punjenjeId        String
-  nazivSorte        String
-  sortaId           String?
-  opis              String?
-  kolicinaKgGrozdja Float?
-  kolicinaLitara    Float
-  datumBerbe        DateTime?
-  godinaBerbe       Int?
-  polozaj           String?
-  parcela           String?
-  vinograd          String?
-  oznakaBerbe       String?
-  secer             Float?
-  kiseline          Float?
-  ph                Float?
-  napomenaBerbe     String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @default(now()) @updatedAt
-
-  obrisano          Boolean   @default(false)
-  obrisanoAt        DateTime?
-  obrisaoKorisnikId String?
-
-  punjenje PunjenjeTanka @relation(fields: [punjenjeId], references: [id], onDelete: Cascade)
-  sorta    Sorta?        @relation(fields: [sortaId], references: [id], onDelete: SetNull)
-
-  @@index([punjenjeId])
-  @@index([sortaId])
-  @@index([obrisano])
-}
-
-model IzlazVina {
-  id             String        @id @default(uuid())
-  tankId         String
-  tip            TipIzlazaVina
-  datum          DateTime      @default(now())
-  kolicinaLitara Float
-  brojBoca       Int?
-  volumenBoce    Float?
-  napomena       String?
-  createdAt      DateTime      @default(now())
-
-  tank Tank @relation(fields: [tankId], references: [id], onDelete: Cascade)
-
-  @@index([tankId])
-  @@index([datum])
-  @@index([tip])
-}
-
 enum TipIzlazaVina {
   PRODAJA
   PUNJENJE
 }
 
-model ArhivaPunjenjeTanka {
-  id                String   @id @default(uuid())
-  arhivaVinaId      String
-  izvornoPunjenjeId String?
-  nazivVina         String?
-  datumPunjenja     DateTime @default(now())
-  napomena          String?
-  opis              String?
-  ukupnoLitara      Float    @default(0)
-  ukupnoKgGrozdja   Float    @default(0)
-  pocetnoMjerenjeId String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  arhivaVina ArhivaVina             @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
-  stavke     ArhivaPunjenjeStavka[]
-
-  @@index([arhivaVinaId])
-  @@index([izvornoPunjenjeId])
+enum PutnikKupacStatus {
+  AKTIVAN
+  NOVI
+  POTENCIJALNI
+  BIVSI
+  IZGUBLJEN
+  SEZONSKI
 }
 
-model ArhivaPunjenjeStavka {
-  id                      String  @id @default(uuid())
-  arhivaPunjenjeId        String
-  izvornaPunjenjeStavkaId String?
+enum PutnikKupacKategorija {
+  A
+  B
+  C
+}
 
-  nazivSorte        String
-  sortaId           String?
-  opis              String?
-  kolicinaKgGrozdja Float?
-  kolicinaLitara    Float
-  datumBerbe        DateTime?
-  godinaBerbe       Int?
-  polozaj           String?
-  parcela           String?
-  vinograd          String?
-  oznakaBerbe       String?
-  secer             Float?
-  kiseline          Float?
-  ph                Float?
-  napomenaBerbe     String?
+enum PutnikTipKupca {
+  RESTORAN
+  KAFIC
+  BEACH_BAR
+  HOTEL
+  NOCNI_BAR
+  TRGOVINA
+  VINSKI_BAR
+  DISTRIBUTER
+  VELETRGOVAC
+  OSTALO
+}
+
+enum PutnikAkcijaStatus {
+  DOGOVORENA
+  AKTIVNA
+  ZAVRSENA
+  USPJESNA
+  DJELOMICNO_USPJESNA
+  NEUSPJESNA
+}
+
+enum PutnikRezultatAkcije {
+  CEKA_SE
+  USPJESNO
+  DJELOMICNO
+  NEUSPJESNO
+}
+
+enum PutnikProdajaTrend {
+  POVECANA
+  ISTA
+  SMANJENA
+  NEPOZNATO
+}
+
+model PutnikKupac {
+  id String @id @default(cuid())
+
+  nazivLokala  String
+  nazivFirme   String?
+  vlasnik      String?
+  kontaktOsoba String?
+
+  telefon String?
+  email   String?
+  oib     String?
+
+  adresa String?
+  grad   String?
+  regija String?
+
+  gpsLat Float?
+  gpsLng Float?
+
+  tip        PutnikTipKupca        @default(OSTALO)
+  status     PutnikKupacStatus     @default(POTENCIJALNI)
+  kategorija PutnikKupacKategorija @default(C)
+
+  napomena String?
+
+  aktivan Boolean @default(true)
+
+  ankete          PutnikAnketaKupca[]
+  posjeti         PutnikPosjet[]
+  akcije          PutnikAkcijaKupca[]
+  promoMaterijali PutnikPromoKupca[]
+  rezultati       PutnikRezultatObilaska[]
+  dogovori        PutnikDogovor[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
 
-  arhivaPunjenje ArhivaPunjenjeTanka @relation(fields: [arhivaPunjenjeId], references: [id], onDelete: Cascade)
+model PutnikAnketaKupca {
+  id      String      @id @default(cuid())
+  kupacId String
+  kupac   PutnikKupac @relation(fields: [kupacId], references: [id], onDelete: Cascade)
 
-  @@index([arhivaPunjenjeId])
-  @@index([izvornaPunjenjeStavkaId])
+  // 1. LOKAL
+  tipLokala          String?
+  razinaLokala       String?
+  brojSjedecihMjesta Int?
+  imaTerasu          Boolean @default(false)
+  radiSezonski       Boolean @default(false)
+  promet             String?
+  najjaciDani        String?
+
+  // 2. TRENUTNA PONUDA
+  prodajeKucnoVino  Boolean @default(false)
+  prodajeButelje    Boolean @default(false)
+  prodajeRinfuza    Boolean @default(false)
+  prodajePremium    Boolean @default(false)
+  prodajeStranaVina Boolean @default(false)
+  prodajePjenusce   Boolean @default(false)
+  prodajeRose       Boolean @default(false)
+  nemaPosebnuPonudu Boolean @default(false)
+
+  // 3. VRSTE KOJE IDU
+  ideBijelo     Boolean @default(false)
+  ideCrno       Boolean @default(false)
+  ideRose       Boolean @default(false)
+  idePjenusci   Boolean @default(false)
+  ideGrasevina  Boolean @default(false)
+  ideSauvignon  Boolean @default(false)
+  ideRizling    Boolean @default(false)
+  ideChardonnay Boolean @default(false)
+  ideMuskat     Boolean @default(false)
+  ideFrankovka  Boolean @default(false)
+  ideKupaza     Boolean @default(false)
+
+  // 4. KONKURENCIJA
+  konkurentskeVinarije         String?
+  glavniKonkurent              String?
+  razlogCijena                 Boolean @default(false)
+  razlogPoznatost              Boolean @default(false)
+  razlogKvaliteta              Boolean @default(false)
+  razlogRabat                  Boolean @default(false)
+  razlogDostava                Boolean @default(false)
+  razlogOdnosDobavljac         Boolean @default(false)
+  razlogGostiTraze             Boolean @default(false)
+  razlogKonobariProdaju        Boolean @default(false)
+  razlogCasePromo              Boolean @default(false)
+  stoMuKodKonkurencijeOdgovara String?
+  stoMuKodKonkurencijeSmeta    String?
+
+  // 5. NABAVA
+  nacinNabave         String?
+  nazivVeletrgovca    String?
+  kontaktVeletrgovca  String?
+  uvjetiNabave        String?
+  tkoDogovaraNarudzbu String?
+
+  // 6. ODLUKA
+  tkoOdlucuje            String?
+  stvarniDonositelj      Boolean @default(false)
+  trebaPricatiSVlasnikom Boolean @default(false)
+  trebaPoslatiPonudu     Boolean @default(false)
+
+  // 7. ŠTO IM JE VAŽNO
+  vaznaCijena              Boolean @default(false)
+  vaznaKvaliteta           Boolean @default(false)
+  vaznaMarza               Boolean @default(false)
+  vaznaDostava             Boolean @default(false)
+  vazanBrend               Boolean @default(false)
+  vaznaLokalnaPrica        Boolean @default(false)
+  vaznaPreporukaHrane      Boolean @default(false)
+  vaznaEdukacijaKonobara   Boolean @default(false)
+  vazneCase                Boolean @default(false)
+  vazanPromoMaterijal      Boolean @default(false)
+  vazneAkcije              Boolean @default(false)
+  vaznaSigurnostDobave     Boolean @default(false)
+  vaznaJednostavnaNarudzba Boolean @default(false)
+
+  // 8. NAŠA VINA / KOSTANJEVEC
+  probaoNasaVina        String?
+  misljenjeONama        String?
+  poznajeVinariju       Boolean @default(false)
+  cuoZaNas              Boolean @default(false)
+  bioUVinariji          Boolean @default(false)
+  zanimaGaPricaVinarije Boolean @default(false)
+
+  // 9. MOTIVACIJA
+  motiviraBoljaCijena      Boolean @default(false)
+  motiviraAkcija12Plus2    Boolean @default(false)
+  motiviraAkcija6Plus1     Boolean @default(false)
+  motivirajuProbneBoce     Boolean @default(false)
+  motivirajuCase           Boolean @default(false)
+  motiviraVinskaKarta      Boolean @default(false)
+  motiviraEdukacija        Boolean @default(false)
+  motiviraDegustacija      Boolean @default(false)
+  motiviraWineParty        Boolean @default(false)
+  motiviraPosjetVinariji   Boolean @default(false)
+  motiviraBoljaMarza       Boolean @default(false)
+  motiviraPreporukaUzHranu Boolean @default(false)
+  motiviraLokalnaPrica     Boolean @default(false)
+
+  // 10. PREPREKE
+  preprekaImaDobavljaca           Boolean @default(false)
+  preprekaZadovoljanKonkurencijom Boolean @default(false)
+  preprekaCijenaPrevisoka         Boolean @default(false)
+  preprekaNePoznaVino             Boolean @default(false)
+  preprekaNemaProstora            Boolean @default(false)
+  preprekaKonobariNeZnaju         Boolean @default(false)
+  preprekaMaliPromet              Boolean @default(false)
+  preprekaVlasnikNeZeli           Boolean @default(false)
+  preprekaTrebaProbati            Boolean @default(false)
+  preprekaTrebaPonudu             Boolean @default(false)
+  preprekaNijeTrenutak            Boolean @default(false)
+  dodatnePrepreke                 String?
+
+  // 11. POTENCIJAL
+  potencijal             String?
+  procjenaBocaMjesecno   Int?
+  preporucenaAkcija      String?
+  preporucenaAktivacija  String?
+  sljedeciKorak          String?
+  datumSljedecegKontakta DateTime?
+  zavrsnaOcjena          String?
+
+  // 12. BILJEŠKE
+  biljeska        String?
+  internaBiljeska String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PutnikPosjet {
+  id      String      @id @default(cuid())
+  kupacId String
+  kupac   PutnikKupac @relation(fields: [kupacId], references: [id], onDelete: Cascade)
+
+  datum     DateTime @default(now())
+  putnikIme String?
+
+  zainteresiran     Boolean @default(false)
+  nijeZainteresiran Boolean @default(false)
+  uzimaNaseVino     Boolean @default(false)
+  uzimaKonkurenciju Boolean @default(false)
+  zeliPonudu        Boolean @default(false)
+  zeliUzorke        Boolean @default(false)
+  zeliEdukaciju     Boolean @default(false)
+  zeliWineParty     Boolean @default(false)
+  ponovnoObici      Boolean @default(false)
+
+  dogovoreno     String?
+  biljeska       String?
+  sljedeciKorak  String?
+  datumSljedeceg DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PutnikAkcijaTemplate {
+  id    String  @id @default(cuid())
+  naziv String
+  opis  String?
+  tip   String?
+
+  kolicinaKupnje Int?
+  gratisKolicina Int?
+  trajanjeDana   Int?
+
+  aktivna Boolean @default(true)
+
+  akcijeKupaca PutnikAkcijaKupca[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PutnikAkcijaKupca {
+  id      String      @id @default(cuid())
+  kupacId String
+  kupac   PutnikKupac @relation(fields: [kupacId], references: [id], onDelete: Cascade)
+
+  templateId String?
+  template   PutnikAkcijaTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  naziv String
+  opis  String?
+
+  datumPocetka   DateTime?
+  datumZavrsetka DateTime?
+
+  kolicinaKupnje Int?
+  gratisKolicina Int?
+
+  status   PutnikAkcijaStatus   @default(DOGOVORENA)
+  rezultat PutnikRezultatAkcije @default(CEKA_SE)
+
+  napomena String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PutnikPromoKupca {
+  id      String      @id @default(cuid())
+  kupacId String
+  kupac   PutnikKupac @relation(fields: [kupacId], references: [id], onDelete: Cascade)
+
+  datumPredaje DateTime @default(now())
+  tip          String
+
+  naziv    String?
+  kolicina Int     @default(0)
+
+  status   String?
+  predao   String?
+  napomena String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PutnikRezultatObilaska {
+  id      String      @id @default(cuid())
+  kupacId String
+  kupac   PutnikKupac @relation(fields: [kupacId], references: [id], onDelete: Cascade)
+
+  datum            DateTime           @default(now())
+  prodajaTrend     PutnikProdajaTrend @default(NEPOZNATO)
+  postotakPromjene Float?
+
+  rezultatAkcije PutnikRezultatAkcije @default(CEKA_SE)
+
+  kupacZadovoljan  Boolean @default(false)
+  zeliNastaviti    Boolean @default(false)
+  traziNovuAkciju  Boolean @default(false)
+  trebaVisePodrske Boolean @default(false)
+  odustaje         Boolean @default(false)
+
+  komentar       String?
+  sljedeciKorak  String?
+  datumSljedeceg DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PutnikDogovor {
+  id      String      @id @default(cuid())
+  kupacId String
+  kupac   PutnikKupac @relation(fields: [kupacId], references: [id], onDelete: Cascade)
+
+  datum DateTime @default(now())
+
+  nacinKupnje String?
+
+  kupujeDirektno          Boolean @default(false)
+  kupujePrekoDistributera Boolean @default(false)
+  kupujePrekoVeletrgovca  Boolean @default(false)
+
+  pocetnaNarudzba    String?
+  dogovorenaKolicina Int?
+  dogovorenaAkcija   String?
+
+  akcija6Plus1  Boolean @default(false)
+  akcija12Plus2 Boolean @default(false)
+  akcija24Plus4 Boolean @default(false)
+
+  posebnaCijenaDogovorena Boolean @default(false)
+
+  posebnaCijena String?
+  rabat         String?
+
+  caseDogovorene Boolean @default(false)
+  brojCasa       Int?
+  tipCasa        String?
+  caseLogo       Boolean @default(false)
+  caseNapomena   String?
+
+  promoDogovoren Boolean @default(false)
+
+  vinskaKarta Boolean @default(false)
+  plakati     Boolean @default(false)
+  letci       Boolean @default(false)
+  stalci      Boolean @default(false)
+  menuHolder  Boolean @default(false)
+  promoPolice Boolean @default(false)
+  ledReklama  Boolean @default(false)
+
+  promoNapomena String?
+
+  uzorciDogovoreni Boolean @default(false)
+  uzorciDetalji    String?
+
+  edukacijaDogovorena Boolean   @default(false)
+  datumEdukacije      DateTime?
+  edukacijaDetalji    String?
+
+  degustacijaDogovorena Boolean   @default(false)
+  datumDegustacije      DateTime?
+  degustacijaDetalji    String?
+
+  winePartyDogovoren Boolean   @default(false)
+  datumWineParty     DateTime?
+  winePartyDetalji   String?
+
+  posjetVinarijiDogovoren Boolean   @default(false)
+  datumPosjetaVinariji    DateTime?
+  posjetVinarijiDetalji   String?
+
+  uvjetiPlacanja    String?
+  rokPlacanja       String?
+  dostava           String?
+  minimalnaNarudzba String?
+
+  tkoPotvrduje     String?
+  kontaktZaPotvrdu String?
+
+  rokPotvrde     DateTime?
+  datumSljedeceg DateTime?
+
+  trebaPonudu          Boolean @default(false)
+  trebaPredracun       Boolean @default(false)
+  trebaNazvati         Boolean @default(false)
+  trebaDostavitiUzorke Boolean @default(false)
+  trebaPonovnoObici    Boolean @default(false)
+
+  status String?
+
+  zakljucak String?
+  napomena  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
