@@ -99,8 +99,10 @@ export default function DodajKorisnikaForm() {
           onChange={(e) => setLevel(e.target.value)}
           className="h-11 border border-emerald-200 bg-white px-3 text-sm text-stone-800 outline-none focus:border-emerald-400 md:col-span-1"
         >
-          <option value="1">Level 1</option>
-          <option value="2">Level 2</option>
+          <option value="1">Level 1 - sve + reset</option>
+          <option value="2">Level 2 - sve bez reseta</option>
+          <option value="3">Level 3 - zadaci, putnik, monitor</option>
+          <option value="4">Level 4 - samo putnik</option>
         </select>
 
         {/* GUMB DESNO */}

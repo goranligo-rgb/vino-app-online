@@ -36,7 +36,7 @@ export default function TankRoleActions({
     }
   }, []);
 
-  const isLevel2 = user?.role === "PODRUM" || user?.role === "PREGLED";
+  const isLevel2 = user?.role === "ENOLOG" || user?.role === "PREGLED";
 
   return (
     <>

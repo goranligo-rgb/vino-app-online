@@ -35,7 +35,7 @@ export default function TankRoleSastavModal({
     }
   }, []);
 
-  const isLevel2 = user?.role === "PODRUM" || user?.role === "PREGLED";
+  const isLevel2 = user?.role === "ENOLOG" || user?.role === "PREGLED";
 
   if (isLevel2) return null;
 

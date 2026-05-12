@@ -23,6 +23,7 @@ async function spremiKorisnika(formData: FormData) {
   const ime = String(formData.get("ime") || "");
   const username = String(formData.get("username") || "");
   const email = String(formData.get("email") || "");
+  const password = String(formData.get("password") || "").trim();
   const roleInput = String(formData.get("role") || "");
   const activeInput = String(formData.get("active") || "false");
 
@@ -30,9 +31,9 @@ async function spremiKorisnika(formData: FormData) {
 
   const role =
     roleInput === "ADMIN" ||
-    roleInput === "PODRUM" ||
-    roleInput === "ENOLOG" ||
-    roleInput === "PREGLED"
+      roleInput === "PODRUM" ||
+      roleInput === "ENOLOG" ||
+      roleInput === "PREGLED"
       ? roleInput
       : "PREGLED";
 
@@ -44,6 +45,7 @@ async function spremiKorisnika(formData: FormData) {
       email,
       role,
       active: activeInput === "true",
+      password: password !== "" ? password : undefined,
     },
   });
 
@@ -55,8 +57,8 @@ async function spremiKorisnika(formData: FormData) {
 function levelLabel(role: string) {
   if (role === "ADMIN") return "Level 1";
   if (role === "PODRUM") return "Level 2";
-  if (role === "ENOLOG") return "Enolog";
-  if (role === "PREGLED") return "Pregled";
+  if (role === "ENOLOG") return "Level 3";
+  if (role === "PREGLED") return "Level 4";
   return role;
 }
 
@@ -146,16 +148,28 @@ export default async function UrediKorisnikaPage({ params }: PageProps) {
               </div>
 
               <div className="grid gap-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Nova šifra
+                </label>
+                <input
+                  type="password"
+                  name="password"
+                  placeholder="Ostavi prazno ako ne mijenjaš"
+                  className="w-full rounded-none border border-gray-300 px-3 py-2"
+                />
+              </div>
+
+              <div className="grid gap-2">
                 <label className="text-sm font-medium text-gray-700">Level</label>
                 <select
                   name="role"
                   defaultValue={korisnik.role}
                   className="w-full rounded-none border border-gray-300 px-3 py-2"
                 >
-                  <option value="ADMIN">Level 1</option>
-                  <option value="PODRUM">Level 2</option>
-                  <option value="ENOLOG">Enolog</option>
-                  <option value="PREGLED">Pregled</option>
+                  <option value="ADMIN">Level 1 - sve + reset</option>
+                  <option value="PODRUM">Level 2 - sve bez reseta</option>
+                  <option value="ENOLOG">Level 3 - zadaci, monitor, putnik</option>
+                  <option value="PREGLED">Level 4 - samo putnik</option>
                 </select>
               </div>
 

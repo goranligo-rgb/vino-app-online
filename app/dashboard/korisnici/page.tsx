@@ -14,8 +14,8 @@ type AuthUser = {
 function levelLabel(role: string) {
   if (role === "ADMIN") return "Level 1";
   if (role === "PODRUM") return "Level 2";
-  if (role === "ENOLOG") return "Enolog";
-  if (role === "PREGLED") return "Pregled";
+  if (role === "ENOLOG") return "Level 3";
+  if (role === "PREGLED") return "Level 4";
   return role;
 }
 

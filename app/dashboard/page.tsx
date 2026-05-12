@@ -73,11 +73,24 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/login");
 
-  const isAdmin = user.role === "ADMIN";
-  const isLevel1 = user.role === "ADMIN" || user.role === "ENOLOG";
-  const isLevel2 = user.role === "PODRUM" || user.role === "PREGLED";
+  const isLevel1 = user.role === "ADMIN";
+  const isLevel2 = user.role === "PODRUM";
+  const isLevel3 = user.role === "ENOLOG";
+  const isLevel4 = user.role === "PREGLED";
 
-  if (!isLevel1 && !isLevel2) {
+  const canSeeMainDashboard = isLevel1 || isLevel2;
+  const canSeeZadaci = isLevel1 || isLevel2 || isLevel3;
+  const canSeeMonitor = isLevel1 || isLevel2 || isLevel3;
+  const canSeePutnik = isLevel1 || isLevel2 || isLevel3 || isLevel4;
+  const canSeeUsers = isLevel1;
+  const canSeeReset = isLevel1;
+
+  if (
+    !isLevel1 &&
+    !isLevel2 &&
+    !isLevel3 &&
+    !isLevel4
+  ) {
     redirect("/login");
   }
 
@@ -108,26 +121,32 @@ export default async function DashboardPage() {
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          <DashboardCard
-            href="/zadaci"
-            title="Zadaci"
-            description="Pregled i izvršavanje zadataka"
-          />
+          {canSeeZadaci && (
+            <DashboardCard
+              href="/zadaci"
+              title="Zadaci"
+              description="Pregled i izvršavanje zadataka"
+            />
+          )}
 
-          <DashboardCard
-            href="/monitor"
-            title="MONITOR"
-            description="Glavni pregled svih tankova"
-            monitor
-          />
+          {canSeeMonitor && (
+            <DashboardCard
+              href="/monitor"
+              title="MONITOR"
+              description="Glavni pregled svih tankova"
+              monitor
+            />
+          )}
 
-          <DashboardCard
-            href="/putnik"
-            title="Putnik"
-            description="CRM za teren: kupci, ankete, dogovori, ulaganja i rast prodaje — Level 2"
-          />
+          {canSeePutnik && (
+            <DashboardCard
+              href="/putnik"
+              title="Putnik"
+              description="CRM za teren: kupci, ankete, dogovori, ulaganja i rast prodaje"
+            />
+          )}
 
-          {isLevel1 && (
+          {canSeeMainDashboard && (
             <>
               <DashboardCard
                 href="/tankovi"
@@ -189,20 +208,20 @@ export default async function DashboardPage() {
                 description="Pregled arhiviranih vina i povijesti"
               />
 
-              {isAdmin && (
-                <>
-                  <DashboardCard
-                    href="/dashboard/korisnici"
-                    title="Korisnici"
-                    description="Upravljanje korisnicima"
-                  />
+              {canSeeUsers && (
+                <DashboardCard
+                  href="/dashboard/korisnici"
+                  title="Korisnici"
+                  description="Upravljanje korisnicima"
+                />
+              )}
 
-                  <DashboardCard
-                    href="/dashboard/reset"
-                    title="Reset"
-                    description="Administratorsko brisanje podataka sustava"
-                  />
-                </>
+              {canSeeReset && (
+                <DashboardCard
+                  href="/dashboard/reset"
+                  title="Reset"
+                  description="Administratorsko brisanje podataka sustava"
+                />
               )}
             </>
           )}

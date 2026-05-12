@@ -46,12 +46,16 @@ export async function POST(req: Request) {
       );
     }
 
-    let role: "ADMIN" | "PODRUM";
+    let role: "ADMIN" | "PODRUM" | "ENOLOG" | "PREGLED";
 
     if (level === "1") {
       role = "ADMIN";
     } else if (level === "2") {
       role = "PODRUM";
+    } else if (level === "3") {
+      role = "ENOLOG";
+    } else if (level === "4") {
+      role = "PREGLED";
     } else {
       return NextResponse.json(
         { error: "Neispravan level." },

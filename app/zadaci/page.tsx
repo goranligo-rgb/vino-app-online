@@ -402,9 +402,9 @@ function zadatakImaStavke(zadatak: Zadatak) {
 function zadatakImaDirektniPreparat(zadatak: Zadatak) {
   return Boolean(
     zadatak.preparat ||
-      zadatak.doza != null ||
-      zadatak.izracunataKolicina != null ||
-      zadatak.volumenUTanku != null
+    zadatak.doza != null ||
+    zadatak.izracunataKolicina != null ||
+    zadatak.volumenUTanku != null
   );
 }
 
@@ -453,8 +453,8 @@ export default function ZadaciPage() {
     }
   }, []);
 
-  const isLevel1 = user?.role === "ADMIN" || user?.role === "ENOLOG";
-  const isLevel2 = user?.role === "PODRUM" || user?.role === "PREGLED";
+  const isLevel1 = user?.role === "ADMIN" || user?.role === "PODRUM";
+  const isLevel2 = user?.role === "ENOLOG" || user?.role === "PREGLED";
 
   async function ucitajZadatke() {
     try {
@@ -605,10 +605,10 @@ export default function ZadaciPage() {
       const potrebnoUSkladisnojJedinici =
         izracunataKolicina != null
           ? pretvori(
-              izracunataKolicina,
-              izlaznaJedinica,
-              skladisnaJedinicaNaziv
-            )
+            izracunataKolicina,
+            izlaznaJedinica,
+            skladisnaJedinicaNaziv
+          )
           : null;
 
       const nakonDodavanja =
@@ -676,8 +676,8 @@ export default function ZadaciPage() {
       preparat?.dozaOd != null
         ? String(preparat.dozaOd)
         : preparat?.preporucenaDoza != null
-        ? String(preparat.preporucenaDoza)
-        : "";
+          ? String(preparat.preporucenaDoza)
+          : "";
 
     const bazna = odrediBaznuIzlaznuJedinicu(preparat);
     const opcije = opcijeZaJedinicu(bazna);
@@ -687,11 +687,11 @@ export default function ZadaciPage() {
       prev.map((s) =>
         s.localId === localId
           ? {
-              ...s,
-              preparatId,
-              doza: defaultDoza,
-              izlaznaJedinica: defaultIzlazna,
-            }
+            ...s,
+            preparatId,
+            doza: defaultDoza,
+            izlaznaJedinica: defaultIzlazna,
+          }
           : s
       )
     );
@@ -848,14 +848,14 @@ export default function ZadaciPage() {
 
       const payloadStavke = trebaPreparat
         ? obradeneStavke
-            .filter((s) => s.preparatId && s.dozaBroj != null)
-            .map((s) => ({
-              preparatId: s.preparatId,
-              doza: s.dozaBroj,
-              jedinicaId: s.preparat?.unitId ?? null,
-              izracunataKolicina: s.izracunataKolicina,
-              izlaznaJedinicaNaziv: s.izlaznaJedinica || null,
-            }))
+          .filter((s) => s.preparatId && s.dozaBroj != null)
+          .map((s) => ({
+            preparatId: s.preparatId,
+            doza: s.dozaBroj,
+            jedinicaId: s.preparat?.unitId ?? null,
+            izracunataKolicina: s.izracunataKolicina,
+            izlaznaJedinicaNaziv: s.izlaznaJedinica || null,
+          }))
         : [];
 
       const res = await fetch("/api/zadatak/create", {
@@ -1029,8 +1029,8 @@ export default function ZadaciPage() {
             gridTemplateColumns: isMobile
               ? "1fr"
               : isLevel1
-              ? "minmax(0, 1.9fr) minmax(360px, 0.95fr)"
-              : "1fr",
+                ? "minmax(0, 1.9fr) minmax(360px, 0.95fr)"
+                : "1fr",
             gap: "14px",
             alignItems: "start",
           }}
@@ -1199,14 +1199,14 @@ export default function ZadaciPage() {
                               stavka.statusSkladista === "NEMA"
                                 ? "2px solid #dc2626"
                                 : stavka.statusSkladista === "MIN"
-                                ? "2px solid #f59e0b"
-                                : stavkaBoxStyle.border,
+                                  ? "2px solid #f59e0b"
+                                  : stavkaBoxStyle.border,
                             background:
                               stavka.statusSkladista === "NEMA"
                                 ? "#fef2f2"
                                 : stavka.statusSkladista === "MIN"
-                                ? "#fffbeb"
-                                : stavkaBoxStyle.background,
+                                  ? "#fffbeb"
+                                  : stavkaBoxStyle.background,
                           }}
                         >
                           <div style={stavkaHeaderStyle}>
@@ -1280,10 +1280,9 @@ export default function ZadaciPage() {
                                     {dohvatiMjernuJedinicu(preparat)})
                                     {preparat.stanjeNaSkladistu != null
                                       ? ` — lager ${fmtKolicina(
-                                          preparat.stanjeNaSkladistu
-                                        )} ${
-                                          preparat.skladisnaJedinica?.naziv ?? ""
-                                        }`
+                                        preparat.stanjeNaSkladistu
+                                      )} ${preparat.skladisnaJedinica?.naziv ?? ""
+                                      }`
                                       : ""}
                                   </option>
                                 ))}
@@ -1331,9 +1330,8 @@ export default function ZadaciPage() {
                                     e.target.value
                                   )
                                 }
-                                placeholder={`Upiši dozu u ${
-                                  stavka.mjernaJedinica || "jedinici"
-                                }`}
+                                placeholder={`Upiši dozu u ${stavka.mjernaJedinica || "jedinici"
+                                  }`}
                                 style={inputStyle}
                               />
                             </div>
@@ -1351,18 +1349,16 @@ export default function ZadaciPage() {
                               <div>
                                 <strong>Odabrana doza:</strong>{" "}
                                 {stavka.dozaBroj != null
-                                  ? `${fmtKolicina(stavka.dozaBroj)} ${
-                                      stavka.mjernaJedinica
-                                    }`
+                                  ? `${fmtKolicina(stavka.dozaBroj)} ${stavka.mjernaJedinica
+                                  }`
                                   : "-"}
                               </div>
 
                               <div>
                                 <strong>Ukupno za dodati:</strong>{" "}
                                 {stavka.izracunataKolicina != null
-                                  ? `${fmtKolicina(stavka.izracunataKolicina)} ${
-                                      stavka.izlaznaJedinica
-                                    }`
+                                  ? `${fmtKolicina(stavka.izracunataKolicina)} ${stavka.izlaznaJedinica
+                                  }`
                                   : "-"}
                               </div>
 
@@ -1728,11 +1724,10 @@ export default function ZadaciPage() {
                                   <strong>Ukupno za dodati</strong>
                                   <span>
                                     {stavka.izracunataKolicina != null
-                                      ? `${fmtKolicina(stavka.izracunataKolicina)} ${
-                                          stavka.izlaznaJedinica?.naziv ??
-                                          stavka.preparat?.unit?.naziv ??
-                                          ""
-                                        }`
+                                      ? `${fmtKolicina(stavka.izracunataKolicina)} ${stavka.izlaznaJedinica?.naziv ??
+                                      stavka.preparat?.unit?.naziv ??
+                                      ""
+                                      }`
                                       : "-"}
                                   </span>
                                 </div>
@@ -1807,8 +1802,8 @@ export default function ZadaciPage() {
                             <span>
                               {nazivKorekcije(
                                 zadatak.tipKorekcije ??
-                                  zadatak.preparat?.korekcijaTip ??
-                                  null
+                                zadatak.preparat?.korekcijaTip ??
+                                null
                               )}
                             </span>
                           </div>
@@ -1817,9 +1812,8 @@ export default function ZadaciPage() {
                             <strong>Trenutna vrijednost</strong>
                             <span>
                               {zadatak.trenutnaVrijednost != null
-                                ? `${fmt(zadatak.trenutnaVrijednost, 2)} ${
-                                    zadatak.preparat?.korekcijaJedinica ?? ""
-                                  }`
+                                ? `${fmt(zadatak.trenutnaVrijednost, 2)} ${zadatak.preparat?.korekcijaJedinica ?? ""
+                                }`
                                 : "-"}
                             </span>
                           </div>
@@ -1828,9 +1822,8 @@ export default function ZadaciPage() {
                             <strong>Željena vrijednost</strong>
                             <span>
                               {zadatak.zeljenaVrijednost != null
-                                ? `${fmt(zadatak.zeljenaVrijednost, 2)} ${
-                                    zadatak.preparat?.korekcijaJedinica ?? ""
-                                  }`
+                                ? `${fmt(zadatak.zeljenaVrijednost, 2)} ${zadatak.preparat?.korekcijaJedinica ?? ""
+                                }`
                                 : "-"}
                             </span>
                           </div>
@@ -1866,8 +1859,8 @@ export default function ZadaciPage() {
                             {zadatak.parentZadatakId
                               ? "Vezani drugi korak"
                               : zadatak.tipZadatka === "VEZANI"
-                              ? "Vezani prvi korak"
-                              : "Standardni"}
+                                ? "Vezani prvi korak"
+                                : "Standardni"}
                           </span>
                         </div>
                       </div>
@@ -1902,8 +1895,8 @@ export default function ZadaciPage() {
                         >
                           {zakljucan
                             ? `Ovaj zadatak može se izvršiti od ${formatirajDatum(
-                                zadatak.zakljucanDo
-                              )}`
+                              zadatak.zakljucanDo
+                            )}`
                             : "Vezani zadatak je otključan i spreman za izvršenje."}
                         </div>
                       )}
@@ -1952,8 +1945,8 @@ export default function ZadaciPage() {
                           {izvrsavanjeId === zadatak.id
                             ? "Izvršavam..."
                             : zadatak.parentZadatakId
-                            ? "Izvrši 2"
-                            : "Izvrši 1"}
+                              ? "Izvrši 2"
+                              : "Izvrši 1"}
                         </button>
                       </div>
                     </div>
@@ -1971,12 +1964,12 @@ export default function ZadaciPage() {
         tank={
           odabraniTank
             ? {
-                id: odabraniTank.id,
-                broj: odabraniTank.broj,
-                tip: odabraniTank.tip,
-                kolicinaVinaUTanku:
-                  odabraniTank.kolicinaVinaUTanku ?? kolicinaVinaUTanku ?? 0,
-              }
+              id: odabraniTank.id,
+              broj: odabraniTank.broj,
+              tip: odabraniTank.tip,
+              kolicinaVinaUTanku:
+                odabraniTank.kolicinaVinaUTanku ?? kolicinaVinaUTanku ?? 0,
+            }
             : null
         }
         zadnjeMjerenje={zadnjeMjerenjeZaKorekciju}
