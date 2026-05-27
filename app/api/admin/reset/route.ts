@@ -42,7 +42,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
     }
 
-    if (currentUser.role !== "ADMIN" || currentUser.username !== "goran") {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: currentUser.id },
+      select: { username: true, role: true },
+    });
+
+    if (!dbUser || dbUser.role !== "ADMIN" || dbUser.username !== "goran") {
       return NextResponse.json(
         { error: "Samo ovlašteni korisnik može pokrenuti reset." },
         { status: 403 }
