@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { cookies } from "next/headers";
+import { osigurajRedoslijed } from "@/lib/zadatak-redoslijed";
 
 type AuthUser = {
   id: string;
@@ -211,6 +212,15 @@ export async function PUT(req: Request) {
         if (zadatak.zakljucanDo && new Date() < new Date(zadatak.zakljucanDo)) {
           throw new Error("Vezani zadatak još nije dostupan za izvršenje.");
         }
+
+        // Redoslijed izvršenja na istom tanku — zadatak mora pričekati
+        // svaki raniji OTVOREN i nezaključan zadatak na istom tanku.
+        await osigurajRedoslijed(tx, {
+          id: zadatak.id,
+          tankId: zadatak.tankId,
+          zadanoAt: zadatak.zadanoAt,
+          createdAt: zadatak.createdAt,
+        });
 
         // ===== PROVJERA I SKIDANJE SA SKLADIŠTA =====
         const stavkeZaSkladiste =
@@ -484,7 +494,10 @@ export async function PUT(req: Request) {
 
     if (
       error instanceof Error &&
-      error.message.startsWith("Nema dovoljno preparata na skladištu:")
+      (error.message.startsWith("Nema dovoljno preparata na skladištu:") ||
+        error.message.startsWith(
+          "Na ovom tanku postoji raniji neizvršeni zadatak:"
+        ))
     ) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
