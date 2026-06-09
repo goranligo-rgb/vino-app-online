@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { formatHrDateTime } from "@/lib/datum";
 
 export const dynamic = "force-dynamic";
 
@@ -676,12 +677,15 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                 <div key={p.id} className="border border-orange-200 bg-white p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-orange-100 pb-2">
                     <div className="text-[15px] font-semibold text-stone-800">
-                      {formatDate(p.datum)}
+                      Datum posjeta: {formatDate(p.datum)}
                       {p.putnikIme ? (
                         <span className="ml-2 text-[12px] font-normal text-stone-500">
                           ({p.putnikIme})
                         </span>
                       ) : null}
+                      <div className="text-[11px] font-normal text-stone-400">
+                        Upisano: {formatHrDateTime(p.createdAt)}
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-2 text-[12px]">
                       <span className="inline-flex border border-orange-200 bg-orange-50 px-2 py-1 font-semibold text-orange-900">
@@ -750,7 +754,7 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                 <div key={a.id} className="border border-orange-200 bg-white p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-orange-100 pb-2">
                     <div className="text-[15px] font-semibold text-stone-800">
-                      {formatDate(a.datum)}
+                      Datum: {formatDate(a.datum)}
                       {a.tko ? (
                         <span className="ml-2 text-[12px] font-normal text-stone-500">
                           {a.tko}
@@ -761,6 +765,9 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                           ({a.putnikIme})
                         </span>
                       ) : null}
+                      <div className="text-[11px] font-normal text-stone-400">
+                        Upisano: {formatHrDateTime(a.createdAt)}
+                      </div>
                     </div>
                     {a.vjerojatnostZakljucenja != null ? (
                       <span className="inline-flex border border-green-200 bg-green-50 px-2 py-1 text-[12px] font-semibold text-green-700">

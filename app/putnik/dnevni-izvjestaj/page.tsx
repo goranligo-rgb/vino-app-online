@@ -1,6 +1,7 @@
 import Link from "next/link";
 import NatragHome from "@/components/NatragHome";
 import { prisma } from "@/lib/prisma";
+import { formatHrDateTime } from "@/lib/datum";
 
 export const dynamic = "force-dynamic";
 
@@ -142,6 +143,9 @@ export default async function DnevniIzvjestajPage({
                       <span className="ml-2 text-[12px] font-normal text-stone-500">
                         {p.mjesto || p.kupac.grad || "-"}
                       </span>
+                      <div className="text-[11px] font-normal text-stone-400">
+                        Upisano: {formatHrDateTime(p.createdAt)}
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-2 text-[12px]">
                       {p.tipObilaska ? (
