@@ -913,6 +913,7 @@ model PutnikKupac {
   promoMaterijali PutnikPromoKupca[]
   rezultati       PutnikRezultatObilaska[]
   dogovori        PutnikDogovor[]
+  aktivnosti      PutnikAktivnost[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1298,4 +1299,31 @@ model PutnikDogovor {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Dnevnik aktivnosti praćenja (poglavito za potencijalne kupce).
+// Po uzoru na Excel KARTICA_KUPCA - POTENCIJALNI: ponavljajući unos.
+model PutnikAktivnost {
+  id      String      @id @default(cuid())
+  kupacId String
+  kupac   PutnikKupac @relation(fields: [kupacId], references: [id], onDelete: Cascade)
+
+  datum DateTime @default(now())
+
+  opis             String?
+  tko              String?
+  stoNastaviti     String?
+  sljedecaAktivnost String?
+  datumSljedece    DateTime?
+
+  vjerojatnostZakljucenja Int?
+
+  zabiljeska String?
+
+  putnikIme String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kupacId])
 }

@@ -152,6 +152,9 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
           stavke: { orderBy: { createdAt: "asc" } },
         },
       },
+      aktivnosti: {
+        orderBy: { datum: "desc" },
+      },
     },
   });
 
@@ -162,10 +165,12 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
   const ankete = kupac.ankete || [];
   const dogovori = kupac.dogovori || [];
   const posjeti = kupac.posjeti || [];
+  const aktivnosti = kupac.aktivnosti || [];
 
   const zadnjaAnketa = ankete[ankete.length - 1] || null;
   const zadnjiDogovor = dogovori[dogovori.length - 1] || null;
   const zadnjiPosjet = posjeti[0] || null; // posjeti su sortirani datum desc
+  const jePotencijalni = kupac.status === "POTENCIJALNI";
 
   const eur = (v?: number | null) =>
     v != null ? `${v.toLocaleString("hr-HR")} EUR` : "-";
@@ -391,6 +396,13 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                 className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
               >
                 Novi posjet
+              </Link>
+
+              <Link
+                href={`/putnik/kupci/${kupac.id}/aktivnost/nova`}
+                className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
+              >
+                Nova aktivnost
               </Link>
             </div>
           </div>
@@ -713,6 +725,65 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                       ) : null}
                     </div>
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card
+          title="Dnevnik aktivnosti praćenja"
+          desc={
+            jePotencijalni
+              ? "Potencijalni kupac — praćenje aktivnosti do zaključenja."
+              : "Praćenje aktivnosti (poglavito za potencijalne kupce)."
+          }
+        >
+          {aktivnosti.length === 0 ? (
+            <div className="border border-orange-200 bg-white px-4 py-3 text-[13px] text-stone-500">
+              Nema zabilježenih aktivnosti. Klikni <strong>Nova aktivnost</strong> za
+              prvi unos.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {aktivnosti.map((a) => (
+                <div key={a.id} className="border border-orange-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-orange-100 pb-2">
+                    <div className="text-[15px] font-semibold text-stone-800">
+                      {formatDate(a.datum)}
+                      {a.tko ? (
+                        <span className="ml-2 text-[12px] font-normal text-stone-500">
+                          {a.tko}
+                        </span>
+                      ) : null}
+                      {a.putnikIme ? (
+                        <span className="ml-2 text-[12px] font-normal text-stone-400">
+                          ({a.putnikIme})
+                        </span>
+                      ) : null}
+                    </div>
+                    {a.vjerojatnostZakljucenja != null ? (
+                      <span className="inline-flex border border-green-200 bg-green-50 px-2 py-1 text-[12px] font-semibold text-green-700">
+                        Vjerojatnost: {a.vjerojatnostZakljucenja}%
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <Info label="Opis" value={a.opis} />
+                    <Info label="Što nastaviti" value={a.stoNastaviti} />
+                    <Info label="Sljedeća aktivnost" value={a.sljedecaAktivnost} />
+                    <Info
+                      label="Datum sljedeće"
+                      value={a.datumSljedece ? formatDate(a.datumSljedece) : null}
+                    />
+                  </div>
+
+                  {a.zabiljeska ? (
+                    <div className="mt-3 border border-orange-100 bg-orange-50/40 px-3 py-2 text-[13px] whitespace-pre-wrap text-stone-700">
+                      {a.zabiljeska}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
