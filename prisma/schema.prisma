@@ -878,6 +878,24 @@ model PutnikKupac {
   grad   String?
   regija String?
 
+  // Excel kartica kupca - identifikacija
+  sifraKupca String?
+
+  // Odgovorna osoba za narudžbu
+  narudzbaOsoba   String?
+  narudzbaTelefon String?
+  narudzbaEmail   String?
+
+  // Odgovorna osoba za naplatu
+  naplataOsoba   String?
+  naplataTelefon String?
+  naplataEmail   String?
+
+  // Financijski uvjeti
+  nacinPlacanja     String?
+  garancijaPlacanja String?
+  kreditniLimit     Float?
+
   gpsLat Float?
   gpsLng Float?
 
@@ -1029,6 +1047,29 @@ model PutnikAnketaKupca {
   // 12. BILJEŠKE
   biljeska        String?
   internaBiljeska String?
+
+  // 13. PREPORUČENA AKCIJA / AKTIVACIJA (korak 19) - prije se tiho gubilo
+  akcija6Plus1             Boolean @default(false)
+  akcija12Plus2            Boolean @default(false)
+  akcija24Plus4            Boolean @default(false)
+  probneBoce               Boolean @default(false)
+  gratisCase               Boolean @default(false)
+  edukacijaKonobara        Boolean @default(false)
+  degustacijaULokalu       Boolean @default(false)
+  winePartyAktivacija      Boolean @default(false)
+  posjetVinarijiAktivacija Boolean @default(false)
+  vinskaKartaAktivacija    Boolean @default(false)
+  promoMaterijalAktivacija Boolean @default(false)
+  stalciLetciAktivacija    Boolean @default(false)
+  posebnaCijenaAktivacija  Boolean @default(false)
+  preporukaHraneVina       Boolean @default(false)
+  lokalnaPricaAktivacija   Boolean @default(false)
+  premiumPozicioniranje    Boolean @default(false)
+
+  preporucenaKolicina      Int?
+  preporucenaCijena        String?
+  preporuceniRok           String?
+  preporucenaAkcijaDetalji String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

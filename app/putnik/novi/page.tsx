@@ -13,22 +13,44 @@ async function createKupac(formData: FormData) {
         throw new Error("Naziv lokala je obavezan.");
     }
 
+    const text = (name: string) =>
+        String(formData.get(name) || "").trim() || null;
+
+    const num = (name: string) => {
+        const raw = String(formData.get(name) || "").trim();
+        if (!raw) return null;
+        const parsed = Number(raw.replace(",", "."));
+        return Number.isFinite(parsed) ? parsed : null;
+    };
+
     await prisma.putnikKupac.create({
         data: {
             nazivLokala,
-            nazivFirme: String(formData.get("nazivFirme") || "").trim() || null,
-            vlasnik: String(formData.get("vlasnik") || "").trim() || null,
-            kontaktOsoba: String(formData.get("kontaktOsoba") || "").trim() || null,
-            telefon: String(formData.get("telefon") || "").trim() || null,
-            email: String(formData.get("email") || "").trim() || null,
-            oib: String(formData.get("oib") || "").trim() || null,
-            adresa: String(formData.get("adresa") || "").trim() || null,
-            grad: String(formData.get("grad") || "").trim() || null,
-            regija: String(formData.get("regija") || "").trim() || null,
+            nazivFirme: text("nazivFirme"),
+            vlasnik: text("vlasnik"),
+            kontaktOsoba: text("kontaktOsoba"),
+            telefon: text("telefon"),
+            email: text("email"),
+            oib: text("oib"),
+            adresa: text("adresa"),
+            grad: text("grad"),
+            regija: text("regija"),
+
+            sifraKupca: text("sifraKupca"),
+            narudzbaOsoba: text("narudzbaOsoba"),
+            narudzbaTelefon: text("narudzbaTelefon"),
+            narudzbaEmail: text("narudzbaEmail"),
+            naplataOsoba: text("naplataOsoba"),
+            naplataTelefon: text("naplataTelefon"),
+            naplataEmail: text("naplataEmail"),
+            nacinPlacanja: text("nacinPlacanja"),
+            garancijaPlacanja: text("garancijaPlacanja"),
+            kreditniLimit: num("kreditniLimit"),
+
             tip: String(formData.get("tip") || "OSTALO") as any,
             status: String(formData.get("status") || "POTENCIJALNI") as any,
             kategorija: String(formData.get("kategorija") || "C") as any,
-            napomena: String(formData.get("napomena") || "").trim() || null,
+            napomena: text("napomena"),
         },
     });
 
@@ -111,6 +133,7 @@ export default function NoviKupacPage() {
                     <div className="mt-5 grid gap-4 md:grid-cols-2">
                         <Field label="Naziv lokala *" name="nazivLokala" placeholder="npr. Restoran Stari Grad" />
                         <Field label="Naziv firme" name="nazivFirme" placeholder="npr. Primjer d.o.o." />
+                        <Field label="Šifra kupca" name="sifraKupca" />
                         <Field label="Vlasnik" name="vlasnik" />
                         <Field label="Kontakt osoba" name="kontaktOsoba" />
                         <Field label="Telefon" name="telefon" />
@@ -147,6 +170,27 @@ export default function NoviKupacPage() {
                             <option value="B">B</option>
                             <option value="A">A</option>
                         </SelectField>
+                    </div>
+
+                    <div className="mt-6 border-t border-[#d8c8aa] pt-5">
+                        <h2 className="text-xl font-black">Odgovorne osobe i plaćanje</h2>
+                        <p className="mt-1 text-sm text-[#776650]">
+                            Podaci s Excel kartice kupca: tko naručuje, tko plaća i pod kojim uvjetima.
+                        </p>
+
+                        <div className="mt-4 grid gap-4 md:grid-cols-3">
+                            <Field label="Narudžba — osoba" name="narudzbaOsoba" />
+                            <Field label="Narudžba — telefon" name="narudzbaTelefon" />
+                            <Field label="Narudžba — email" name="narudzbaEmail" type="email" />
+
+                            <Field label="Naplata — osoba" name="naplataOsoba" />
+                            <Field label="Naplata — telefon" name="naplataTelefon" />
+                            <Field label="Naplata — email" name="naplataEmail" type="email" />
+
+                            <Field label="Način plaćanja" name="nacinPlacanja" />
+                            <Field label="Garancija plaćanja" name="garancijaPlacanja" />
+                            <Field label="Kreditni limit (EUR)" name="kreditniLimit" type="number" />
+                        </div>
                     </div>
 
                     <label className="mt-4 block">

@@ -12,6 +12,13 @@ function text(formData: FormData, name: string) {
   return value || null;
 }
 
+function num(formData: FormData, name: string) {
+  const raw = String(formData.get(name) || "").trim();
+  if (!raw) return null;
+  const parsed = Number(raw.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 async function spremiKupca(formData: FormData) {
   "use server";
 
@@ -31,6 +38,18 @@ async function spremiKupca(formData: FormData) {
       adresa: text(formData, "adresa"),
       grad: text(formData, "grad"),
       regija: text(formData, "regija"),
+
+      sifraKupca: text(formData, "sifraKupca"),
+      narudzbaOsoba: text(formData, "narudzbaOsoba"),
+      narudzbaTelefon: text(formData, "narudzbaTelefon"),
+      narudzbaEmail: text(formData, "narudzbaEmail"),
+      naplataOsoba: text(formData, "naplataOsoba"),
+      naplataTelefon: text(formData, "naplataTelefon"),
+      naplataEmail: text(formData, "naplataEmail"),
+      nacinPlacanja: text(formData, "nacinPlacanja"),
+      garancijaPlacanja: text(formData, "garancijaPlacanja"),
+      kreditniLimit: num(formData, "kreditniLimit"),
+
       tip: String(formData.get("tip") || "OSTALO"),
       status: String(formData.get("status") || "POTENCIJALNI"),
       kategorija: String(formData.get("kategorija") || "C"),
@@ -141,6 +160,7 @@ export default async function UrediKupcaPage({ params }: { params: PageParams })
             <div className="grid gap-4 md:grid-cols-2">
               <Field name="nazivLokala" label="Naziv lokala" defaultValue={kupac.nazivLokala} />
               <Field name="nazivFirme" label="Naziv firme" defaultValue={kupac.nazivFirme} />
+              <Field name="sifraKupca" label="Šifra kupca" defaultValue={kupac.sifraKupca} />
               <Field name="vlasnik" label="Vlasnik" defaultValue={kupac.vlasnik} />
               <Field name="kontaktOsoba" label="Kontakt osoba" defaultValue={kupac.kontaktOsoba} />
               <Field name="telefon" label="Telefon" defaultValue={kupac.telefon} />
@@ -149,6 +169,33 @@ export default async function UrediKupcaPage({ params }: { params: PageParams })
               <Field name="adresa" label="Adresa" defaultValue={kupac.adresa} />
               <Field name="grad" label="Grad" defaultValue={kupac.grad} />
               <Field name="regija" label="Regija" defaultValue={kupac.regija} />
+            </div>
+          </div>
+
+          <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
+            <h2 className="mb-1 text-[18px] font-semibold text-stone-800">
+              Odgovorne osobe i plaćanje
+            </h2>
+            <p className="mb-4 text-[13px] text-stone-500">
+              Tko naručuje, tko plaća i pod kojim uvjetima (Excel kartica kupca).
+            </p>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <Field name="narudzbaOsoba" label="Narudžba — osoba" defaultValue={kupac.narudzbaOsoba} />
+              <Field name="narudzbaTelefon" label="Narudžba — telefon" defaultValue={kupac.narudzbaTelefon} />
+              <Field name="narudzbaEmail" label="Narudžba — email" defaultValue={kupac.narudzbaEmail} />
+
+              <Field name="naplataOsoba" label="Naplata — osoba" defaultValue={kupac.naplataOsoba} />
+              <Field name="naplataTelefon" label="Naplata — telefon" defaultValue={kupac.naplataTelefon} />
+              <Field name="naplataEmail" label="Naplata — email" defaultValue={kupac.naplataEmail} />
+
+              <Field name="nacinPlacanja" label="Način plaćanja" defaultValue={kupac.nacinPlacanja} />
+              <Field name="garancijaPlacanja" label="Garancija plaćanja" defaultValue={kupac.garancijaPlacanja} />
+              <Field
+                name="kreditniLimit"
+                label="Kreditni limit (EUR)"
+                defaultValue={kupac.kreditniLimit != null ? String(kupac.kreditniLimit) : ""}
+              />
             </div>
           </div>
 

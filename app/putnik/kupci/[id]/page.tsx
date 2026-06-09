@@ -541,6 +541,7 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
             <div className="grid gap-3 md:grid-cols-2">
               <Info label="Naziv lokala" value={kupac.nazivLokala} />
               <Info label="Naziv firme" value={kupac.nazivFirme} />
+              <Info label="Šifra kupca" value={kupac.sifraKupca} />
               <Info label="Vlasnik" value={kupac.vlasnik} />
               <Info label="Kontakt osoba" value={kupac.kontaktOsoba} />
               <Info label="Telefon" value={kupac.telefon} />
@@ -549,6 +550,28 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
               <Info label="Grad" value={kupac.grad} />
               <Info label="Regija" value={kupac.regija} />
               <Info label="OIB" value={kupac.oib} />
+            </div>
+
+            <div className="mt-4 border-t border-orange-200 pt-4">
+              <div className="mb-2 text-[11px] uppercase tracking-[0.12em] text-orange-800/70">
+                Odgovorne osobe i plaćanje
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Info
+                  label="Narudžba"
+                  value={[kupac.narudzbaOsoba, kupac.narudzbaTelefon, kupac.narudzbaEmail].filter(Boolean).join(" · ") || null}
+                />
+                <Info
+                  label="Naplata"
+                  value={[kupac.naplataOsoba, kupac.naplataTelefon, kupac.naplataEmail].filter(Boolean).join(" · ") || null}
+                />
+                <Info label="Način plaćanja" value={kupac.nacinPlacanja} />
+                <Info label="Garancija plaćanja" value={kupac.garancijaPlacanja} />
+                <Info
+                  label="Kreditni limit"
+                  value={kupac.kreditniLimit != null ? `${kupac.kreditniLimit.toLocaleString("hr-HR")} EUR` : null}
+                />
+              </div>
             </div>
 
             <div className="mt-4 border-t border-orange-200 pt-4">
