@@ -178,6 +178,157 @@ export default function PosjetForm({
         </div>
       </div>
 
+      <details className="group border border-orange-200 bg-gradient-to-b from-white to-orange-50">
+        <summary className="flex cursor-pointer items-center justify-between gap-2 p-4 text-[18px] font-semibold text-stone-800 marker:content-['']">
+          <span>Teren / dnevni izvještaj</span>
+          <span className="text-[13px] font-normal text-orange-800/70 group-open:hidden">
+            otvori ▾
+          </span>
+          <span className="hidden text-[13px] font-normal text-orange-800/70 group-open:inline">
+            zatvori ▴
+          </span>
+        </summary>
+
+        <div className="space-y-4 border-t border-orange-200 p-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-[13px] font-semibold text-stone-700">
+                Mjesto
+              </label>
+              <input
+                name="mjesto"
+                className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[13px] font-semibold text-stone-700">
+                Vrijeme od
+              </label>
+              <input
+                name="vrijemeOd"
+                type="time"
+                className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[13px] font-semibold text-stone-700">
+                Vrijeme do
+              </label>
+              <input
+                name="vrijemeDo"
+                type="time"
+                className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-[13px] font-semibold text-stone-700">
+                Tip obilaska (ritam)
+              </label>
+              <select
+                name="tipObilaska"
+                className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
+              >
+                <option value="">—</option>
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+                <option value="D">D</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[13px] font-semibold text-stone-700">
+                Premisa
+              </label>
+              <select
+                name="tipPremise"
+                className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
+              >
+                <option value="">—</option>
+                <option value="ON">ON premise (konzumacija na mjestu)</option>
+                <option value="OFF">OFF premise (prodaja za van)</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[13px] font-semibold text-stone-700">
+                Stanje proizvoda
+              </label>
+              <select
+                name="stanjeProizvoda"
+                className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
+              >
+                <option value="">—</option>
+                <option value="DOVOLJNO">Dovoljno</option>
+                <option value="MANJAK">Manjak</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 text-[13px] font-semibold text-stone-700">
+              Aktivnosti na terenu
+            </div>
+            <div className="grid gap-2 md:grid-cols-3">
+              {[
+                { name: "aktDegustacija", label: "Degustacija" },
+                { name: "aktVidljivost", label: "Vidljivost" },
+                { name: "aktSlaganjeRobe", label: "Slaganje robe" },
+                { name: "aktIstaknuteCijene", label: "Istaknute cijene" },
+                { name: "aktAkcijskaCijena", label: "Akcijska cijena" },
+              ].map((a) => (
+                <label
+                  key={a.name}
+                  className="flex min-h-[48px] cursor-pointer items-center gap-3 border border-orange-200 bg-white px-3 py-3 text-[13px] font-semibold text-stone-700 hover:bg-orange-50"
+                >
+                  <input
+                    name={a.name}
+                    type="checkbox"
+                    className="h-5 w-5 accent-orange-700"
+                  />
+                  <span>{a.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-[13px] font-semibold text-stone-700">
+                Cijena / cjenovne napomene
+              </label>
+              <input
+                name="cijena"
+                className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[13px] font-semibold text-stone-700">
+                Prijeđeni kilometri
+              </label>
+              <input
+                name="kilometri"
+                type="number"
+                step="any"
+                className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[13px] font-semibold text-stone-700">
+              Napomene / problemi
+            </label>
+            <textarea
+              name="problemi"
+              rows={3}
+              className="w-full resize-y border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
+            />
+          </div>
+        </div>
+      </details>
+
       <div className="sticky bottom-4 z-40 flex justify-end border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4 shadow-2xl">
         <button
           type="submit"

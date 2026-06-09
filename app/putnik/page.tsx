@@ -148,6 +148,13 @@ export default function PutnikPage() {
               </Link>
 
               <Link
+                href="/putnik/dnevni-izvjestaj"
+                className="border border-orange-300 bg-white px-4 py-2 text-[13px] font-semibold text-stone-700 hover:bg-orange-50"
+              >
+                Dnevni izvještaj
+              </Link>
+
+              <Link
                 href="/putnik/novi"
                 className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
               >

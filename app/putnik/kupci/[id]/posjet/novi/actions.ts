@@ -24,6 +24,10 @@ function dateValue(formData: FormData, name: string) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function checked(formData: FormData, name: string) {
+  return formData.get(name) === "on";
+}
+
 /**
  * Iz FormData izvlači stavke narudžbe. Inputi se ponavljaju pod istim imenom
  * (stavkaNaziv / stavkaKolicina / stavkaJedinica), getAll čuva redoslijed.
@@ -71,6 +75,22 @@ export async function spremiPosjet(formData: FormData) {
       biljeska: text(formData, "biljeska"),
       ukupanDug: num(formData, "ukupanDug"),
       dospjeliDug: num(formData, "dospjeliDug"),
+
+      // Faza 4B - teren / dnevni izvještaj
+      mjesto: text(formData, "mjesto"),
+      vrijemeOd: text(formData, "vrijemeOd"),
+      vrijemeDo: text(formData, "vrijemeDo"),
+      tipObilaska: text(formData, "tipObilaska"),
+      tipPremise: text(formData, "tipPremise"),
+      stanjeProizvoda: text(formData, "stanjeProizvoda"),
+      kilometri: num(formData, "kilometri"),
+      cijena: text(formData, "cijena"),
+      problemi: text(formData, "problemi"),
+      aktDegustacija: checked(formData, "aktDegustacija"),
+      aktVidljivost: checked(formData, "aktVidljivost"),
+      aktSlaganjeRobe: checked(formData, "aktSlaganjeRobe"),
+      aktIstaknuteCijene: checked(formData, "aktIstaknuteCijene"),
+      aktAkcijskaCijena: checked(formData, "aktAkcijskaCijena"),
 
       stavke: stavke.length
         ? {

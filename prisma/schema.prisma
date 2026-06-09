@@ -1106,6 +1106,23 @@ model PutnikPosjet {
   ukupanDug         Float?
   dospjeliDug       Float?
 
+  // Faza 4B - dnevni izvještaj / teren
+  mjesto          String?
+  vrijemeOd       String?
+  vrijemeDo       String?
+  tipObilaska     String?
+  tipPremise      String?
+  stanjeProizvoda String?
+  kilometri       Float?
+  cijena          String?
+  problemi        String?
+
+  aktDegustacija     Boolean @default(false)
+  aktVidljivost      Boolean @default(false)
+  aktSlaganjeRobe    Boolean @default(false)
+  aktIstaknuteCijene Boolean @default(false)
+  aktAkcijskaCijena  Boolean @default(false)
+
   stavke PutnikPosjetStavka[]
 
   createdAt DateTime @default(now())
