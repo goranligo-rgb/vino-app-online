@@ -169,6 +169,7 @@ export default function NoviKupacPage() {
                             <option value="C">C</option>
                             <option value="B">B</option>
                             <option value="A">A</option>
+                            <option value="D">D - povremeno</option>
                         </SelectField>
                     </div>
 

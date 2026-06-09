@@ -824,6 +824,7 @@ enum PutnikKupacKategorija {
   A
   B
   C
+  D
 }
 
 enum PutnikTipKupca {
@@ -914,6 +915,7 @@ model PutnikKupac {
   rezultati       PutnikRezultatObilaska[]
   dogovori        PutnikDogovor[]
   aktivnosti      PutnikAktivnost[]
+  planObilaska    PutnikPlanObilaska[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1326,4 +1328,27 @@ model PutnikAktivnost {
   updatedAt DateTime @updatedAt
 
   @@index([kupacId])
+}
+
+// Prodajna ruta / plan obilaska - generira se po ABC(D) kadenci za 3 mjeseca.
+model PutnikPlanObilaska {
+  id      String      @id @default(cuid())
+  kupacId String
+  kupac   PutnikKupac @relation(fields: [kupacId], references: [id], onDelete: Cascade)
+
+  datum      DateTime
+  tjedan     Int?
+  kategorija String?
+  status     String  @default("PLANIRANO")
+
+  // Labava veza na obavljeni posjet (bez FK-a; posjet je u domeni 4B).
+  obavljenoPosjetId String?
+
+  napomena String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kupacId])
+  @@index([datum])
 }

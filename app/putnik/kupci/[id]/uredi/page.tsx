@@ -245,6 +245,7 @@ export default async function UrediKupcaPage({ params }: { params: PageParams })
                   { value: "A", label: "A" },
                   { value: "B", label: "B" },
                   { value: "C", label: "C" },
+                  { value: "D", label: "D - povremeno" },
                 ]}
               />
             </div>
