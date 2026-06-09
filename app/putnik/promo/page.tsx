@@ -249,8 +249,12 @@ export default async function PromoPage({
 
             <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4 lg:col-span-2">
               <h2 className="mb-3 text-[18px] font-semibold text-stone-800">Katalog vina (L1/L2)</h2>
-              <form action={dodajVino} className="mb-3 flex gap-2">
-                <input name="naziv" placeholder="npr. Graševina 2023, Frankovka..." required className={ulazInput} />
+              <form action={dodajVino} className="mb-3 flex flex-wrap gap-2">
+                <input name="naziv" placeholder="npr. Graševina 2023, Frankovka..." required className={`${ulazInput} min-w-[200px] flex-1`} />
+                <select name="zadanaJedinica" defaultValue="kom" className={`${ulazInput} w-24 shrink-0`}>
+                  <option value="kom">kom</option>
+                  <option value="L">L</option>
+                </select>
                 <button
                   type="submit"
                   className="shrink-0 border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
@@ -261,7 +265,10 @@ export default async function PromoPage({
               <div className="grid gap-1 md:grid-cols-2">
                 {vina.map((v) => (
                   <div key={v.id} className="flex items-center justify-between border border-orange-100 bg-white px-3 py-2 text-[14px]">
-                    <span className={v.aktivan ? "text-stone-800" : "text-stone-400 line-through"}>{v.naziv}</span>
+                    <span className={v.aktivan ? "text-stone-800" : "text-stone-400 line-through"}>
+                      {v.naziv}{" "}
+                      <span className="text-[12px] text-stone-400">({v.zadanaJedinica || "kom"})</span>
+                    </span>
                     <form action={toggleVino}>
                       <input type="hidden" name="id" value={v.id} />
                       <input type="hidden" name="aktivan" value={v.aktivan ? "false" : "true"} />

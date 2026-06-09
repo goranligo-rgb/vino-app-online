@@ -1142,6 +1142,9 @@ model PutnikPosjetStavka {
   // Faza 5B - gratis (prijedlog iz dogovora, putnik može override)
   gratis Int @default(0)
 
+  // Faza 6 - popis za pripremu: ODMAH / PRIPREMITI / PRIPREMLJENO / ISPORUCENO
+  statusPripreme String @default("ODMAH")
+
   createdAt DateTime @default(now())
 
   @@index([posjetId])
@@ -1215,6 +1218,9 @@ model PutnikPromoKupca {
   posjetId String?
   posjet   PutnikPosjet? @relation(fields: [posjetId], references: [id], onDelete: SetNull)
 
+  // Faza 6 - popis za pripremu: ODMAH / PRIPREMITI / PRIPREMLJENO / ISPORUCENO
+  statusPripreme String @default("ODMAH")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1226,6 +1232,9 @@ model PutnikVinoArtikl {
   id      String  @id @default(cuid())
   naziv   String  @unique
   aktivan Boolean @default(true)
+
+  // Faza 6 - zadana jedinica (L za rinfuzu, kom za butelje); override na formi
+  zadanaJedinica String? @default("kom")
 
   createdAt DateTime @default(now())
 }

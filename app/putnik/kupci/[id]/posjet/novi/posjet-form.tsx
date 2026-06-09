@@ -4,6 +4,7 @@ import { useState } from "react";
 import { spremiPosjet } from "./actions";
 
 type Artikl = { id: string; naziv: string };
+type Vino = { id: string; naziv: string; zadanaJedinica?: string | null };
 
 type Stavka = {
   key: number;
@@ -13,12 +14,14 @@ type Stavka = {
   jedinica: string;
   gratis: string;
   gratisRucno: boolean;
+  status: string;
 };
 
 type Poklon = {
   key: number;
   artiklId: string;
   kolicina: string;
+  status: string;
 };
 
 const OSTALO = "__OSTALO__";
@@ -34,13 +37,14 @@ function novaStavka(): Stavka {
     jedinica: "kom",
     gratis: "0",
     gratisRucno: false,
+    status: "PRIPREMITI",
   };
 }
 
 let brojacP = 0;
 function noviPoklon(): Poklon {
   brojacP += 1;
-  return { key: brojacP, artiklId: "", kolicina: "" };
+  return { key: brojacP, artiklId: "", kolicina: "", status: "PRIPREMITI" };
 }
 
 function predlozenGratis(kolicina: string, akcijaX: number, akcijaY: number): number {
@@ -62,32 +66,38 @@ export default function PosjetForm({
   danas: string;
   akcijaX: number;
   akcijaY: number;
-  vina: Artikl[];
+  vina: Vino[];
   promoArtikli: Artikl[];
 }) {
   const [stavke, setStavke] = useState<Stavka[]>([novaStavka()]);
   const [pokloni, setPokloni] = useState<Poklon[]>([noviPoklon()]);
 
   const imaAkciju = akcijaX > 0;
+  const vinoJedinica = new Map(vina.map((v) => [v.naziv, v.zadanaJedinica || "kom"]));
 
-  function azuriraj(key: number, polje: "naziv" | "jedinica", vrijednost: string) {
+  function azuriraj(key: number, polje: "naziv" | "jedinica" | "status", vrijednost: string) {
     setStavke((prev) =>
       prev.map((s) => (s.key === key ? { ...s, [polje]: vrijednost } : s))
     );
   }
 
-  // Odabir vina iz izbornika ili "Ostalo (ručno)".
+  // Odabir vina iz izbornika ili "Ostalo (ručno)". Jedinica se auto-popuni iz kataloga.
   function postaviVino(key: number, vrijednost: string) {
     setStavke((prev) =>
       prev.map((s) => {
         if (s.key !== key) return s;
         if (vrijednost === OSTALO) return { ...s, rucno: true, naziv: "" };
-        return { ...s, rucno: false, naziv: vrijednost };
+        const jed = vinoJedinica.get(vrijednost) || s.jedinica;
+        return { ...s, rucno: false, naziv: vrijednost, jedinica: jed };
       })
     );
   }
 
-  function azurirajPoklon(key: number, polje: "artiklId" | "kolicina", vrijednost: string) {
+  function azurirajPoklon(
+    key: number,
+    polje: "artiklId" | "kolicina" | "status",
+    vrijednost: string
+  ) {
     setPokloni((prev) =>
       prev.map((p) => (p.key === key ? { ...p, [polje]: vrijednost } : p))
     );
@@ -178,7 +188,7 @@ export default function PosjetForm({
           {stavke.map((s, index) => (
             <div
               key={s.key}
-              className="grid gap-2 border border-orange-100 bg-white p-2 md:grid-cols-[1fr_100px_80px_130px_auto]"
+              className="grid gap-2 border border-orange-100 bg-white p-2 md:grid-cols-[1fr_90px_72px_120px_120px_auto]"
             >
               <div className="space-y-1">
                 <select
@@ -213,13 +223,15 @@ export default function PosjetForm({
                 placeholder="Količina"
                 className="border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
               />
-              <input
+              <select
                 name="stavkaJedinica"
-                value={s.jedinica}
+                value={s.jedinica === "L" ? "L" : "kom"}
                 onChange={(e) => azuriraj(s.key, "jedinica", e.target.value)}
-                placeholder="kom"
-                className="border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
-              />
+                className="border border-orange-200 bg-white px-2 py-2 text-[14px] outline-none focus:border-orange-400"
+              >
+                <option value="kom">kom</option>
+                <option value="L">L</option>
+              </select>
               <label className="flex items-center gap-1 border border-amber-300 bg-amber-50 px-2 text-[12px] font-semibold text-amber-900">
                 <span className="shrink-0">Gratis</span>
                 <input
@@ -231,6 +243,16 @@ export default function PosjetForm({
                   className="w-full bg-transparent py-2 text-[14px] text-stone-800 outline-none"
                 />
               </label>
+              <select
+                name="stavkaStatus"
+                value={s.status}
+                onChange={(e) => azuriraj(s.key, "status", e.target.value)}
+                title="Dati odmah ili pripremiti u vinariji"
+                className="border border-orange-200 bg-white px-2 py-2 text-[13px] outline-none focus:border-orange-400"
+              >
+                <option value="PRIPREMITI">Pripremiti</option>
+                <option value="ODMAH">Dati odmah</option>
+              </select>
               <button
                 type="button"
                 onClick={() => obrisiRed(s.key)}
@@ -273,7 +295,7 @@ export default function PosjetForm({
             {pokloni.map((p) => (
               <div
                 key={p.key}
-                className="grid gap-2 border border-orange-100 bg-white p-2 md:grid-cols-[1fr_120px_auto]"
+                className="grid gap-2 border border-orange-100 bg-white p-2 md:grid-cols-[1fr_110px_120px_auto]"
               >
                 <select
                   name="poklonArtiklId"
@@ -296,6 +318,16 @@ export default function PosjetForm({
                   placeholder="Količina"
                   className="border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
                 />
+                <select
+                  name="poklonStatus"
+                  value={p.status}
+                  onChange={(e) => azurirajPoklon(p.key, "status", e.target.value)}
+                  title="Dati odmah ili pripremiti u vinariji"
+                  className="border border-orange-200 bg-white px-2 py-2 text-[13px] outline-none focus:border-orange-400"
+                >
+                  <option value="PRIPREMITI">Pripremiti</option>
+                  <option value="ODMAH">Dati odmah</option>
+                </select>
                 <button
                   type="button"
                   onClick={() => obrisiPoklon(p.key)}

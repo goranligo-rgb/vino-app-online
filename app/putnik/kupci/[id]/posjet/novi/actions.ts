@@ -38,12 +38,14 @@ function citajStavke(formData: FormData) {
   const kolicine = formData.getAll("stavkaKolicina").map((v) => String(v).trim());
   const jedinice = formData.getAll("stavkaJedinica").map((v) => String(v).trim());
   const gratisi = formData.getAll("stavkaGratis").map((v) => String(v).trim());
+  const statusi = formData.getAll("stavkaStatus").map((v) => String(v).trim());
 
   const stavke: {
     nazivProizvoda: string;
     kolicina: number | null;
     jedinica: string;
     gratis: number;
+    statusPripreme: string;
   }[] = [];
 
   for (let i = 0; i < nazivi.length; i++) {
@@ -61,6 +63,7 @@ function citajStavke(formData: FormData) {
       kolicina: kol != null && Number.isFinite(kol) ? kol : null,
       jedinica: jedinice[i] || "kom",
       gratis: Number.isFinite(gratisNum) && gratisNum > 0 ? gratisNum : 0,
+      statusPripreme: statusi[i] === "ODMAH" ? "ODMAH" : "PRIPREMITI",
     });
   }
 
@@ -71,8 +74,9 @@ function citajStavke(formData: FormData) {
 function citajPokloni(formData: FormData) {
   const artikli = formData.getAll("poklonArtiklId").map((v) => String(v).trim());
   const kolicine = formData.getAll("poklonKolicina").map((v) => String(v).trim());
+  const statusi = formData.getAll("poklonStatus").map((v) => String(v).trim());
 
-  const pokloni: { artiklId: string; kolicina: number }[] = [];
+  const pokloni: { artiklId: string; kolicina: number; status: string }[] = [];
 
   for (let i = 0; i < artikli.length; i++) {
     const artiklId = artikli[i];
@@ -81,7 +85,11 @@ function citajPokloni(formData: FormData) {
     const kol = parseInt(kolicine[i] || "", 10);
     if (!Number.isFinite(kol) || kol <= 0) continue;
 
-    pokloni.push({ artiklId, kolicina: kol });
+    pokloni.push({
+      artiklId,
+      kolicina: kol,
+      status: statusi[i] === "ODMAH" ? "ODMAH" : "PRIPREMITI",
+    });
   }
 
   return pokloni;
@@ -119,6 +127,7 @@ export async function spremiPosjet(formData: FormData) {
     datumPredaje: datum,
     predao: user.ime || null,
     otpisaoKorisnikIme: user.ime || null,
+    statusPripreme: p.status,
   }));
 
   await prisma.putnikPosjet.create({

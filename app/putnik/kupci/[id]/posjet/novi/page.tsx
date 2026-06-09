@@ -45,7 +45,7 @@ export default async function NoviPosjetPage({ params }: { params: PageParams })
     prisma.putnikVinoArtikl.findMany({
       where: { aktivan: true },
       orderBy: { naziv: "asc" },
-      select: { id: true, naziv: true },
+      select: { id: true, naziv: true, zadanaJedinica: true },
     }),
   ]);
 

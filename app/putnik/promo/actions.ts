@@ -62,10 +62,12 @@ export async function dodajVino(formData: FormData) {
   const naziv = text(formData, "naziv");
   if (!naziv) return;
 
+  const zadanaJedinica = text(formData, "zadanaJedinica") || "kom";
+
   await prisma.putnikVinoArtikl.upsert({
     where: { naziv },
-    update: { aktivan: true },
-    create: { naziv },
+    update: { aktivan: true, zadanaJedinica },
+    create: { naziv, zadanaJedinica },
   });
 
   revalidatePath("/putnik/promo");
