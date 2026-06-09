@@ -36,6 +36,19 @@ export default async function NoviPosjetPage({ params }: { params: PageParams })
     akcijaY = 1;
   }
 
+  const [promoArtikli, vina] = await Promise.all([
+    prisma.putnikPromoArtikl.findMany({
+      where: { aktivan: true },
+      orderBy: { naziv: "asc" },
+      select: { id: true, naziv: true },
+    }),
+    prisma.putnikVinoArtikl.findMany({
+      where: { aktivan: true },
+      orderBy: { naziv: "asc" },
+      select: { id: true, naziv: true },
+    }),
+  ]);
+
   const danas = new Date().toISOString().slice(0, 10);
 
   return (
@@ -72,7 +85,14 @@ export default async function NoviPosjetPage({ params }: { params: PageParams })
           </div>
         </div>
 
-        <PosjetForm kupacId={kupac.id} danas={danas} akcijaX={akcijaX} akcijaY={akcijaY} />
+        <PosjetForm
+          kupacId={kupac.id}
+          danas={danas}
+          akcijaX={akcijaX}
+          akcijaY={akcijaY}
+          vina={vina}
+          promoArtikli={promoArtikli}
+        />
       </div>
     </main>
   );

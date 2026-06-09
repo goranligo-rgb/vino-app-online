@@ -151,6 +151,7 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
         orderBy: { datum: "desc" },
         include: {
           stavke: { orderBy: { createdAt: "asc" } },
+          promoOtpisi: { include: { artikl: { select: { naziv: true } } } },
         },
       },
       aktivnosti: {
@@ -734,7 +735,24 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                     </div>
 
                     <div className="space-y-2">
-                      <Info label="Ostavljen reklamni materijal" value={p.reklamniMaterijal} />
+                      <div>
+                        <div className="text-[11px] uppercase tracking-[0.12em] text-orange-800/70">
+                          Pokloni / promo
+                        </div>
+                        {p.promoOtpisi.length === 0 ? (
+                          <div className="mt-1 text-[13px] text-stone-500">
+                            {p.reklamniMaterijal || "—"}
+                          </div>
+                        ) : (
+                          <ul className="mt-1 space-y-1 text-[13px] text-stone-700">
+                            {p.promoOtpisi.map((o) => (
+                              <li key={o.id}>
+                                • {o.artikl?.naziv || o.naziv} ×{o.kolicina}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                       {p.biljeska ? (
                         <div className="border border-orange-100 bg-orange-50/40 px-3 py-2 text-[13px] whitespace-pre-wrap text-stone-700">
                           {p.biljeska}

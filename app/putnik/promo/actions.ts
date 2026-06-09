@@ -55,6 +55,37 @@ export async function toggleArtikl(formData: FormData) {
   revalidatePath("/putnik/promo");
 }
 
+// --- KATALOG VINA (samo L1/L2) ---
+export async function dodajVino(formData: FormData) {
+  await requireLevel12User();
+
+  const naziv = text(formData, "naziv");
+  if (!naziv) return;
+
+  await prisma.putnikVinoArtikl.upsert({
+    where: { naziv },
+    update: { aktivan: true },
+    create: { naziv },
+  });
+
+  revalidatePath("/putnik/promo");
+}
+
+export async function toggleVino(formData: FormData) {
+  await requireLevel12User();
+
+  const id = String(formData.get("id") || "").trim();
+  const aktivan = String(formData.get("aktivan") || "") === "true";
+  if (!id) return;
+
+  await prisma.putnikVinoArtikl.update({
+    where: { id },
+    data: { aktivan },
+  });
+
+  revalidatePath("/putnik/promo");
+}
+
 // --- ULAZNA ZALIHA (samo L1/L2) ---
 export async function ulazZalihe(formData: FormData) {
   const user = await requireLevel12User();

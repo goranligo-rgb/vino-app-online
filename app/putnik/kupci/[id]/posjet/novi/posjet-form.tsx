@@ -3,14 +3,25 @@
 import { useState } from "react";
 import { spremiPosjet } from "./actions";
 
+type Artikl = { id: string; naziv: string };
+
 type Stavka = {
   key: number;
   naziv: string;
+  rucno: boolean;
   kolicina: string;
   jedinica: string;
   gratis: string;
   gratisRucno: boolean;
 };
+
+type Poklon = {
+  key: number;
+  artiklId: string;
+  kolicina: string;
+};
+
+const OSTALO = "__OSTALO__";
 
 let brojac = 0;
 function novaStavka(): Stavka {
@@ -18,11 +29,18 @@ function novaStavka(): Stavka {
   return {
     key: brojac,
     naziv: "",
+    rucno: false,
     kolicina: "",
     jedinica: "kom",
     gratis: "0",
     gratisRucno: false,
   };
+}
+
+let brojacP = 0;
+function noviPoklon(): Poklon {
+  brojacP += 1;
+  return { key: brojacP, artiklId: "", kolicina: "" };
 }
 
 function predlozenGratis(kolicina: string, akcijaX: number, akcijaY: number): number {
@@ -37,13 +55,18 @@ export default function PosjetForm({
   danas,
   akcijaX,
   akcijaY,
+  vina,
+  promoArtikli,
 }: {
   kupacId: string;
   danas: string;
   akcijaX: number;
   akcijaY: number;
+  vina: Artikl[];
+  promoArtikli: Artikl[];
 }) {
   const [stavke, setStavke] = useState<Stavka[]>([novaStavka()]);
+  const [pokloni, setPokloni] = useState<Poklon[]>([noviPoklon()]);
 
   const imaAkciju = akcijaX > 0;
 
@@ -51,6 +74,29 @@ export default function PosjetForm({
     setStavke((prev) =>
       prev.map((s) => (s.key === key ? { ...s, [polje]: vrijednost } : s))
     );
+  }
+
+  // Odabir vina iz izbornika ili "Ostalo (ručno)".
+  function postaviVino(key: number, vrijednost: string) {
+    setStavke((prev) =>
+      prev.map((s) => {
+        if (s.key !== key) return s;
+        if (vrijednost === OSTALO) return { ...s, rucno: true, naziv: "" };
+        return { ...s, rucno: false, naziv: vrijednost };
+      })
+    );
+  }
+
+  function azurirajPoklon(key: number, polje: "artiklId" | "kolicina", vrijednost: string) {
+    setPokloni((prev) =>
+      prev.map((p) => (p.key === key ? { ...p, [polje]: vrijednost } : p))
+    );
+  }
+  function dodajPoklon() {
+    setPokloni((prev) => [...prev, noviPoklon()]);
+  }
+  function obrisiPoklon(key: number) {
+    setPokloni((prev) => (prev.length === 1 ? prev : prev.filter((p) => p.key !== key)));
   }
 
   // Promjena količine: ako gratis nije ručno mijenjan, osvježi prijedlog.
@@ -107,17 +153,6 @@ export default function PosjetForm({
               className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
             />
           </div>
-
-          <div>
-            <label className="mb-1 block text-[13px] font-semibold text-stone-700">
-              Ostavljen reklamni materijal
-            </label>
-            <input
-              name="reklamniMaterijal"
-              placeholder="npr. plakat, stalak, letci, čaše..."
-              className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
-            />
-          </div>
         </div>
       </div>
 
@@ -145,13 +180,30 @@ export default function PosjetForm({
               key={s.key}
               className="grid gap-2 border border-orange-100 bg-white p-2 md:grid-cols-[1fr_100px_80px_130px_auto]"
             >
-              <input
-                name="stavkaNaziv"
-                value={s.naziv}
-                onChange={(e) => azuriraj(s.key, "naziv", e.target.value)}
-                placeholder={`Proizvod ${index + 1}`}
-                className="border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
-              />
+              <div className="space-y-1">
+                <select
+                  value={s.rucno ? OSTALO : s.naziv}
+                  onChange={(e) => postaviVino(s.key, e.target.value)}
+                  className="w-full border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
+                >
+                  <option value="">{`Vino ${index + 1}…`}</option>
+                  {vina.map((v) => (
+                    <option key={v.id} value={v.naziv}>
+                      {v.naziv}
+                    </option>
+                  ))}
+                  <option value={OSTALO}>Ostalo (ručno)</option>
+                </select>
+                {s.rucno ? (
+                  <input
+                    value={s.naziv}
+                    onChange={(e) => azuriraj(s.key, "naziv", e.target.value)}
+                    placeholder="Upiši naziv vina"
+                    className="w-full border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
+                  />
+                ) : null}
+                <input type="hidden" name="stavkaNaziv" value={s.naziv} />
+              </div>
               <input
                 name="stavkaKolicina"
                 value={s.kolicina}
@@ -194,6 +246,68 @@ export default function PosjetForm({
         <p className="mt-2 text-[12px] text-stone-500">
           Prazni redovi (bez naziva proizvoda) se ne spremaju.
         </p>
+      </div>
+
+      <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-[18px] font-semibold text-stone-800">Pokloni / promo materijal</h2>
+          <button
+            type="button"
+            onClick={dodajPoklon}
+            className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-3 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
+          >
+            + Dodaj poklon
+          </button>
+        </div>
+
+        <p className="mb-2 text-[12px] text-stone-500">
+          Otpisuje se iz promo zalihe (skida sa stanja, isto kao na /putnik/promo). Prazni redovi se ne spremaju.
+        </p>
+
+        {promoArtikli.length === 0 ? (
+          <div className="border border-orange-200 bg-white px-3 py-2 text-[13px] text-stone-500">
+            Nema aktivnih promo artikala. Level 1/2 ih dodaje na /putnik/promo.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {pokloni.map((p) => (
+              <div
+                key={p.key}
+                className="grid gap-2 border border-orange-100 bg-white p-2 md:grid-cols-[1fr_120px_auto]"
+              >
+                <select
+                  name="poklonArtiklId"
+                  value={p.artiklId}
+                  onChange={(e) => azurirajPoklon(p.key, "artiklId", e.target.value)}
+                  className="border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
+                >
+                  <option value="">Odaberi promo artikl…</option>
+                  {promoArtikli.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.naziv}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  name="poklonKolicina"
+                  value={p.kolicina}
+                  onChange={(e) => azurirajPoklon(p.key, "kolicina", e.target.value)}
+                  type="number"
+                  placeholder="Količina"
+                  className="border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => obrisiPoklon(p.key)}
+                  disabled={pokloni.length === 1}
+                  className="border border-orange-200 bg-white px-3 py-2 text-[13px] font-semibold text-stone-600 hover:bg-orange-50 disabled:opacity-40"
+                >
+                  Ukloni
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">

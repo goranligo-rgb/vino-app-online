@@ -1123,7 +1123,8 @@ model PutnikPosjet {
   aktIstaknuteCijene Boolean @default(false)
   aktAkcijskaCijena  Boolean @default(false)
 
-  stavke PutnikPosjetStavka[]
+  stavke      PutnikPosjetStavka[]
+  promoOtpisi PutnikPromoKupca[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1210,10 +1211,23 @@ model PutnikPromoKupca {
   artikl             PutnikPromoArtikl? @relation(fields: [artiklId], references: [id])
   otpisaoKorisnikIme String?
 
+  // Faza 5D - otpis kreiran tijekom posjeta (null = otpisan na /putnik/promo)
+  posjetId String?
+  posjet   PutnikPosjet? @relation(fields: [posjetId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([artiklId])
+  @@index([posjetId])
+}
+
+model PutnikVinoArtikl {
+  id      String  @id @default(cuid())
+  naziv   String  @unique
+  aktivan Boolean @default(true)
+
+  createdAt DateTime @default(now())
 }
 
 model PutnikPromoArtikl {

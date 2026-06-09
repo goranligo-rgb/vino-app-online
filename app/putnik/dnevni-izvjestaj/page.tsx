@@ -50,6 +50,7 @@ export default async function DnevniIzvjestajPage({
     include: {
       kupac: { select: { id: true, nazivLokala: true, grad: true } },
       stavke: { orderBy: { createdAt: "asc" } },
+      promoOtpisi: { include: { artikl: { select: { naziv: true } } } },
     },
     orderBy: [{ vrijemeOd: "asc" }],
   });
@@ -200,7 +201,24 @@ export default async function DnevniIzvjestajPage({
                     </div>
 
                     <div className="space-y-2">
-                      <Info label="Reklamni materijal" value={p.reklamniMaterijal} />
+                      <div>
+                        <div className="text-[11px] uppercase tracking-[0.12em] text-orange-800/70">
+                          Pokloni / promo
+                        </div>
+                        {p.promoOtpisi.length === 0 ? (
+                          <div className="mt-0.5 text-[13px] text-stone-500">
+                            {p.reklamniMaterijal || "—"}
+                          </div>
+                        ) : (
+                          <ul className="mt-0.5 space-y-0.5 text-[13px] text-stone-700">
+                            {p.promoOtpisi.map((o) => (
+                              <li key={o.id}>
+                                • {o.artikl?.naziv || o.naziv} ×{o.kolicina}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                       <Info label="Cijena" value={p.cijena} />
                     </div>
 

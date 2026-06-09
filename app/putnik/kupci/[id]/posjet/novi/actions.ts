@@ -67,6 +67,26 @@ function citajStavke(formData: FormData) {
   return stavke;
 }
 
+// Pokloni / promo otpis s posjeta: parovi artiklId + kolicina. Prazni se preskaču.
+function citajPokloni(formData: FormData) {
+  const artikli = formData.getAll("poklonArtiklId").map((v) => String(v).trim());
+  const kolicine = formData.getAll("poklonKolicina").map((v) => String(v).trim());
+
+  const pokloni: { artiklId: string; kolicina: number }[] = [];
+
+  for (let i = 0; i < artikli.length; i++) {
+    const artiklId = artikli[i];
+    if (!artiklId) continue;
+
+    const kol = parseInt(kolicine[i] || "", 10);
+    if (!Number.isFinite(kol) || kol <= 0) continue;
+
+    pokloni.push({ artiklId, kolicina: kol });
+  }
+
+  return pokloni;
+}
+
 export async function spremiPosjet(formData: FormData) {
   const user = await requirePutnikUser();
 
@@ -74,12 +94,43 @@ export async function spremiPosjet(formData: FormData) {
   if (!kupacId) return;
 
   const stavke = citajStavke(formData);
+  const pokloni = citajPokloni(formData);
+  const datum = dateValue(formData, "datum") ?? new Date();
+
+  // Nazivi promo artikala (denormalizirano u otpis radi povijesnog prikaza).
+  const artiklNazivi = new Map<string, string>();
+  if (pokloni.length) {
+    const ids = [...new Set(pokloni.map((p) => p.artiklId))];
+    const artikli = await prisma.putnikPromoArtikl.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, naziv: true },
+    });
+    for (const a of artikli) artiklNazivi.set(a.id, a.naziv);
+  }
+
+  // Otpisi se kreiraju kao PutnikPromoKupca redovi s posjetId (jedan izvor istine,
+  // isto skida sa stanja kao otpis na /putnik/promo — bez dvostrukog evidentiranja).
+  const promoOtpisi = pokloni.map((p) => ({
+    kupacId,
+    artiklId: p.artiklId,
+    tip: "OTPIS",
+    naziv: artiklNazivi.get(p.artiklId) ?? null,
+    kolicina: p.kolicina,
+    datumPredaje: datum,
+    predao: user.ime || null,
+    otpisaoKorisnikIme: user.ime || null,
+  }));
 
   await prisma.putnikPosjet.create({
     data: {
       kupacId,
       putnikIme: user.ime || null,
-      datum: dateValue(formData, "datum") ?? new Date(),
+      datum,
+
+      reklamniMaterijal: text(formData, "reklamniMaterijal"),
+      biljeska: text(formData, "biljeska"),
+      ukupanDug: num(formData, "ukupanDug"),
+      dospjeliDug: num(formData, "dospjeliDug"),
 
       reklamniMaterijal: text(formData, "reklamniMaterijal"),
       biljeska: text(formData, "biljeska"),
@@ -107,10 +158,17 @@ export async function spremiPosjet(formData: FormData) {
             create: stavke,
           }
         : undefined,
+
+      promoOtpisi: promoOtpisi.length
+        ? {
+            create: promoOtpisi,
+          }
+        : undefined,
     },
   });
 
   revalidatePath("/putnik");
+  revalidatePath("/putnik/promo");
   revalidatePath(`/putnik/kupci/${kupacId}`);
   redirect(`/putnik/kupci/${kupacId}`);
 }
