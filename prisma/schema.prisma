@@ -1098,8 +1098,29 @@ model PutnikPosjet {
   sljedeciKorak  String?
   datumSljedeceg DateTime?
 
+  // Excel kartica kupca - reklamni materijal i dug
+  reklamniMaterijal String?
+  ukupanDug         Float?
+  dospjeliDug       Float?
+
+  stavke PutnikPosjetStavka[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model PutnikPosjetStavka {
+  id       String       @id @default(cuid())
+  posjetId String
+  posjet   PutnikPosjet @relation(fields: [posjetId], references: [id], onDelete: Cascade)
+
+  nazivProizvoda String
+  kolicina       Float?
+  jedinica       String? @default("kom")
+
+  createdAt DateTime @default(now())
+
+  @@index([posjetId])
 }
 
 model PutnikAkcijaTemplate {

@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 
 export type AuthUser = {
@@ -53,6 +54,24 @@ export async function requirePutnikAccess(): Promise<AuthUser | NextResponse> {
       { error: "Nemate pravo pristupa putnik modulu." },
       { status: 403 }
     );
+  }
+
+  return user;
+}
+
+/**
+ * Provjera prava za Server Actions (forme). Ako korisnik nije prijavljen ili
+ * nema pravo na putnik modul, preusmjerava na /login (redirect baca pa funkcija
+ * dalje ne nastavlja). Inače vraća prijavljenog korisnika.
+ *
+ * Dokumentacija Next.js izričito traži auth provjeru UNUTAR svake server akcije,
+ * ne samo na razini stranice/middlewarea.
+ */
+export async function requirePutnikUser(): Promise<AuthUser> {
+  const user = await getAuthUser();
+
+  if (!user || !PUTNIK_ROLES.has(user.role)) {
+    redirect("/login");
   }
 
   return user;

@@ -146,6 +146,12 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
       dogovori: {
         orderBy: { createdAt: "asc" },
       },
+      posjeti: {
+        orderBy: { datum: "desc" },
+        include: {
+          stavke: { orderBy: { createdAt: "asc" } },
+        },
+      },
     },
   });
 
@@ -155,9 +161,14 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
 
   const ankete = kupac.ankete || [];
   const dogovori = kupac.dogovori || [];
+  const posjeti = kupac.posjeti || [];
 
   const zadnjaAnketa = ankete[ankete.length - 1] || null;
   const zadnjiDogovor = dogovori[dogovori.length - 1] || null;
+  const zadnjiPosjet = posjeti[0] || null; // posjeti su sortirani datum desc
+
+  const eur = (v?: number | null) =>
+    v != null ? `${v.toLocaleString("hr-HR")} EUR` : "-";
 
   const anketaRedovi = [
     {
@@ -374,6 +385,13 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
               >
                 Novi dogovor
               </Link>
+
+              <Link
+                href={`/putnik/kupci/${kupac.id}/posjet/novi`}
+                className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
+              >
+                Novi posjet
+              </Link>
             </div>
           </div>
         </header>
@@ -581,24 +599,125 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
 
           <Card
             title="Prodaja i ulaganje u kupca"
-            desc="Ovdje kasnije spajamo stvarnu prodaju, rast i trošak ulaganja."
+            desc="Sažetak iz posjeta: zadnja narudžba, dug i broj obilazaka."
           >
             <div className="grid gap-3 md:grid-cols-3">
-              <Info label="Prodaja prije" value="spojiti prodaju" />
-              <Info label="Prodaja sada" value="spojiti prodaju" />
-              <Info label="Rast" value="spojiti izračun" />
-              <Info label="Ukupno uloženo" value="spojiti ulaganja" />
-              <Info label="Dobit nakon ulaganja" value="spojiti izračun" />
+              <Info label="Broj posjeta" value={posjeti.length} />
+              <Info
+                label="Zadnji posjet"
+                value={zadnjiPosjet ? formatDate(zadnjiPosjet.datum) : null}
+              />
               <Info label="Ocjena kupca" value={label(kupac.kategorija)} />
+              <Info
+                label="Ukupan dug (zadnji posjet)"
+                value={zadnjiPosjet ? eur(zadnjiPosjet.ukupanDug) : "-"}
+              />
+              <Info
+                label="Dospjeli dug (zadnji posjet)"
+                value={zadnjiPosjet ? eur(zadnjiPosjet.dospjeliDug) : "-"}
+              />
+              <Info
+                label="Stavki u zadnjoj narudžbi"
+                value={zadnjiPosjet ? zadnjiPosjet.stavke.length : "-"}
+              />
             </div>
 
-            <div className="mt-4 border border-orange-200 bg-white p-4 text-[13px] leading-6 text-stone-600">
-              Ovo je pravo mjesto gdje ćemo kasnije dodati: gratis boce, čaše,
-              degustacije, rabate, dostave, posebne cijene i usporediti s rastom
-              prodaje.
-            </div>
+            {zadnjiPosjet && zadnjiPosjet.stavke.length > 0 ? (
+              <div className="mt-4 border border-orange-100 bg-orange-50/40 p-3">
+                <div className="text-[11px] uppercase tracking-[0.12em] text-orange-800/70">
+                  Zadnja narudžba ({formatDate(zadnjiPosjet.datum)})
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {zadnjiPosjet.stavke.map((s) => (
+                    <span
+                      key={s.id}
+                      className="inline-flex border border-orange-200 bg-white px-2 py-1 text-[12px] text-stone-700"
+                    >
+                      {s.nazivProizvoda}
+                      {s.kolicina != null
+                        ? ` — ${s.kolicina} ${s.jedinica || "kom"}`
+                        : ""}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 border border-orange-200 bg-white p-4 text-[13px] leading-6 text-stone-600">
+                Još nema zabilježenih posjeta. Klikni <strong>Novi posjet</strong> za
+                unos narudžbe, ostavljenog materijala i duga.
+              </div>
+            )}
           </Card>
         </section>
+
+        <Card
+          title="Povijest posjeta"
+          desc="Svaki posjet po datumu: narudžba, ostavljen materijal, dug i zabilješke."
+        >
+          {posjeti.length === 0 ? (
+            <div className="border border-orange-200 bg-white px-4 py-3 text-[13px] text-stone-500">
+              Nema zabilježenih posjeta.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {posjeti.map((p) => (
+                <div key={p.id} className="border border-orange-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-orange-100 pb-2">
+                    <div className="text-[15px] font-semibold text-stone-800">
+                      {formatDate(p.datum)}
+                      {p.putnikIme ? (
+                        <span className="ml-2 text-[12px] font-normal text-stone-500">
+                          ({p.putnikIme})
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-[12px]">
+                      <span className="inline-flex border border-orange-200 bg-orange-50 px-2 py-1 font-semibold text-orange-900">
+                        Ukupan dug: {eur(p.ukupanDug)}
+                      </span>
+                      <span className="inline-flex border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700">
+                        Dospjelo: {eur(p.dospjeliDug)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <div>
+                      <div className="text-[11px] uppercase tracking-[0.12em] text-orange-800/70">
+                        Narudžba
+                      </div>
+                      {p.stavke.length === 0 ? (
+                        <div className="mt-1 text-[13px] text-stone-500">
+                          (bez narudžbe)
+                        </div>
+                      ) : (
+                        <ul className="mt-1 space-y-1 text-[13px] text-stone-700">
+                          {p.stavke.map((s) => (
+                            <li key={s.id}>
+                              • {s.nazivProizvoda}
+                              {s.kolicina != null
+                                ? ` — ${s.kolicina} ${s.jedinica || "kom"}`
+                                : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Info label="Ostavljen reklamni materijal" value={p.reklamniMaterijal} />
+                      {p.biljeska ? (
+                        <div className="border border-orange-100 bg-orange-50/40 px-3 py-2 text-[13px] whitespace-pre-wrap text-stone-700">
+                          {p.biljeska}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
 
         <section className="grid gap-4 xl:grid-cols-2">
           <Card title="Zadnja anketa">
