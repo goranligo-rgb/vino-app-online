@@ -16,6 +16,26 @@ export default async function NoviPosjetPage({ params }: { params: PageParams })
 
   if (!kupac) notFound();
 
+  // Prijedlog gratisa iz zadnjeg dogovora lokala: 24+4 / 12+2 / 6+1 / 0.
+  const zadnjiDogovor = await prisma.putnikDogovor.findFirst({
+    where: { kupacId: id },
+    orderBy: { createdAt: "desc" },
+    select: { akcija6Plus1: true, akcija12Plus2: true, akcija24Plus4: true },
+  });
+
+  let akcijaX = 0;
+  let akcijaY = 0;
+  if (zadnjiDogovor?.akcija24Plus4) {
+    akcijaX = 24;
+    akcijaY = 4;
+  } else if (zadnjiDogovor?.akcija12Plus2) {
+    akcijaX = 12;
+    akcijaY = 2;
+  } else if (zadnjiDogovor?.akcija6Plus1) {
+    akcijaX = 6;
+    akcijaY = 1;
+  }
+
   const danas = new Date().toISOString().slice(0, 10);
 
   return (
@@ -52,7 +72,7 @@ export default async function NoviPosjetPage({ params }: { params: PageParams })
           </div>
         </div>
 
-        <PosjetForm kupacId={kupac.id} danas={danas} />
+        <PosjetForm kupacId={kupac.id} danas={danas} akcijaX={akcijaX} akcijaY={akcijaY} />
       </div>
     </main>
   );

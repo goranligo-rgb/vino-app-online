@@ -8,26 +8,71 @@ type Stavka = {
   naziv: string;
   kolicina: string;
   jedinica: string;
+  gratis: string;
+  gratisRucno: boolean;
 };
 
 let brojac = 0;
 function novaStavka(): Stavka {
   brojac += 1;
-  return { key: brojac, naziv: "", kolicina: "", jedinica: "kom" };
+  return {
+    key: brojac,
+    naziv: "",
+    kolicina: "",
+    jedinica: "kom",
+    gratis: "0",
+    gratisRucno: false,
+  };
+}
+
+function predlozenGratis(kolicina: string, akcijaX: number, akcijaY: number): number {
+  if (akcijaX <= 0) return 0;
+  const k = parseFloat(kolicina.replace(",", "."));
+  if (!Number.isFinite(k) || k <= 0) return 0;
+  return Math.floor(k / akcijaX) * akcijaY;
 }
 
 export default function PosjetForm({
   kupacId,
   danas,
+  akcijaX,
+  akcijaY,
 }: {
   kupacId: string;
   danas: string;
+  akcijaX: number;
+  akcijaY: number;
 }) {
   const [stavke, setStavke] = useState<Stavka[]>([novaStavka()]);
 
-  function azuriraj(key: number, polje: keyof Stavka, vrijednost: string) {
+  const imaAkciju = akcijaX > 0;
+
+  function azuriraj(key: number, polje: "naziv" | "jedinica", vrijednost: string) {
     setStavke((prev) =>
       prev.map((s) => (s.key === key ? { ...s, [polje]: vrijednost } : s))
+    );
+  }
+
+  // Promjena količine: ako gratis nije ručno mijenjan, osvježi prijedlog.
+  function postaviKolicinu(key: number, vrijednost: string) {
+    setStavke((prev) =>
+      prev.map((s) => {
+        if (s.key !== key) return s;
+        const next = { ...s, kolicina: vrijednost };
+        if (!s.gratisRucno) {
+          next.gratis = String(predlozenGratis(vrijednost, akcijaX, akcijaY));
+        }
+        return next;
+      })
+    );
+  }
+
+  // Ručni override gratisa — od tada ne diramo automatski (radi UVIJEK, i kad je prijedlog 0).
+  function postaviGratis(key: number, vrijednost: string) {
+    setStavke((prev) =>
+      prev.map((s) =>
+        s.key === key ? { ...s, gratis: vrijednost, gratisRucno: true } : s
+      )
     );
   }
 
@@ -88,11 +133,17 @@ export default function PosjetForm({
           </button>
         </div>
 
+        <p className="mb-2 text-[12px] text-stone-500">
+          {imaAkciju
+            ? `Gratis se predlaže iz zadnjeg dogovora (${akcijaX}+${akcijaY}); možeš ga ručno promijeniti.`
+            : "Lokal nema dogovorenu akciju — prijedlog gratisa je 0, ali ga možeš ručno upisati."}
+        </p>
+
         <div className="space-y-2">
           {stavke.map((s, index) => (
             <div
               key={s.key}
-              className="grid gap-2 border border-orange-100 bg-white p-2 md:grid-cols-[1fr_120px_110px_auto]"
+              className="grid gap-2 border border-orange-100 bg-white p-2 md:grid-cols-[1fr_100px_80px_130px_auto]"
             >
               <input
                 name="stavkaNaziv"
@@ -104,7 +155,7 @@ export default function PosjetForm({
               <input
                 name="stavkaKolicina"
                 value={s.kolicina}
-                onChange={(e) => azuriraj(s.key, "kolicina", e.target.value)}
+                onChange={(e) => postaviKolicinu(s.key, e.target.value)}
                 type="number"
                 step="any"
                 placeholder="Količina"
@@ -117,6 +168,17 @@ export default function PosjetForm({
                 placeholder="kom"
                 className="border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
               />
+              <label className="flex items-center gap-1 border border-amber-300 bg-amber-50 px-2 text-[12px] font-semibold text-amber-900">
+                <span className="shrink-0">Gratis</span>
+                <input
+                  name="stavkaGratis"
+                  value={s.gratis}
+                  onChange={(e) => postaviGratis(s.key, e.target.value)}
+                  type="number"
+                  min="0"
+                  className="w-full bg-transparent py-2 text-[14px] text-stone-800 outline-none"
+                />
+              </label>
               <button
                 type="button"
                 onClick={() => obrisiRed(s.key)}

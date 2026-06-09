@@ -37,8 +37,14 @@ function citajStavke(formData: FormData) {
   const nazivi = formData.getAll("stavkaNaziv").map((v) => String(v).trim());
   const kolicine = formData.getAll("stavkaKolicina").map((v) => String(v).trim());
   const jedinice = formData.getAll("stavkaJedinica").map((v) => String(v).trim());
+  const gratisi = formData.getAll("stavkaGratis").map((v) => String(v).trim());
 
-  const stavke: { nazivProizvoda: string; kolicina: number | null; jedinica: string }[] = [];
+  const stavke: {
+    nazivProizvoda: string;
+    kolicina: number | null;
+    jedinica: string;
+    gratis: number;
+  }[] = [];
 
   for (let i = 0; i < nazivi.length; i++) {
     const naziv = nazivi[i];
@@ -47,10 +53,14 @@ function citajStavke(formData: FormData) {
     const kolRaw = (kolicine[i] || "").replace(",", ".");
     const kol = kolRaw ? Number(kolRaw) : null;
 
+    const gratisRaw = gratisi[i] || "";
+    const gratisNum = gratisRaw ? parseInt(gratisRaw, 10) : 0;
+
     stavke.push({
       nazivProizvoda: naziv,
       kolicina: kol != null && Number.isFinite(kol) ? kol : null,
       jedinica: jedinice[i] || "kom",
+      gratis: Number.isFinite(gratisNum) && gratisNum > 0 ? gratisNum : 0,
     });
   }
 

@@ -172,6 +172,10 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
   const posjeti = kupac.posjeti || [];
   const aktivnosti = kupac.aktivnosti || [];
   const promoMaterijali = kupac.promoMaterijali || [];
+  const ukupnoGratisa = posjeti.reduce(
+    (zbroj, p) => zbroj + p.stavke.reduce((a, st) => a + (st.gratis || 0), 0),
+    0
+  );
 
   const zadnjaAnketa = ankete[ankete.length - 1] || null;
   const zadnjiDogovor = dogovori[dogovori.length - 1] || null;
@@ -638,6 +642,7 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                 label="Stavki u zadnjoj narudžbi"
                 value={zadnjiPosjet ? zadnjiPosjet.stavke.length : "-"}
               />
+              <Info label="Ukupno gratisa" value={ukupnoGratisa} />
             </div>
 
             {zadnjiPosjet && zadnjiPosjet.stavke.length > 0 ? (
@@ -719,6 +724,9 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                               {s.kolicina != null
                                 ? ` — ${s.kolicina} ${s.jedinica || "kom"}`
                                 : ""}
+                              {s.gratis ? (
+                                <span className="text-green-700"> (+{s.gratis} gratis)</span>
+                              ) : null}
                             </li>
                           ))}
                         </ul>

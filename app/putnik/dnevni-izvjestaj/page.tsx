@@ -190,6 +190,9 @@ export default async function DnevniIzvjestajPage({
                             <li key={s.id}>
                               • {s.nazivProizvoda}
                               {s.kolicina != null ? ` — ${s.kolicina} ${s.jedinica || "kom"}` : ""}
+                              {s.gratis ? (
+                                <span className="text-green-700"> (+{s.gratis} gratis)</span>
+                              ) : null}
                             </li>
                           ))}
                         </ul>
