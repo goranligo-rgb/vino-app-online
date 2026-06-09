@@ -1202,8 +1202,41 @@ model PutnikPromoKupca {
   predao   String?
   napomena String?
 
+  // Faza 5A - otpis iz promo zalihe (veza na katalog artikala)
+  artiklId           String?
+  artikl             PutnikPromoArtikl? @relation(fields: [artiklId], references: [id])
+  otpisaoKorisnikIme String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([artiklId])
+}
+
+model PutnikPromoArtikl {
+  id      String  @id @default(cuid())
+  naziv   String  @unique
+  aktivan Boolean @default(true)
+
+  ulazi  PutnikPromoUlaz[]
+  otpisi PutnikPromoKupca[]
+
+  createdAt DateTime @default(now())
+}
+
+model PutnikPromoUlaz {
+  id       String            @id @default(cuid())
+  artiklId String
+  artikl   PutnikPromoArtikl @relation(fields: [artiklId], references: [id])
+
+  kolicina        Int
+  datum           DateTime @default(now())
+  unioKorisnikIme String?
+  napomena        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([artiklId])
 }
 
 model PutnikRezultatObilaska {

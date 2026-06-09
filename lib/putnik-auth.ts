@@ -76,3 +76,32 @@ export async function requirePutnikUser(): Promise<AuthUser> {
 
   return user;
 }
+
+/**
+ * Samo Level 1 (ADMIN) i Level 2 (PODRUM) — za upravljanje ulaznom zalihom i
+ * katalogom promo artikala. Mapiranje razina: ADMIN=L1, PODRUM=L2, ENOLOG=L3,
+ * PREGLED=L4 (potvrđeno u app/dashboard/page.tsx). L3/L4 se preusmjeravaju —
+ * tako fizički ne mogu kreirati ulaz ni ručnim pozivom server akcije.
+ */
+export async function requireLevel12User(): Promise<AuthUser> {
+  const user = await getAuthUser();
+
+  if (!user || (user.role !== "ADMIN" && user.role !== "PODRUM")) {
+    redirect("/putnik");
+  }
+
+  return user;
+}
+
+/**
+ * Samo Level 1 (ADMIN) — npr. lista primatelja dnevnog maila (5C).
+ */
+export async function requireAdminUser(): Promise<AuthUser> {
+  const user = await getAuthUser();
+
+  if (!user || user.role !== "ADMIN") {
+    redirect("/putnik");
+  }
+
+  return user;
+}

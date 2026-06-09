@@ -156,6 +156,10 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
       aktivnosti: {
         orderBy: { datum: "desc" },
       },
+      promoMaterijali: {
+        orderBy: { datumPredaje: "desc" },
+        include: { artikl: { select: { naziv: true } } },
+      },
     },
   });
 
@@ -167,6 +171,7 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
   const dogovori = kupac.dogovori || [];
   const posjeti = kupac.posjeti || [];
   const aktivnosti = kupac.aktivnosti || [];
+  const promoMaterijali = kupac.promoMaterijali || [];
 
   const zadnjaAnketa = ankete[ankete.length - 1] || null;
   const zadnjiDogovor = dogovori[dogovori.length - 1] || null;
@@ -791,6 +796,46 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                       {a.zabiljeska}
                     </div>
                   ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card
+          title="Promo materijal (dobiveno)"
+          desc="Što je lokal dobio iz promo zalihe."
+        >
+          <div className="mb-3">
+            <Link
+              href={`/putnik/promo?kupac=${kupac.id}`}
+              className="inline-flex border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
+            >
+              Otpiši promo
+            </Link>
+          </div>
+
+          {promoMaterijali.length === 0 ? (
+            <div className="border border-orange-200 bg-white px-4 py-3 text-[13px] text-stone-500">
+              Još nema otpisanog promo materijala.
+            </div>
+          ) : (
+            <div className="space-y-1 text-[13px]">
+              {promoMaterijali.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex flex-wrap items-center justify-between gap-2 border border-orange-100 bg-white px-3 py-2"
+                >
+                  <span>
+                    <strong>{p.artikl?.naziv || p.naziv || "—"}</strong> ×{p.kolicina}
+                    <span className="ml-2 text-stone-500">{formatDate(p.datumPredaje)}</span>
+                    {p.otpisaoKorisnikIme ? (
+                      <span className="ml-2 text-stone-400">({p.otpisaoKorisnikIme})</span>
+                    ) : null}
+                  </span>
+                  <span className="text-[11px] text-stone-400">
+                    Upisano: {formatHrDateTime(p.createdAt)}
+                  </span>
                 </div>
               ))}
             </div>
