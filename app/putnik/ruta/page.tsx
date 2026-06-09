@@ -59,7 +59,13 @@ function Kartica({ naslov, vrijednost }: { naslov: string; vrijednost: string })
   );
 }
 
-export default async function RutaPage() {
+export default async function RutaPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ gen?: string; plan?: string; kupci?: string }>;
+}) {
+  const sp = await searchParams;
+
   const stavke = await prisma.putnikPlanObilaska.findMany({
     include: {
       kupac: {
@@ -145,6 +151,18 @@ export default async function RutaPage() {
             </span>
           </form>
         </div>
+
+        {sp.gen ? (
+          Number(sp.plan) > 0 ? (
+            <div className="border border-green-300 bg-green-50 px-4 py-3 text-[14px] font-semibold text-green-800">
+              Generiran plan: {sp.plan} stavki za {sp.kupci} kupaca.
+            </div>
+          ) : (
+            <div className="border border-amber-300 bg-amber-50 px-4 py-3 text-[14px] font-semibold text-amber-800">
+              Nema aktivnih kupaca s kategorijom — plan nije generiran.
+            </div>
+          )
+        ) : null}
 
         {tjedni.length === 0 ? (
           <div className="border border-orange-200 bg-white px-4 py-6 text-center text-[14px] text-stone-500">

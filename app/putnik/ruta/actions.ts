@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requirePutnikUser } from "@/lib/putnik-auth";
 
@@ -88,7 +89,10 @@ export async function generirajPlan(formData: FormData) {
     await prisma.putnikPlanObilaska.createMany({ data });
   }
 
+  const kupciCount = new Set(data.map((d) => d.kupacId)).size;
+
   revalidatePath("/putnik/ruta");
+  redirect(`/putnik/ruta?gen=1&plan=${data.length}&kupci=${kupciCount}`);
 }
 
 export async function oznaciStatus(formData: FormData) {
