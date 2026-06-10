@@ -195,6 +195,11 @@ export default function PreparatPage() {
     {}
   );
 
+  // Uloga prijavljenog korisnika — samo radi vidljivosti gumba "Obriši".
+  // Stvarna prava su na serveru (app/api/preparat/route.ts); ovo je kozmetika.
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const jeAdmin = userRole === "ADMIN";
+
   const nazivRef = useRef<HTMLInputElement | null>(null);
   const dozaOdRef = useRef<HTMLInputElement | null>(null);
   const dozaDoRef = useRef<HTMLInputElement | null>(null);
@@ -316,6 +321,13 @@ export default function PreparatPage() {
     void ucitajPreparati();
     void ucitajUnits();
     void ucitajZadnjeUlaze();
+
+    try {
+      const raw = localStorage.getItem("user");
+      if (raw) setUserRole(JSON.parse(raw)?.role ?? null);
+    } catch {
+      setUserRole(null);
+    }
   }, []);
 
   const formulaPreview = useMemo(() => {
@@ -1595,13 +1607,15 @@ export default function PreparatPage() {
                               Spremi
                             </button>
 
-                            <button
-                              onClick={() => obrisi(p.id)}
-                              disabled={loading}
-                              className="inline-flex h-10 items-center justify-center border border-stone-300 bg-white px-3 text-xs font-medium text-stone-700 transition hover:bg-stone-50 disabled:opacity-50"
-                            >
-                              Obriši
-                            </button>
+                            {jeAdmin && (
+                              <button
+                                onClick={() => obrisi(p.id)}
+                                disabled={loading}
+                                className="inline-flex h-10 items-center justify-center border border-stone-300 bg-white px-3 text-xs font-medium text-stone-700 transition hover:bg-stone-50 disabled:opacity-50"
+                              >
+                                Obriši
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>

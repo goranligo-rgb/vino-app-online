@@ -23,8 +23,14 @@ async function getAuthUser(): Promise<AuthUser | null> {
   }
 }
 
-function isLevel1(user: AuthUser | null) {
-  return user?.role === "ADMIN" || user?.role === "ENOLOG";
+// Dodavanje / uređivanje / zalihe preparata: Level 1 (ADMIN) + Level 2 (PODRUM).
+function smijeUredjivati(user: AuthUser | null) {
+  return user?.role === "ADMIN" || user?.role === "PODRUM";
+}
+
+// Brisanje preparata iz sustava: samo Level 1 (ADMIN).
+function smijeBrisati(user: AuthUser | null) {
+  return user?.role === "ADMIN";
 }
 
 function isValidNumber(value: unknown) {
@@ -207,7 +213,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!isLevel1(user)) {
+    if (!smijeUredjivati(user)) {
       return NextResponse.json(
         { error: "Nemate pravo za kreiranje preparata." },
         { status: 403 }
@@ -401,7 +407,7 @@ export async function PUT(req: Request) {
       );
     }
 
-    if (!isLevel1(user)) {
+    if (!smijeUredjivati(user)) {
       return NextResponse.json(
         { error: "Nemate pravo za uređivanje preparata." },
         { status: 403 }
@@ -601,7 +607,7 @@ export async function DELETE(req: Request) {
       );
     }
 
-    if (!isLevel1(user)) {
+    if (!smijeBrisati(user)) {
       return NextResponse.json(
         { error: "Nemate pravo za brisanje preparata." },
         { status: 403 }

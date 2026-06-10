@@ -21,8 +21,9 @@ async function getAuthUser(): Promise<AuthUser | null> {
   }
 }
 
-function isLevel1(user: AuthUser | null) {
-  return user?.role === "ADMIN" || user?.role === "ENOLOG";
+// Unos ulaza zalihe na skladište: Level 1 (ADMIN) + Level 2 (PODRUM).
+function smijeUredjivati(user: AuthUser | null) {
+  return user?.role === "ADMIN" || user?.role === "PODRUM";
 }
 
 function toNumber(value: unknown): number | null {
@@ -117,7 +118,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!isLevel1(user)) {
+    if (!smijeUredjivati(user)) {
       return NextResponse.json(
         { error: "Nemate pravo za unos preparata u skladište." },
         { status: 403 }
