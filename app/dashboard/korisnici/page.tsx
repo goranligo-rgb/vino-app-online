@@ -22,8 +22,29 @@ function levelLabel(role: string) {
 async function obrisiKorisnika(formData: FormData) {
   "use server";
 
+  // Provjera UNUTAR akcije (ne oslanjaj se samo na middleware/page redirect):
+  // brisanje korisnika smije samo ADMIN (L1).
+  const cookieStore = await cookies();
+  const raw = cookieStore.get("auth_user")?.value;
+
+  let trenutni: AuthUser | null = null;
+  if (raw) {
+    try {
+      trenutni = JSON.parse(decodeURIComponent(raw));
+    } catch {
+      trenutni = null;
+    }
+  }
+
+  if (!trenutni || trenutni.role !== "ADMIN") {
+    redirect("/login");
+  }
+
   const id = String(formData.get("id") || "");
   if (!id) return;
+
+  // Ne možeš sam sebe obrisati (kao i API verzija).
+  if (id === trenutni.id) return;
 
   await prisma.user.delete({
     where: { id },
