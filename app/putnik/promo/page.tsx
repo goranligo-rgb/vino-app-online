@@ -3,7 +3,7 @@ import NatragHome from "@/components/NatragHome";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/putnik-auth";
 import { formatHrDate, formatHrDateTime } from "@/lib/datum";
-import { dodajArtikl, toggleArtikl, ulazZalihe, otpisiPromo, dodajVino, toggleVino } from "./actions";
+import { dodajArtikl, toggleArtikl, otpisiPromo, dodajVino, toggleVino } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -50,14 +50,28 @@ export default async function PromoPage({
     prisma.putnikVinoArtikl.findMany({ orderBy: [{ aktivan: "desc" }, { naziv: "asc" }] }),
   ]);
 
-  // Agregati po artiklu
-  const usloPo = new Map<string, number>();
-  for (const u of ulazi) usloPo.set(u.artiklId, (usloPo.get(u.artiklId) || 0) + u.kolicina);
-
-  const dobiliPo = new Map<string, number>();
+  // Faza 8 - stanje PO PUTNIKU: zaduženo (ulazi.putnikIme) − otpisano (otpisaoKorisnikIme).
+  // putnik -> (artiklId -> { naziv, zaduzeno, otpisano })
+  type PromoStanje = { naziv: string; zaduzeno: number; otpisano: number };
+  const poPutniku = new Map<string, Map<string, PromoStanje>>();
+  function recPutnik(putnik: string, artiklId: string, naziv: string): PromoStanje {
+    if (!poPutniku.has(putnik)) poPutniku.set(putnik, new Map());
+    const m = poPutniku.get(putnik)!;
+    let r = m.get(artiklId);
+    if (!r) {
+      r = { naziv, zaduzeno: 0, otpisano: 0 };
+      m.set(artiklId, r);
+    }
+    return r;
+  }
+  for (const u of ulazi) {
+    if (!u.putnikIme) continue; // stari globalni redovi (nema ih nakon čišćenja) se preskaču
+    recPutnik(u.putnikIme, u.artiklId, u.artikl?.naziv || "—").zaduzeno += u.kolicina;
+  }
   for (const o of otpisi) {
     if (!o.artiklId) continue;
-    dobiliPo.set(o.artiklId, (dobiliPo.get(o.artiklId) || 0) + o.kolicina);
+    const putnik = o.otpisaoKorisnikIme || "—";
+    recPutnik(putnik, o.artiklId, o.artikl?.naziv || o.naziv || "—").otpisano += o.kolicina;
   }
 
   // Po lokalu: kupac -> (artikl naziv -> kolicina)
@@ -87,7 +101,7 @@ export default async function PromoPage({
                 Promo materijal — zaliha
               </h1>
               <div className="mt-1 text-[13px] text-stone-500">
-                Ulaz zalihe (Level 1/2), otpis po lokalu (svi). Minus zaliha je dopušten i označen crveno.
+                Zaliha je po putniku (zaduženje na „Zaduženje vozila", L1/2). Otpis po lokalu (svi razine) skida sa zalihe putnika koji otpisuje.
               </div>
             </div>
             <Link
@@ -99,56 +113,53 @@ export default async function PromoPage({
           </div>
         </div>
 
-        {/* STANJE PO STAVCI */}
+        {/* STANJE PO PUTNIKU (Faza 8) */}
         <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
-          <h2 className="mb-3 text-[18px] font-semibold text-stone-800">Stanje po stavci</h2>
-          {artikli.length === 0 ? (
+          <h2 className="mb-1 text-[18px] font-semibold text-stone-800">Stanje promo zalihe po putniku</h2>
+          <p className="mb-3 text-[12px] text-stone-500">
+            Zaduženo (na <Link href="/putnik/zaduzenje" className="text-orange-800 underline">zaduženju vozila</Link>, L1/2) − otpisano po lokalu = ostalo u autu. Minus zaliha je dopušten i crven.
+          </p>
+          {poPutniku.size === 0 ? (
             <div className="border border-orange-200 bg-white px-4 py-3 text-[13px] text-stone-500">
-              Nema artikala. {jeL12 ? "Dodaj prvi artikl ispod." : "Level 1/2 mora dodati artikle."}
+              Još nema zaduženja promo zalihe. Zaduži putnika na /putnik/zaduzenje.
             </div>
           ) : (
-            <div className="overflow-x-auto border border-orange-200 bg-white">
-              <table className="w-full border-collapse text-left text-[14px]">
-                <thead>
-                  <tr className="bg-orange-100/70 text-[12px] uppercase tracking-[0.1em] text-orange-900">
-                    <th className="px-3 py-2">Artikl</th>
-                    <th className="px-3 py-2 text-right">Ušlo</th>
-                    <th className="px-3 py-2 text-right">Dobili lokali</th>
-                    <th className="px-3 py-2 text-right">Ostalo</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {artikli.map((a) => {
-                    const uslo = usloPo.get(a.id) || 0;
-                    const dobili = dobiliPo.get(a.id) || 0;
-                    const ostalo = uslo - dobili;
-                    return (
-                      <tr key={a.id} className="border-t border-orange-100">
-                        <td className="px-3 py-2 font-semibold text-stone-800">
-                          {a.naziv}
-                          {!a.aktivan ? (
-                            <span className="ml-2 text-[11px] font-normal text-stone-400">(neaktivan)</span>
-                          ) : null}
-                        </td>
-                        <td className="px-3 py-2 text-right">{uslo}</td>
-                        <td className="px-3 py-2 text-right">{dobili}</td>
-                        <td
-                          className={`px-3 py-2 text-right font-semibold ${
-                            ostalo < 0 ? "text-red-600" : "text-stone-800"
-                          }`}
-                        >
-                          {ostalo}
-                          {ostalo < 0 ? (
-                            <span className="ml-2 inline-flex border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] text-red-700">
-                              minus zaliha
-                            </span>
-                          ) : null}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="space-y-4">
+              {[...poPutniku.entries()].map(([putnik, m]) => (
+                <div key={putnik} className="border border-orange-200 bg-white">
+                  <div className="border-b border-orange-100 bg-orange-100/40 px-3 py-2 text-[15px] font-semibold text-orange-900">{putnik}</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left text-[14px]">
+                      <thead>
+                        <tr className="bg-orange-50 text-[12px] uppercase tracking-[0.1em] text-orange-900">
+                          <th className="px-3 py-2">Artikl</th>
+                          <th className="px-3 py-2 text-right">Zaduženo</th>
+                          <th className="px-3 py-2 text-right">Otpisano</th>
+                          <th className="px-3 py-2 text-right">Ostalo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...m.entries()].map(([aid, r]) => {
+                          const ostalo = r.zaduzeno - r.otpisano;
+                          return (
+                            <tr key={aid} className="border-t border-orange-100">
+                              <td className="px-3 py-2 font-semibold text-stone-800">{r.naziv}</td>
+                              <td className="px-3 py-2 text-right">{r.zaduzeno}</td>
+                              <td className="px-3 py-2 text-right">{r.otpisano}</td>
+                              <td className={`px-3 py-2 text-right font-semibold ${ostalo < 0 ? "text-red-600" : "text-stone-800"}`}>
+                                {ostalo}
+                                {ostalo < 0 ? (
+                                  <span className="ml-2 inline-flex border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] text-red-700">minus zaliha</span>
+                                ) : null}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -209,39 +220,6 @@ export default async function PromoPage({
                         {a.aktivan ? "Ugasi" : "Aktiviraj"}
                       </button>
                     </form>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
-              <h2 className="mb-3 text-[18px] font-semibold text-stone-800">Ulazna zaliha (L1/L2)</h2>
-              {aktivniArtikli.length === 0 ? (
-                <div className="text-[13px] text-stone-500">Prvo dodaj artikl u katalog.</div>
-              ) : (
-                <form action={ulazZalihe} className="mb-3 grid gap-2 md:grid-cols-2">
-                  <select name="artiklId" required className={ulazInput}>
-                    <option value="">Odaberi artikl…</option>
-                    {aktivniArtikli.map((a) => (
-                      <option key={a.id} value={a.id}>{a.naziv}</option>
-                    ))}
-                  </select>
-                  <input name="kolicina" type="number" placeholder="Količina" required className={ulazInput} />
-                  <input name="datum" type="date" defaultValue={danas} className={ulazInput} />
-                  <input name="napomena" placeholder="Napomena (opc.)" className={ulazInput} />
-                  <button
-                    type="submit"
-                    className="md:col-span-2 border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
-                  >
-                    Dodaj ulaz
-                  </button>
-                </form>
-              )}
-              <div className="space-y-1 text-[13px]">
-                {ulazi.slice(0, 8).map((u) => (
-                  <div key={u.id} className="flex justify-between border border-orange-100 bg-white px-3 py-1.5">
-                    <span>{u.artikl?.naziv} — <strong>+{u.kolicina}</strong></span>
-                    <span className="text-stone-500">{formatHrDate(u.datum)}</span>
                   </div>
                 ))}
               </div>

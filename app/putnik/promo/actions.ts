@@ -88,26 +88,8 @@ export async function toggleVino(formData: FormData) {
   revalidatePath("/putnik/promo");
 }
 
-// --- ULAZNA ZALIHA (samo L1/L2) ---
-export async function ulazZalihe(formData: FormData) {
-  const user = await requireLevel12User();
-
-  const artiklId = String(formData.get("artiklId") || "").trim();
-  const kolicina = intVal(formData, "kolicina");
-  if (!artiklId || kolicina == null) return;
-
-  await prisma.putnikPromoUlaz.create({
-    data: {
-      artiklId,
-      kolicina,
-      datum: dateValue(formData, "datum") ?? new Date(),
-      unioKorisnikIme: user.ime || null,
-      napomena: text(formData, "napomena"),
-    },
-  });
-
-  revalidatePath("/putnik/promo");
-}
+// NAPOMENA (Faza 8): ulaz promo zalihe preseljen u /putnik/zaduzenje kao zaduziPromo
+// (zaliha je sada PO PUTNIKU, kao vino). Ovdje ostaju katalog i otpis.
 
 // --- OTPIS PO LOKALU (sve razine) ---
 export async function otpisiPromo(formData: FormData) {

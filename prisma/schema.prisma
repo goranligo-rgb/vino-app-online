@@ -1287,6 +1287,10 @@ model PutnikPromoUlaz {
   artiklId String
   artikl   PutnikPromoArtikl @relation(fields: [artiklId], references: [id])
 
+  // Faza 8 - promo zaliha po putniku (analogno PutnikVinoZaduzenje).
+  // Nullable zbog kompatibilnosti sa starim globalnim redovima; novi ulazi uvijek imaju putnika.
+  putnikIme String?
+
   kolicina        Int
   datum           DateTime @default(now())
   unioKorisnikIme String?
@@ -1295,6 +1299,7 @@ model PutnikPromoUlaz {
   createdAt DateTime @default(now())
 
   @@index([artiklId])
+  @@index([putnikIme])
 }
 
 model PutnikRezultatObilaska {

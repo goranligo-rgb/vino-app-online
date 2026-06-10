@@ -3,7 +3,7 @@ import NatragHome from "@/components/NatragHome";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/putnik-auth";
 import { formatHrDate } from "@/lib/datum";
-import { zaduziVino } from "./actions";
+import { zaduziVino, zaduziPromo } from "./actions";
 import { oznaciIsporuceno } from "../priprema/actions";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +20,8 @@ function Kartica({ naslov, vrijednost, podnaslov }: { naslov: string; vrijednost
 
 // Jedan red zalihe vina po putniku (zaduženo − prodano − gratis = ostalo)
 type VinoRed = { artiklId: string; naziv: string; jedinica: string; zaduzeno: number; prodano: number; gratis: number };
+// Jedan red zalihe promo materijala po putniku (zaduženo − otpisano = ostalo)
+type PromoRed = { artiklId: string; naziv: string; zaduzeno: number; otpisano: number };
 type IspRed = { kind: "vino" | "promo"; id: string; naziv: string; kolicina: number; jedinica?: string };
 
 export default async function ZaduzenjePage({
@@ -47,7 +49,7 @@ export default async function ZaduzenjePage({
     };
   }
 
-  const [zaduzenja, prodajaStavke, isporukaStavke, isporukaPromo, vina, putnici, zadnjaZaduzenja] = await Promise.all([
+  const [zaduzenja, prodajaStavke, isporukaStavke, isporukaPromo, vina, putnici, zadnjaZaduzenja, promoArtikli, promoZaduzenja, promoOtpisi] = await Promise.all([
     // ULAZ u zalihu (zaduženja vina po putniku)
     prisma.putnikVinoZaduzenje.findMany({
       where: filterPutnik ? { putnikIme: filterPutnik } : {},
@@ -87,6 +89,18 @@ export default async function ZaduzenjePage({
       orderBy: { datum: "desc" },
       take: 10,
     }),
+    // PROMO katalog (za formu zaduženja)
+    prisma.putnikPromoArtikl.findMany({ where: { aktivan: true }, orderBy: { naziv: "asc" } }),
+    // PROMO ULAZ u zalihu (zaduženja promo po putniku)
+    prisma.putnikPromoUlaz.findMany({
+      where: filterPutnik ? { putnikIme: filterPutnik } : {},
+      include: { artikl: { select: { naziv: true } } },
+    }),
+    // PROMO IZLAZ: otpis po lokalu, atribuiran putniku preko otpisaoKorisnikIme
+    prisma.putnikPromoKupca.findMany({
+      where: { artiklId: { not: null }, ...(filterPutnik ? { otpisaoKorisnikIme: filterPutnik } : {}) },
+      include: { artikl: { select: { naziv: true } } },
+    }),
   ]);
 
   // ── ZA PRODAJU: zaliha vina po putniku (zaduženo − prodano − gratis) ──
@@ -112,6 +126,28 @@ export default async function ZaduzenjePage({
     const r = recZa(putnik, s.artiklId, s.artikl?.naziv || s.nazivProizvoda, jed);
     r.prodano += s.kolicina || 0;
     r.gratis += s.gratis;
+  }
+
+  // ── ZA PRODAJU (promo): zaliha promo po putniku (zaduženo − otpisano) ──
+  const poPutnikuPromo = new Map<string, Map<string, PromoRed>>();
+  function recPromo(putnik: string, artiklId: string, naziv: string): PromoRed {
+    if (!poPutnikuPromo.has(putnik)) poPutnikuPromo.set(putnik, new Map());
+    const m = poPutnikuPromo.get(putnik)!;
+    let r = m.get(artiklId);
+    if (!r) {
+      r = { artiklId, naziv, zaduzeno: 0, otpisano: 0 };
+      m.set(artiklId, r);
+    }
+    return r;
+  }
+  for (const u of promoZaduzenja) {
+    if (!u.putnikIme) continue; // stari globalni redovi (nema ih nakon čišćenja) se preskaču
+    recPromo(u.putnikIme, u.artiklId, u.artikl?.naziv || "—").zaduzeno += u.kolicina;
+  }
+  for (const o of promoOtpisi) {
+    if (!o.artiklId) continue;
+    const putnik = o.otpisaoKorisnikIme || "—"; // otpis je atribuiran putniku koji ga je upisao
+    recPromo(putnik, o.artiklId, o.artikl?.naziv || o.naziv || "—").otpisano += o.kolicina;
   }
 
   // ── ZA ISPORUKU: pripremljeno po putniku → po lokalu ──
@@ -184,10 +220,11 @@ export default async function ZaduzenjePage({
           </form>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
-          <Kartica naslov="Putnika sa zalihom" vrijednost={String(poPutnikuProdaja.size)} podnaslov="vino za prodaju" />
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+          <Kartica naslov="Putnika (vino)" vrijednost={String(poPutnikuProdaja.size)} podnaslov="zaliha za prodaju" />
+          <Kartica naslov="Putnika (promo)" vrijednost={String(poPutnikuPromo.size)} podnaslov="zaliha za prodaju" />
           <Kartica naslov="Za isporuku" vrijednost={String(brojIsporuka)} podnaslov="pripremljene stavke" />
-          <Kartica naslov="Aktivnih vina" vrijednost={String(vina.length)} />
+          <Kartica naslov="Aktivnih vina / promo" vrijednost={`${vina.length} / ${promoArtikli.length}`} />
         </div>
 
         {/* ZADUŽI VINO (samo L1/2) */}
@@ -238,7 +275,41 @@ export default async function ZaduzenjePage({
           </div>
         ) : null}
 
-        {/* ZA PRODAJU — zaliha po putniku */}
+        {/* ZADUŽI PROMO (samo L1/2) */}
+        {jeL12 ? (
+          <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
+            <h2 className="mb-1 text-[18px] font-semibold text-stone-800">Zaduži promo putniku (L1/L2)</h2>
+            <p className="mb-3 text-[12px] text-stone-500">
+              ULAZ u promo zalihu putnika (čaše, pokloni, reklamni materijal). Skida se na terenu kroz otpis po lokalu.
+            </p>
+            {promoArtikli.length === 0 ? (
+              <div className="text-[13px] text-stone-500">Prvo dodaj promo artikl u katalog na /putnik/promo.</div>
+            ) : (
+              <form action={zaduziPromo} className="grid gap-2 md:grid-cols-6">
+                <select name="putnikIme" required className={polje}>
+                  <option value="">Putnik…</option>
+                  {putnici.map((p) => (
+                    <option key={p.ime} value={p.ime}>{p.ime}</option>
+                  ))}
+                </select>
+                <select name="artiklId" required className={`${polje} md:col-span-3`}>
+                  <option value="">Promo artikl…</option>
+                  {promoArtikli.map((a) => (
+                    <option key={a.id} value={a.id}>{a.naziv}</option>
+                  ))}
+                </select>
+                <input name="kolicina" type="number" placeholder="Količina (kom)" required className={polje} />
+                <input name="datum" type="date" defaultValue={danas} className={polje} />
+                <input name="napomena" placeholder="Napomena (opc.)" className={`${polje} md:col-span-5`} />
+                <button type="submit" className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105">
+                  Zaduži
+                </button>
+              </form>
+            )}
+          </div>
+        ) : null}
+
+        {/* ZA PRODAJU (vino) — zaliha po putniku */}
         <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
           <h2 className="mb-3 text-[18px] font-semibold text-stone-800">Za prodaju — zaliha vina po putniku</h2>
           {poPutnikuProdaja.size === 0 ? (
@@ -270,6 +341,52 @@ export default async function ZaduzenjePage({
                               <td className="px-3 py-2 text-right">{r.gratis}</td>
                               <td className={`px-3 py-2 text-right font-semibold ${ostalo < 0 ? "text-red-600" : "text-stone-800"}`}>
                                 {ostalo} {r.jedinica}
+                                {ostalo < 0 ? (
+                                  <span className="ml-2 inline-flex border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] text-red-700">minus zaliha</span>
+                                ) : null}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ZA PRODAJU (promo) — zaliha po putniku */}
+        <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
+          <h2 className="mb-3 text-[18px] font-semibold text-stone-800">Za prodaju — zaliha promo materijala po putniku</h2>
+          {poPutnikuPromo.size === 0 ? (
+            <div className="text-[13px] text-stone-500">Nema zaduženog promo materijala za odabrane filtere.</div>
+          ) : (
+            <div className="space-y-4">
+              {[...poPutnikuPromo.entries()].map(([putnik, promoMap]) => (
+                <div key={putnik} className="border border-orange-200 bg-white">
+                  <div className="border-b border-orange-100 bg-orange-100/40 px-3 py-2 text-[15px] font-semibold text-orange-900">{putnik}</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left text-[14px]">
+                      <thead>
+                        <tr className="bg-orange-50 text-[12px] uppercase tracking-[0.1em] text-orange-900">
+                          <th className="px-3 py-2">Promo artikl</th>
+                          <th className="px-3 py-2 text-right">Zaduženo</th>
+                          <th className="px-3 py-2 text-right">Otpisano</th>
+                          <th className="px-3 py-2 text-right">Ostalo u autu</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...promoMap.values()].map((r) => {
+                          const ostalo = r.zaduzeno - r.otpisano;
+                          return (
+                            <tr key={r.artiklId} className="border-t border-orange-100">
+                              <td className="px-3 py-2 font-semibold text-stone-800">{r.naziv}</td>
+                              <td className="px-3 py-2 text-right">{r.zaduzeno}</td>
+                              <td className="px-3 py-2 text-right">{r.otpisano}</td>
+                              <td className={`px-3 py-2 text-right font-semibold ${ostalo < 0 ? "text-red-600" : "text-stone-800"}`}>
+                                {ostalo}
                                 {ostalo < 0 ? (
                                   <span className="ml-2 inline-flex border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] text-red-700">minus zaliha</span>
                                 ) : null}
