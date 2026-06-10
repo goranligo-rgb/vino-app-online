@@ -94,6 +94,13 @@ function Ikona({ glif }: { glif: string }) {
         <path d="M4 8l8 4 8-4M12 12v8" />
       </>
     ),
+    auto: (
+      <>
+        <path d="M3 13l1.8-5A2 2 0 0 1 6.7 6.7h10.6a2 2 0 0 1 1.9 1.3L21 13v5h-2.5M3 13v5h2.5M3 13h18" />
+        <circle cx="7" cy="18" r="1.6" />
+        <circle cx="17" cy="18" r="1.6" />
+      </>
+    ),
   };
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
@@ -255,6 +262,12 @@ export default function PutnikPage() {
           </Grupa>
 
           <Grupa naslov="Roba" podnaslov="što putnik nosi i što vinarija sprema">
+            <NavKartica
+              href="/putnik/vozilo"
+              glif="auto"
+              naslov="Stanje u autu"
+              opis="Brzi pregled tvoje zalihe (vino + promo) za fizičku kontrolu u vozilu."
+            />
             <NavKartica
               href="/putnik/zaduzenje"
               glif="kamion"
