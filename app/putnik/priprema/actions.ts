@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireLevel12User } from "@/lib/putnik-auth";
+import { requireLevel12User, requirePutnikUser } from "@/lib/putnik-auth";
 
 const DOZVOLJENI = ["PRIPREMITI", "PRIPREMLJENO", "ISPORUCENO"];
 
@@ -28,5 +28,31 @@ export async function oznaciPripremu(formData: FormData) {
     });
   }
 
+  revalidatePath("/putnik/priprema");
+  revalidatePath("/putnik/zaduzenje");
+}
+
+// Faza 7 - potvrda isporuke na terenu. Smiju SVE razine (putnik predaje lokalu),
+// ali ISKLJUČIVO prijelaz PRIPREMLJENO -> ISPORUCENO (ne dira zalihu, samo evidencija predaje).
+export async function oznaciIsporuceno(formData: FormData) {
+  await requirePutnikUser();
+
+  const id = String(formData.get("id") || "").trim();
+  const tip = String(formData.get("tip") || "").trim();
+  if (!id) return;
+
+  if (tip === "stavka") {
+    await prisma.putnikPosjetStavka.updateMany({
+      where: { id, statusPripreme: "PRIPREMLJENO" },
+      data: { statusPripreme: "ISPORUCENO" },
+    });
+  } else if (tip === "promo") {
+    await prisma.putnikPromoKupca.updateMany({
+      where: { id, statusPripreme: "PRIPREMLJENO" },
+      data: { statusPripreme: "ISPORUCENO" },
+    });
+  }
+
+  revalidatePath("/putnik/zaduzenje");
   revalidatePath("/putnik/priprema");
 }

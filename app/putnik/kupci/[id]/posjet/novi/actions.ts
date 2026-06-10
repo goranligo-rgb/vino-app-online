@@ -35,6 +35,7 @@ function checked(formData: FormData, name: string) {
  */
 function citajStavke(formData: FormData) {
   const nazivi = formData.getAll("stavkaNaziv").map((v) => String(v).trim());
+  const artikli = formData.getAll("stavkaArtiklId").map((v) => String(v).trim());
   const kolicine = formData.getAll("stavkaKolicina").map((v) => String(v).trim());
   const jedinice = formData.getAll("stavkaJedinica").map((v) => String(v).trim());
   const gratisi = formData.getAll("stavkaGratis").map((v) => String(v).trim());
@@ -42,6 +43,7 @@ function citajStavke(formData: FormData) {
 
   const stavke: {
     nazivProizvoda: string;
+    artiklId: string | null;
     kolicina: number | null;
     jedinica: string;
     gratis: number;
@@ -60,6 +62,8 @@ function citajStavke(formData: FormData) {
 
     stavke.push({
       nazivProizvoda: naziv,
+      // Faza 7 - veza na katalog vina (za zalihu po putniku); prazno = slobodan unos
+      artiklId: artikli[i] || null,
       kolicina: kol != null && Number.isFinite(kol) ? kol : null,
       jedinica: jedinice[i] || "kom",
       gratis: Number.isFinite(gratisNum) && gratisNum > 0 ? gratisNum : 0,
@@ -135,11 +139,6 @@ export async function spremiPosjet(formData: FormData) {
       kupacId,
       putnikIme: user.ime || null,
       datum,
-
-      reklamniMaterijal: text(formData, "reklamniMaterijal"),
-      biljeska: text(formData, "biljeska"),
-      ukupanDug: num(formData, "ukupanDug"),
-      dospjeliDug: num(formData, "dospjeliDug"),
 
       reklamniMaterijal: text(formData, "reklamniMaterijal"),
       biljeska: text(formData, "biljeska"),

@@ -1145,9 +1145,15 @@ model PutnikPosjetStavka {
   // Faza 6 - popis za pripremu: ODMAH / PRIPREMITI / PRIPREMLJENO / ISPORUCENO
   statusPripreme String @default("ODMAH")
 
+  // Faza 7 - veza na katalog vina (za obračun zalihe po putniku).
+  // Popunjeno kad putnik odabere vino iz kataloga; null = slobodan unos (ne prati se u zalihi).
+  artiklId String?
+  artikl   PutnikVinoArtikl? @relation(fields: [artiklId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
 
   @@index([posjetId])
+  @@index([artiklId])
 }
 
 model PutnikAkcijaTemplate {
@@ -1236,7 +1242,33 @@ model PutnikVinoArtikl {
   // Faza 6 - zadana jedinica (L za rinfuzu, kom za butelje); override na formi
   zadanaJedinica String? @default("kom")
 
+  // Faza 7 - zaduženja po putniku (ulaz u zalihu) i prodajne/gratis stavke (izlaz)
+  zaduzenja PutnikVinoZaduzenje[]
+  stavke    PutnikPosjetStavka[]
+
   createdAt DateTime @default(now())
+}
+
+// Faza 7 - zaduženje vina putniku (ulaz u zalihu vozila).
+// Kao promo ulaz (PutnikPromoUlaz), ali vezano na konkretnog putnika (putnikIme).
+// Stanje po putniku = Σ zaduzenja − Σ (ODMAH stavke: kolicina + gratis). Zaduzuju samo L1/2.
+model PutnikVinoZaduzenje {
+  id       String           @id @default(cuid())
+  artiklId String
+  artikl   PutnikVinoArtikl @relation(fields: [artiklId], references: [id])
+
+  putnikIme String // kojem putniku se zadužuje (kao PutnikPosjet.putnikIme)
+  kolicina  Float
+  jedinica  String? @default("kom")
+
+  datum           DateTime @default(now())
+  unioKorisnikIme String? // L1/2 koji je zadužio
+  napomena        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([artiklId])
+  @@index([putnikIme])
 }
 
 model PutnikPromoArtikl {

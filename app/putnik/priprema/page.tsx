@@ -72,10 +72,13 @@ export default async function PripremaPage({
   const user = await getAuthUser();
   const jeL12 = user?.role === "ADMIN" || user?.role === "PODRUM";
 
-  const prikaziIsporucene = sp.sve === "1";
-  const statusi = prikaziIsporucene
+  // Aktivni popis = SAMO obveze koje vinarija još nije odradila (PRIPREMITI).
+  // Čim L1/2 označi "Pripremljeno", stavka nestane s aktivnog reda; vidljiva je u
+  // arhivi (checkbox "Prikaži i pripremljeno/isporučeno").
+  const prikaziArhivu = sp.sve === "1";
+  const statusi = prikaziArhivu
     ? ["PRIPREMITI", "PRIPREMLJENO", "ISPORUCENO"]
-    : ["PRIPREMITI", "PRIPREMLJENO"];
+    : ["PRIPREMITI"];
 
   // Filter na posjet (putnikIme / datum)
   const posjetCond: { putnikIme?: string; datum?: { gte: Date; lte: Date } } = {};
@@ -205,8 +208,8 @@ export default async function PripremaPage({
               <input name="datum" type="date" defaultValue={sp.datum || ""} className={polje} />
             </div>
             <label className="flex items-center gap-2 border border-orange-200 bg-white px-3 py-2 text-[13px] font-semibold text-stone-700">
-              <input type="checkbox" name="sve" value="1" defaultChecked={prikaziIsporucene} className="h-4 w-4 accent-orange-700" />
-              Prikaži i isporučeno
+              <input type="checkbox" name="sve" value="1" defaultChecked={prikaziArhivu} className="h-4 w-4 accent-orange-700" />
+              Prikaži i pripremljeno/isporučeno
             </label>
             <button type="submit" className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105">
               Prikaži
@@ -215,7 +218,7 @@ export default async function PripremaPage({
         </div>
 
         <div className="grid gap-3 md:grid-cols-3">
-          <Kartica naslov="Stavki za pripremu" vrijednost={String(ukupnoStavki)} podnaslov={prikaziIsporucene ? "uključujući isporučeno" : "PRIPREMITI + PRIPREMLJENO"} />
+          <Kartica naslov="Stavki za pripremu" vrijednost={String(ukupnoStavki)} podnaslov={prikaziArhivu ? "arhiva (sve)" : "aktivno: PRIPREMITI"} />
           <Kartica naslov="Različitih vina" vrijednost={String(vinoZbir.size)} />
           <Kartica naslov="Lokala" vrijednost={String(poLokalu.size)} />
         </div>

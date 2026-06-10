@@ -9,6 +9,7 @@ type Vino = { id: string; naziv: string; zadanaJedinica?: string | null };
 type Stavka = {
   key: number;
   naziv: string;
+  artiklId: string; // Faza 7 - id vina iz kataloga ("" = slobodan unos, ne prati se u zalihi)
   rucno: boolean;
   kolicina: string;
   jedinica: string;
@@ -32,6 +33,7 @@ function novaStavka(): Stavka {
   return {
     key: brojac,
     naziv: "",
+    artiklId: "",
     rucno: false,
     kolicina: "",
     jedinica: "kom",
@@ -74,6 +76,8 @@ export default function PosjetForm({
 
   const imaAkciju = akcijaX > 0;
   const vinoJedinica = new Map(vina.map((v) => [v.naziv, v.zadanaJedinica || "kom"]));
+  // Faza 7 - naziv vina -> id iz kataloga (za vezu stavke na zalihu)
+  const vinoId = new Map(vina.map((v) => [v.naziv, v.id]));
 
   function azuriraj(key: number, polje: "naziv" | "jedinica" | "status", vrijednost: string) {
     setStavke((prev) =>
@@ -86,9 +90,10 @@ export default function PosjetForm({
     setStavke((prev) =>
       prev.map((s) => {
         if (s.key !== key) return s;
-        if (vrijednost === OSTALO) return { ...s, rucno: true, naziv: "" };
+        // "Ostalo (ručno)" = slobodan unos, bez veze na katalog (artiklId prazan)
+        if (vrijednost === OSTALO) return { ...s, rucno: true, naziv: "", artiklId: "" };
         const jed = vinoJedinica.get(vrijednost) || s.jedinica;
-        return { ...s, rucno: false, naziv: vrijednost, jedinica: jed };
+        return { ...s, rucno: false, naziv: vrijednost, jedinica: jed, artiklId: vinoId.get(vrijednost) || "" };
       })
     );
   }
@@ -213,6 +218,7 @@ export default function PosjetForm({
                   />
                 ) : null}
                 <input type="hidden" name="stavkaNaziv" value={s.naziv} />
+                <input type="hidden" name="stavkaArtiklId" value={s.artiklId} />
               </div>
               <input
                 name="stavkaKolicina"
