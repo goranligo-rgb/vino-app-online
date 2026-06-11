@@ -14,10 +14,27 @@ type Red = {
   jedinica: string;
 };
 
-export default async function VoziloPage() {
-  // Sve razine (1-4) smiju vidjeti svoj auto; filtriramo po prijavljenom putniku.
+export default async function VoziloPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ putnik?: string }>;
+}) {
+  const sp = await searchParams;
   const user = await requirePutnikUser();
-  const putnikIme = user.ime;
+
+  // L1 (ADMIN) i L2 (PODRUM) smiju gledati BILO KOJEG putnika (izbornik); L3/L4
+  // vide samo svoj auto — odabir iz URL-a se za njih ignorira.
+  const jeL12 = user.role === "ADMIN" || user.role === "PODRUM";
+  const putnikIme = jeL12 ? sp.putnik || user.ime : user.ime;
+
+  // Popis putnika za izbornik (samo L1/2): svi aktivni korisnici, isto kao /putnik/zaduzenje.
+  const putnici = jeL12
+    ? await prisma.user.findMany({
+        where: { active: true },
+        select: { ime: true },
+        orderBy: { ime: "asc" },
+      })
+    : [];
 
   const [zaduzenja, prodajaStavke, promoUlazi, promoOtpisi] = await Promise.all([
     // VINO ULAZ: zaduženja vina ovom putniku
@@ -122,6 +139,34 @@ export default async function VoziloPage() {
             </Link>
           </div>
         </div>
+
+        {/* ODABIR PUTNIKA (samo L1/2) — L3/L4 vide samo svoj auto */}
+        {jeL12 ? (
+          <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
+            <form method="GET" className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="mb-1 block text-[13px] font-semibold text-stone-700">Putnik</label>
+                <select
+                  name="putnik"
+                  defaultValue={putnikIme ?? ""}
+                  className="min-w-[200px] border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
+                >
+                  {putnici.map((p) => (
+                    <option key={p.ime} value={p.ime ?? ""}>
+                      {p.ime}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="submit"
+                className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
+              >
+                Prikaži
+              </button>
+            </form>
+          </div>
+        ) : null}
 
         {/* SAŽETAK */}
         <div className="grid grid-cols-2 gap-3">
