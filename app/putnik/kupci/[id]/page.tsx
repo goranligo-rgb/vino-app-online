@@ -714,13 +714,19 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                         Upisano: {formatHrDateTime(p.createdAt)}
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2 text-[12px]">
+                    <div className="flex flex-wrap items-center gap-2 text-[12px]">
                       <span className="inline-flex border border-orange-200 bg-orange-50 px-2 py-1 font-semibold text-orange-900">
                         Ukupan dug: {eur(p.ukupanDug)}
                       </span>
                       <span className="inline-flex border border-red-200 bg-red-50 px-2 py-1 font-semibold text-red-700">
                         Dospjelo: {eur(p.dospjeliDug)}
                       </span>
+                      <Link
+                        href={`/putnik/kupci/${kupac.id}/posjet/${p.id}/uredi`}
+                        className="inline-flex border border-orange-300 bg-white px-2 py-1 font-semibold text-orange-900 hover:bg-orange-50"
+                      >
+                        Uredi
+                      </Link>
                     </div>
                   </div>
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { spremiPosjet } from "./actions";
 
 type Artikl = { id: string; naziv: string };
 type Vino = { id: string; naziv: string; zadanaJedinica?: string | null };
@@ -25,7 +24,61 @@ type Poklon = {
   status: string;
 };
 
+// Postojeći posjet za predpopunu kod izmjene (serializabilni oblik iz stranice).
+type InitialStavka = {
+  nazivProizvoda: string;
+  artiklId: string | null;
+  kolicina: number | null;
+  jedinica: string | null;
+  gratis: number;
+  statusPripreme: string;
+};
+type InitialOtpis = {
+  artiklId: string | null;
+  kolicina: number;
+  statusPripreme: string | null;
+};
+export type InitialPosjet = {
+  id: string;
+  datum: string | Date;
+  ukupanDug: number | null;
+  dospjeliDug: number | null;
+  biljeska: string | null;
+  mjesto: string | null;
+  vrijemeOd: string | null;
+  vrijemeDo: string | null;
+  tipObilaska: string | null;
+  tipPremise: string | null;
+  stanjeProizvoda: string | null;
+  kilometri: number | null;
+  cijena: string | null;
+  problemi: string | null;
+  aktDegustacija: boolean;
+  aktVidljivost: boolean;
+  aktSlaganjeRobe: boolean;
+  aktIstaknuteCijene: boolean;
+  aktAkcijskaCijena: boolean;
+  stavke: InitialStavka[];
+  promoOtpisi: InitialOtpis[];
+};
+
 const OSTALO = "__OSTALO__";
+
+// Status pripreme: osnovne dvije opcije; ako je red već napredovao kod vinarije
+// (PRIPREMLJENO/ISPORUCENO), zadrži tu vrijednost kao opciju da se ne izgubi.
+function statusOpcije(status: string) {
+  const opcije = [
+    { v: "PRIPREMITI", l: "Pripremiti" },
+    { v: "ODMAH", l: "Dati odmah" },
+  ];
+  if (status === "PRIPREMLJENO") opcije.push({ v: "PRIPREMLJENO", l: "Pripremljeno (zadrži)" });
+  if (status === "ISPORUCENO") opcije.push({ v: "ISPORUCENO", l: "Isporučeno (zadrži)" });
+  return opcije;
+}
+
+function toDateInput(value: string | Date) {
+  return new Date(value).toISOString().slice(0, 10);
+}
 
 let brojac = 0;
 function novaStavka(): Stavka {
@@ -43,10 +96,43 @@ function novaStavka(): Stavka {
   };
 }
 
+// Stavke iz postojećeg posjeta. gratisRucno=true da uređivanje količine ne
+// pregazi spremljeni gratis.
+function stavkeIzInitial(initial?: InitialPosjet): Stavka[] {
+  if (!initial || initial.stavke.length === 0) return [novaStavka()];
+  return initial.stavke.map((st) => {
+    brojac += 1;
+    return {
+      key: brojac,
+      naziv: st.nazivProizvoda,
+      artiklId: st.artiklId || "",
+      rucno: !st.artiklId,
+      kolicina: st.kolicina != null ? String(st.kolicina) : "",
+      jedinica: st.jedinica === "L" ? "L" : "kom",
+      gratis: String(st.gratis ?? 0),
+      gratisRucno: true,
+      status: st.statusPripreme || "PRIPREMITI",
+    };
+  });
+}
+
 let brojacP = 0;
 function noviPoklon(): Poklon {
   brojacP += 1;
   return { key: brojacP, artiklId: "", kolicina: "", status: "PRIPREMITI" };
+}
+
+function pokloniIzInitial(initial?: InitialPosjet): Poklon[] {
+  if (!initial || initial.promoOtpisi.length === 0) return [noviPoklon()];
+  return initial.promoOtpisi.map((o) => {
+    brojacP += 1;
+    return {
+      key: brojacP,
+      artiklId: o.artiklId || "",
+      kolicina: String(o.kolicina),
+      status: o.statusPripreme || "PRIPREMITI",
+    };
+  });
 }
 
 function predlozenGratis(kolicina: string, akcijaX: number, akcijaY: number): number {
@@ -63,6 +149,8 @@ export default function PosjetForm({
   akcijaY,
   vina,
   promoArtikli,
+  action,
+  initial,
 }: {
   kupacId: string;
   danas: string;
@@ -70,14 +158,36 @@ export default function PosjetForm({
   akcijaY: number;
   vina: Vino[];
   promoArtikli: Artikl[];
+  action: (formData: FormData) => void | Promise<void>;
+  initial?: InitialPosjet;
 }) {
-  const [stavke, setStavke] = useState<Stavka[]>([novaStavka()]);
-  const [pokloni, setPokloni] = useState<Poklon[]>([noviPoklon()]);
+  const jeUredi = Boolean(initial);
+  const [stavke, setStavke] = useState<Stavka[]>(() => stavkeIzInitial(initial));
+  const [pokloni, setPokloni] = useState<Poklon[]>(() => pokloniIzInitial(initial));
 
   const imaAkciju = akcijaX > 0;
   const vinoJedinica = new Map(vina.map((v) => [v.naziv, v.zadanaJedinica || "kom"]));
   // Faza 7 - naziv vina -> id iz kataloga (za vezu stavke na zalihu)
   const vinoId = new Map(vina.map((v) => [v.naziv, v.id]));
+
+  // Teren panel otvori kad već ima unesenih podataka (izmjena).
+  const terenImaPodatke = Boolean(
+    initial &&
+      (initial.mjesto ||
+        initial.vrijemeOd ||
+        initial.vrijemeDo ||
+        initial.tipObilaska ||
+        initial.tipPremise ||
+        initial.stanjeProizvoda ||
+        initial.kilometri != null ||
+        initial.cijena ||
+        initial.problemi ||
+        initial.aktDegustacija ||
+        initial.aktVidljivost ||
+        initial.aktSlaganjeRobe ||
+        initial.aktIstaknuteCijene ||
+        initial.aktAkcijskaCijena)
+  );
 
   function azuriraj(key: number, polje: "naziv" | "jedinica" | "status", vrijednost: string) {
     setStavke((prev) =>
@@ -148,8 +258,9 @@ export default function PosjetForm({
   }
 
   return (
-    <form action={spremiPosjet} className="space-y-4">
+    <form action={action} className="space-y-4">
       <input type="hidden" name="kupacId" value={kupacId} />
+      {initial ? <input type="hidden" name="posjetId" value={initial.id} /> : null}
 
       <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
         <h2 className="mb-4 text-[18px] font-semibold text-stone-800">
@@ -164,7 +275,7 @@ export default function PosjetForm({
             <input
               name="datum"
               type="date"
-              defaultValue={danas}
+              defaultValue={initial ? toDateInput(initial.datum) : danas}
               className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
             />
           </div>
@@ -256,8 +367,11 @@ export default function PosjetForm({
                 title="Dati odmah ili pripremiti u vinariji"
                 className="border border-orange-200 bg-white px-2 py-2 text-[13px] outline-none focus:border-orange-400"
               >
-                <option value="PRIPREMITI">Pripremiti</option>
-                <option value="ODMAH">Dati odmah</option>
+                {statusOpcije(s.status).map((o) => (
+                  <option key={o.v} value={o.v}>
+                    {o.l}
+                  </option>
+                ))}
               </select>
               <button
                 type="button"
@@ -331,8 +445,11 @@ export default function PosjetForm({
                   title="Dati odmah ili pripremiti u vinariji"
                   className="border border-orange-200 bg-white px-2 py-2 text-[13px] outline-none focus:border-orange-400"
                 >
-                  <option value="PRIPREMITI">Pripremiti</option>
-                  <option value="ODMAH">Dati odmah</option>
+                  {statusOpcije(p.status).map((o) => (
+                    <option key={o.v} value={o.v}>
+                      {o.l}
+                    </option>
+                  ))}
                 </select>
                 <button
                   type="button"
@@ -362,6 +479,7 @@ export default function PosjetForm({
               name="ukupanDug"
               type="number"
               step="any"
+              defaultValue={initial?.ukupanDug != null ? String(initial.ukupanDug) : undefined}
               className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
             />
           </div>
@@ -374,6 +492,7 @@ export default function PosjetForm({
               name="dospjeliDug"
               type="number"
               step="any"
+              defaultValue={initial?.dospjeliDug != null ? String(initial.dospjeliDug) : undefined}
               className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
             />
           </div>
@@ -386,13 +505,17 @@ export default function PosjetForm({
           <textarea
             name="biljeska"
             rows={5}
+            defaultValue={initial?.biljeska ?? undefined}
             className="w-full resize-y border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
             placeholder="Što je dogovoreno, stanje na terenu, problemi..."
           />
         </div>
       </div>
 
-      <details className="group border border-orange-200 bg-gradient-to-b from-white to-orange-50">
+      <details
+        open={terenImaPodatke}
+        className="group border border-orange-200 bg-gradient-to-b from-white to-orange-50"
+      >
         <summary className="flex cursor-pointer items-center justify-between gap-2 p-4 text-[18px] font-semibold text-stone-800 marker:content-['']">
           <span>Teren / dnevni izvještaj</span>
           <span className="text-[13px] font-normal text-orange-800/70 group-open:hidden">
@@ -411,6 +534,7 @@ export default function PosjetForm({
               </label>
               <input
                 name="mjesto"
+                defaultValue={initial?.mjesto ?? undefined}
                 className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
               />
             </div>
@@ -421,6 +545,7 @@ export default function PosjetForm({
               <input
                 name="vrijemeOd"
                 type="time"
+                defaultValue={initial?.vrijemeOd ?? undefined}
                 className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
               />
             </div>
@@ -431,6 +556,7 @@ export default function PosjetForm({
               <input
                 name="vrijemeDo"
                 type="time"
+                defaultValue={initial?.vrijemeDo ?? undefined}
                 className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
               />
             </div>
@@ -443,6 +569,7 @@ export default function PosjetForm({
               </label>
               <select
                 name="tipObilaska"
+                defaultValue={initial?.tipObilaska ?? ""}
                 className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
               >
                 <option value="">—</option>
@@ -458,6 +585,7 @@ export default function PosjetForm({
               </label>
               <select
                 name="tipPremise"
+                defaultValue={initial?.tipPremise ?? ""}
                 className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
               >
                 <option value="">—</option>
@@ -471,6 +599,7 @@ export default function PosjetForm({
               </label>
               <select
                 name="stanjeProizvoda"
+                defaultValue={initial?.stanjeProizvoda ?? ""}
                 className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
               >
                 <option value="">—</option>
@@ -486,11 +615,11 @@ export default function PosjetForm({
             </div>
             <div className="grid gap-2 md:grid-cols-3">
               {[
-                { name: "aktDegustacija", label: "Degustacija" },
-                { name: "aktVidljivost", label: "Vidljivost" },
-                { name: "aktSlaganjeRobe", label: "Slaganje robe" },
-                { name: "aktIstaknuteCijene", label: "Istaknute cijene" },
-                { name: "aktAkcijskaCijena", label: "Akcijska cijena" },
+                { name: "aktDegustacija", label: "Degustacija", checked: !!initial?.aktDegustacija },
+                { name: "aktVidljivost", label: "Vidljivost", checked: !!initial?.aktVidljivost },
+                { name: "aktSlaganjeRobe", label: "Slaganje robe", checked: !!initial?.aktSlaganjeRobe },
+                { name: "aktIstaknuteCijene", label: "Istaknute cijene", checked: !!initial?.aktIstaknuteCijene },
+                { name: "aktAkcijskaCijena", label: "Akcijska cijena", checked: !!initial?.aktAkcijskaCijena },
               ].map((a) => (
                 <label
                   key={a.name}
@@ -499,6 +628,7 @@ export default function PosjetForm({
                   <input
                     name={a.name}
                     type="checkbox"
+                    defaultChecked={a.checked}
                     className="h-5 w-5 accent-orange-700"
                   />
                   <span>{a.label}</span>
@@ -514,6 +644,7 @@ export default function PosjetForm({
               </label>
               <input
                 name="cijena"
+                defaultValue={initial?.cijena ?? undefined}
                 className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
               />
             </div>
@@ -525,6 +656,7 @@ export default function PosjetForm({
                 name="kilometri"
                 type="number"
                 step="any"
+                defaultValue={initial?.kilometri != null ? String(initial.kilometri) : undefined}
                 className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
               />
             </div>
@@ -537,6 +669,7 @@ export default function PosjetForm({
             <textarea
               name="problemi"
               rows={3}
+              defaultValue={initial?.problemi ?? undefined}
               className="w-full resize-y border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
             />
           </div>
@@ -548,7 +681,7 @@ export default function PosjetForm({
           type="submit"
           className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-5 py-3 text-[14px] font-semibold text-orange-950 transition hover:brightness-105"
         >
-          Spremi posjet
+          {jeUredi ? "Spremi izmjene posjeta" : "Spremi posjet"}
         </button>
       </div>
     </form>

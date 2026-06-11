@@ -1,21 +1,28 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import PosjetForm from "../posjet-form";
-import { spremiPosjet } from "../actions";
+import PosjetForm, { type InitialPosjet } from "../../posjet-form";
+import { azurirajPosjet } from "../../actions";
 
 export const dynamic = "force-dynamic";
 
-type PageParams = Promise<{ id: string }>;
+type PageParams = Promise<{ id: string; posjetId: string }>;
 
-export default async function NoviPosjetPage({ params }: { params: PageParams }) {
-  const { id } = await params;
+export default async function UrediPosjetPage({ params }: { params: PageParams }) {
+  const { id, posjetId } = await params;
 
-  const kupac = await prisma.putnikKupac.findUnique({
-    where: { id },
-  });
+  const [kupac, posjet] = await Promise.all([
+    prisma.putnikKupac.findUnique({ where: { id } }),
+    prisma.putnikPosjet.findUnique({
+      where: { id: posjetId },
+      include: {
+        stavke: { orderBy: { createdAt: "asc" } },
+        promoOtpisi: { orderBy: { createdAt: "asc" } },
+      },
+    }),
+  ]);
 
-  if (!kupac) notFound();
+  if (!kupac || !posjet || posjet.kupacId !== kupac.id) notFound();
 
   // Prijedlog gratisa iz zadnjeg dogovora lokala: 24+4 / 12+2 / 6+1 / 0.
   const zadnjiDogovor = await prisma.putnikDogovor.findFirst({
@@ -52,6 +59,41 @@ export default async function NoviPosjetPage({ params }: { params: PageParams })
 
   const danas = new Date().toISOString().slice(0, 10);
 
+  const initial: InitialPosjet = {
+    id: posjet.id,
+    datum: posjet.datum,
+    ukupanDug: posjet.ukupanDug,
+    dospjeliDug: posjet.dospjeliDug,
+    biljeska: posjet.biljeska,
+    mjesto: posjet.mjesto,
+    vrijemeOd: posjet.vrijemeOd,
+    vrijemeDo: posjet.vrijemeDo,
+    tipObilaska: posjet.tipObilaska,
+    tipPremise: posjet.tipPremise,
+    stanjeProizvoda: posjet.stanjeProizvoda,
+    kilometri: posjet.kilometri,
+    cijena: posjet.cijena,
+    problemi: posjet.problemi,
+    aktDegustacija: posjet.aktDegustacija,
+    aktVidljivost: posjet.aktVidljivost,
+    aktSlaganjeRobe: posjet.aktSlaganjeRobe,
+    aktIstaknuteCijene: posjet.aktIstaknuteCijene,
+    aktAkcijskaCijena: posjet.aktAkcijskaCijena,
+    stavke: posjet.stavke.map((s) => ({
+      nazivProizvoda: s.nazivProizvoda,
+      artiklId: s.artiklId,
+      kolicina: s.kolicina,
+      jedinica: s.jedinica,
+      gratis: s.gratis,
+      statusPripreme: s.statusPripreme,
+    })),
+    promoOtpisi: posjet.promoOtpisi.map((o) => ({
+      artiklId: o.artiklId,
+      kolicina: o.kolicina,
+      statusPripreme: o.statusPripreme,
+    })),
+  };
+
   return (
     <main className="min-h-screen bg-[#f6f3ee] px-4 py-4 text-stone-800 [font-family:Calibri,Segoe_UI,Arial,sans-serif] md:px-6">
       <div className="mx-auto max-w-[1100px] space-y-4">
@@ -62,10 +104,10 @@ export default async function NoviPosjetPage({ params }: { params: PageParams })
                 Putnik / teren CRM
               </div>
               <h1 className="mt-1 text-[28px] font-semibold tracking-tight text-stone-800">
-                Novi posjet — {kupac.nazivLokala}
+                Uredi posjet — {kupac.nazivLokala}
               </h1>
               <div className="mt-1 text-[13px] text-stone-500">
-                Narudžba, ostavljeni materijal, dug i zabilješke s terena.
+                Izmjena narudžbe, poklona, duga i zabilješki. Zaliha se preračuna automatski.
               </div>
             </div>
 
@@ -93,7 +135,8 @@ export default async function NoviPosjetPage({ params }: { params: PageParams })
           akcijaY={akcijaY}
           vina={vina}
           promoArtikli={promoArtikli}
-          action={spremiPosjet}
+          action={azurirajPosjet}
+          initial={initial}
         />
       </div>
     </main>
