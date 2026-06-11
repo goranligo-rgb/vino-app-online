@@ -158,6 +158,13 @@ export default async function DogovorDetaljiPage({ params }: PageProps) {
               </Link>
 
               <Link
+                href={`/putnik/kupci/${kupac.id}/dogovor/${dogovor.id}/uredi`}
+                className="border border-orange-300 bg-white px-4 py-2 text-[13px] font-semibold text-stone-700 hover:bg-orange-50"
+              >
+                Uredi
+              </Link>
+
+              <Link
                 href={`/putnik/kupci/${kupac.id}`}
                 className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
               >
