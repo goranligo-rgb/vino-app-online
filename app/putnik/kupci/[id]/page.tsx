@@ -800,11 +800,19 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                         Upisano: {formatHrDateTime(a.createdAt)}
                       </div>
                     </div>
-                    {a.vjerojatnostZakljucenja != null ? (
-                      <span className="inline-flex border border-green-200 bg-green-50 px-2 py-1 text-[12px] font-semibold text-green-700">
-                        Vjerojatnost: {a.vjerojatnostZakljucenja}%
-                      </span>
-                    ) : null}
+                    <div className="flex items-center gap-2">
+                      {a.vjerojatnostZakljucenja != null ? (
+                        <span className="inline-flex border border-green-200 bg-green-50 px-2 py-1 text-[12px] font-semibold text-green-700">
+                          Vjerojatnost: {a.vjerojatnostZakljucenja}%
+                        </span>
+                      ) : null}
+                      <Link
+                        href={`/putnik/kupci/${kupac.id}/aktivnost/${a.id}/uredi`}
+                        className="inline-flex border border-orange-300 bg-white px-2 py-1 text-[11px] font-semibold text-orange-900 hover:bg-orange-50"
+                      >
+                        Uredi
+                      </Link>
+                    </div>
                   </div>
 
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
