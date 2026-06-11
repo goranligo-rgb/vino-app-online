@@ -1454,6 +1454,10 @@ model PutnikPlanObilaska {
   kategorija String?
   status     String  @default("PLANIRANO")
 
+  // Vlasnik-putnik rute (analogno PutnikPosjet.putnikIme). NULL = stari/zajednicki
+  // auto plan; rucni unosi se vode po putniku. Auto-gen i dalje radi zajednicki.
+  putnikIme String?
+
   // Labava veza na obavljeni posjet (bez FK-a; posjet je u domeni 4B).
   obavljenoPosjetId String?
 
@@ -1464,4 +1468,5 @@ model PutnikPlanObilaska {
 
   @@index([kupacId])
   @@index([datum])
+  @@index([putnikIme])
 }
