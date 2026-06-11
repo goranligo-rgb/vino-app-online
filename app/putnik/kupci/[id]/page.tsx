@@ -479,12 +479,20 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                           {formatDate(a.createdAt)}
                         </div>
 
-                        <Link
-                          href={`/putnik/kupci/${kupac.id}/anketa/${a.id}`}
-                          className="mt-2 inline-flex border border-orange-300 bg-white px-2 py-1 text-[11px] font-semibold text-orange-900 hover:bg-orange-50"
-                        >
-                          Otvori
-                        </Link>
+                        <div className="mt-2 flex gap-1">
+                          <Link
+                            href={`/putnik/kupci/${kupac.id}/anketa/${a.id}`}
+                            className="inline-flex border border-orange-300 bg-white px-2 py-1 text-[11px] font-semibold text-orange-900 hover:bg-orange-50"
+                          >
+                            Otvori
+                          </Link>
+                          <Link
+                            href={`/putnik/kupci/${kupac.id}/anketa/${a.id}/uredi`}
+                            className="inline-flex border border-orange-300 bg-white px-2 py-1 text-[11px] font-semibold text-orange-900 hover:bg-orange-50"
+                          >
+                            Uredi
+                          </Link>
+                        </div>
                       </th>
                     ))}
                   </tr>
