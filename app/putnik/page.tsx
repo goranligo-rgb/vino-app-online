@@ -159,6 +159,24 @@ export default function PutnikPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [prikaziNeaktivne, setPrikaziNeaktivne] = useState(false);
+  const [jeAdmin, setJeAdmin] = useState(false);
+
+  // Uloga iz auth_user cookieja (httpOnly:false, isti izvor kao server).
+  // Sluzi SAMO za skrivanje checkboxa; pravu zastitu radi API (ne-admin ne dobije neaktivne).
+  useEffect(() => {
+    try {
+      const raw = document.cookie
+        .split("; ")
+        .find((c) => c.startsWith("auth_user="))
+        ?.slice("auth_user=".length);
+      if (raw) {
+        const u = JSON.parse(decodeURIComponent(raw));
+        setJeAdmin(u?.role === "ADMIN");
+      }
+    } catch {
+      setJeAdmin(false);
+    }
+  }, []);
 
   useEffect(() => {
     async function ucitaj() {
@@ -314,18 +332,20 @@ export default function PutnikPage() {
             </div>
           </div>
 
-          <label className="mt-3 flex items-center gap-2 text-[13px] font-semibold text-stone-700">
-            <input
-              type="checkbox"
-              checked={prikaziNeaktivne}
-              onChange={(e) => setPrikaziNeaktivne(e.target.checked)}
-              className="h-4 w-4 accent-orange-700"
-            />
-            Prikaži i neaktivne lokale
-            {brojNeaktivnih > 0 ? (
-              <span className="text-[12px] font-normal text-stone-500">({brojNeaktivnih} neaktivnih)</span>
-            ) : null}
-          </label>
+          {jeAdmin ? (
+            <label className="mt-3 flex items-center gap-2 text-[13px] font-semibold text-stone-700">
+              <input
+                type="checkbox"
+                checked={prikaziNeaktivne}
+                onChange={(e) => setPrikaziNeaktivne(e.target.checked)}
+                className="h-4 w-4 accent-orange-700"
+              />
+              Prikaži i neaktivne lokale
+              {brojNeaktivnih > 0 ? (
+                <span className="text-[12px] font-normal text-stone-500">({brojNeaktivnih} neaktivnih)</span>
+              ) : null}
+            </label>
+          ) : null}
         </div>
 
         <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">

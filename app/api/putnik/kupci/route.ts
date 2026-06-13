@@ -20,8 +20,13 @@ export async function GET() {
   const auth = await requirePutnikAccess();
   if (auth instanceof NextResponse) return auth;
 
+  // Neaktivne lokale smije vidjeti samo Level 1 (ADMIN). Ostali (L2/L3/L4)
+  // dobivaju iskljucivo aktivne — neaktivni im fizicki ne stignu na klijent.
+  const jeAdmin = auth.role === "ADMIN";
+
   try {
     const kupci = await prisma.putnikKupac.findMany({
+      where: jeAdmin ? undefined : { aktivan: true },
       orderBy: [
         { aktivan: "desc" },
         { nazivLokala: "asc" },
