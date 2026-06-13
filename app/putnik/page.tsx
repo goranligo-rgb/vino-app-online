@@ -158,6 +158,7 @@ export default function PutnikPage() {
   const [kupci, setKupci] = useState<Kupac[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [prikaziNeaktivne, setPrikaziNeaktivne] = useState(false);
 
   useEffect(() => {
     async function ucitaj() {
@@ -177,15 +178,19 @@ export default function PutnikPage() {
 
   const filtriraniKupci = useMemo(() => {
     const q = search.toLowerCase().trim();
-    if (!q) return kupci;
-    return kupci.filter((k) =>
-      [k.nazivLokala, k.nazivFirme, k.grad, k.kontaktOsoba, k.vlasnik]
+    return kupci.filter((k) => {
+      // Neaktivni se skrivaju po defaultu (povijest ostaje, vidljivi uz filtar).
+      if (!prikaziNeaktivne && !k.aktivan) return false;
+      if (!q) return true;
+      return [k.nazivLokala, k.nazivFirme, k.grad, k.kontaktOsoba, k.vlasnik]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
-        .includes(q)
-    );
-  }, [kupci, search]);
+        .includes(q);
+    });
+  }, [kupci, search, prikaziNeaktivne]);
+
+  const brojNeaktivnih = kupci.filter((k) => !k.aktivan).length;
 
   // Brzi pregled — sve izvedeno iz već učitanih kupaca (bez novih upita).
   const brojAktivnih = kupci.filter((k) => k.aktivan).length;
@@ -308,6 +313,19 @@ export default function PutnikPage() {
               </div>
             </div>
           </div>
+
+          <label className="mt-3 flex items-center gap-2 text-[13px] font-semibold text-stone-700">
+            <input
+              type="checkbox"
+              checked={prikaziNeaktivne}
+              onChange={(e) => setPrikaziNeaktivne(e.target.checked)}
+              className="h-4 w-4 accent-orange-700"
+            />
+            Prikaži i neaktivne lokale
+            {brojNeaktivnih > 0 ? (
+              <span className="text-[12px] font-normal text-stone-500">({brojNeaktivnih} neaktivnih)</span>
+            ) : null}
+          </label>
         </div>
 
         <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
@@ -323,7 +341,12 @@ export default function PutnikPage() {
           ) : (
             <div className="space-y-3">
               {filtriraniKupci.map((kupac) => (
-                <div key={kupac.id} className="border border-orange-200 bg-white p-4">
+                <div
+                  key={kupac.id}
+                  className={`border p-4 ${
+                    kupac.aktivan ? "border-orange-200 bg-white" : "border-stone-300 bg-stone-50"
+                  }`}
+                >
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <div>
@@ -345,6 +368,13 @@ export default function PutnikPage() {
                         <div><Oznaka>{nazivTipa(kupac.tip)}</Oznaka></div>
                         <div><Oznaka>{nazivStatusa(kupac.status)}</Oznaka></div>
                         <div><Oznaka>Kategorija {kupac.kategorija || "-"}</Oznaka></div>
+                        {!kupac.aktivan ? (
+                          <div>
+                            <span className="inline-flex border border-stone-400 bg-stone-100 px-2 py-1 text-[11px] font-semibold text-stone-600">
+                              Neaktivan
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
 

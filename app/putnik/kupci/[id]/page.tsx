@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { formatHrDateTime } from "@/lib/datum";
+import { getAuthUser } from "@/lib/putnik-auth";
+import { postaviAktivanKupca } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -167,6 +169,9 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
   if (!kupac) {
     notFound();
   }
+
+  const user = await getAuthUser();
+  const jeAdmin = user?.role === "ADMIN";
 
   const ankete = kupac.ankete || [];
   const dogovori = kupac.dogovori || [];
@@ -371,6 +376,12 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
               <div className="mt-1 text-[13px] text-stone-500">
                 Pregled kupca kroz vrijeme: ankete, dogovori, prodaja i ulaganje.
               </div>
+
+              {!kupac.aktivan ? (
+                <span className="mt-2 inline-flex border border-stone-400 bg-stone-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-600">
+                  Neaktivan lokal
+                </span>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -415,6 +426,27 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
               >
                 Nova aktivnost
               </Link>
+
+              {jeAdmin ? (
+                <form action={postaviAktivanKupca}>
+                  <input type="hidden" name="id" value={kupac.id} />
+                  <input
+                    type="hidden"
+                    name="aktivan"
+                    value={kupac.aktivan ? "false" : "true"}
+                  />
+                  <button
+                    type="submit"
+                    className={
+                      kupac.aktivan
+                        ? "border border-stone-400 bg-white px-4 py-2 text-[13px] font-semibold text-stone-700 hover:bg-stone-100"
+                        : "border border-green-500 bg-green-50 px-4 py-2 text-[13px] font-semibold text-green-800 hover:brightness-105"
+                    }
+                  >
+                    {kupac.aktivan ? "Označi neaktivnim" : "Vrati u aktivne"}
+                  </button>
+                </form>
+              ) : null}
             </div>
           </div>
         </header>

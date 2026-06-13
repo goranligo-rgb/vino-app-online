@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requirePutnikUser } from "@/lib/putnik-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,8 @@ function num(formData: FormData, name: string) {
 
 async function spremiKupca(formData: FormData) {
   "use server";
+
+  await requirePutnikUser();
 
   const id = String(formData.get("id") || "").trim();
   if (!id) return;
