@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { formatHrDateTime } from "@/lib/datum";
 import { getAuthUser } from "@/lib/putnik-auth";
 import { postaviAktivanKupca } from "./actions";
+import { otvoriDanasnjiPosjet } from "./posjet/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -385,69 +386,72 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
               ) : null}
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href="/putnik"
-                className="border border-orange-300 bg-white px-4 py-2 text-[13px] font-semibold text-stone-700 hover:bg-orange-50"
-              >
-                Natrag
-              </Link>
+            <div className="flex flex-col items-stretch gap-2 md:items-end">
+              {/* GLAVNA dnevna akcija: posjet (auto-kreira/otvara danasnji + kamere) */}
+              <form action={otvoriDanasnjiPosjet} className="w-full md:w-auto">
+                <input type="hidden" name="kupacId" value={kupac.id} />
+                <button
+                  type="submit"
+                  className="inline-flex w-full items-center justify-center gap-2 border border-orange-500 bg-gradient-to-b from-orange-500 to-amber-600 px-6 py-3 text-[17px] font-bold text-white shadow-sm hover:brightness-105 md:w-auto"
+                >
+                  📷 Posjet
+                </button>
+              </form>
 
-              <Link
-                href={`/putnik/kupci/${kupac.id}/uredi`}
-                className="border border-orange-300 bg-white px-4 py-2 text-[13px] font-semibold text-stone-700 hover:bg-orange-50"
-              >
-                Uredi kupca
-              </Link>
+              {/* sporedne akcije - manje, sekundarne */}
+              <div className="flex flex-wrap gap-1.5 md:justify-end">
+                <Link
+                  href="/putnik"
+                  className="border border-orange-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-stone-600 hover:bg-orange-50"
+                >
+                  Natrag
+                </Link>
+                <Link
+                  href={`/putnik/kupci/${kupac.id}/uredi`}
+                  className="border border-orange-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-stone-600 hover:bg-orange-50"
+                >
+                  Uredi kupca
+                </Link>
+                <Link
+                  href={`/putnik/kupci/${kupac.id}/anketa/nova`}
+                  className="border border-orange-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-stone-600 hover:bg-orange-50"
+                >
+                  Nova anketa
+                </Link>
+                <Link
+                  href={`/putnik/kupci/${kupac.id}/dogovor/novi`}
+                  className="border border-orange-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-stone-600 hover:bg-orange-50"
+                >
+                  Novi dogovor
+                </Link>
+                <Link
+                  href={`/putnik/kupci/${kupac.id}/aktivnost/nova`}
+                  className="border border-orange-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-stone-600 hover:bg-orange-50"
+                >
+                  Nova aktivnost
+                </Link>
 
-              <Link
-                href={`/putnik/kupci/${kupac.id}/anketa/nova`}
-                className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
-              >
-                Nova anketa
-              </Link>
-
-              <Link
-                href={`/putnik/kupci/${kupac.id}/dogovor/novi`}
-                className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
-              >
-                Novi dogovor
-              </Link>
-
-              <Link
-                href={`/putnik/kupci/${kupac.id}/posjet/novi`}
-                className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
-              >
-                Novi posjet
-              </Link>
-
-              <Link
-                href={`/putnik/kupci/${kupac.id}/aktivnost/nova`}
-                className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
-              >
-                Nova aktivnost
-              </Link>
-
-              {jeAdmin ? (
-                <form action={postaviAktivanKupca}>
-                  <input type="hidden" name="id" value={kupac.id} />
-                  <input
-                    type="hidden"
-                    name="aktivan"
-                    value={kupac.aktivan ? "false" : "true"}
-                  />
-                  <button
-                    type="submit"
-                    className={
-                      kupac.aktivan
-                        ? "border border-stone-400 bg-white px-4 py-2 text-[13px] font-semibold text-stone-700 hover:bg-stone-100"
-                        : "border border-green-500 bg-green-50 px-4 py-2 text-[13px] font-semibold text-green-800 hover:brightness-105"
-                    }
-                  >
-                    {kupac.aktivan ? "Označi neaktivnim" : "Vrati u aktivne"}
-                  </button>
-                </form>
-              ) : null}
+                {jeAdmin ? (
+                  <form action={postaviAktivanKupca}>
+                    <input type="hidden" name="id" value={kupac.id} />
+                    <input
+                      type="hidden"
+                      name="aktivan"
+                      value={kupac.aktivan ? "false" : "true"}
+                    />
+                    <button
+                      type="submit"
+                      className={
+                        kupac.aktivan
+                          ? "border border-stone-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-stone-600 hover:bg-stone-100"
+                          : "border border-green-500 bg-green-50 px-3 py-1.5 text-[12px] font-semibold text-green-800 hover:brightness-105"
+                      }
+                    >
+                      {kupac.aktivan ? "Označi neaktivnim" : "Vrati u aktivne"}
+                    </button>
+                  </form>
+                ) : null}
+              </div>
             </div>
           </div>
         </header>

@@ -127,23 +127,18 @@ function Grupa({
 
   return (
     <div className="border border-orange-100 bg-orange-50/40 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-orange-800/70">
-          {naslov}
-        </div>
-        <label className="inline-flex cursor-pointer items-center border border-orange-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-orange-900 hover:bg-orange-50">
-          {loading ? "Spremanje..." : "📷 Dodaj"}
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            disabled={loading}
-            onChange={handleOdabir}
-          />
-        </label>
-      </div>
+      <label className="flex w-full cursor-pointer items-center justify-center gap-2 border-2 border-orange-400 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-4 text-[16px] font-bold text-orange-950 hover:brightness-105">
+        {loading ? "Spremanje..." : `📷 Kamera ${naslov.toLowerCase()}`}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          disabled={loading}
+          onChange={handleOdabir}
+        />
+      </label>
 
       {slike.length === 0 ? (
         <div className="mt-2 text-[13px] text-stone-500">Nema slika.</div>
@@ -194,9 +189,9 @@ export default function PosjetSlike({ posjetId, slike }: Props) {
   return (
     <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
       <div className="border-b border-orange-200 pb-3">
-        <h2 className="text-[20px] font-semibold text-stone-800">Slike posjeta</h2>
+        <h2 className="text-[22px] font-bold text-stone-800">📷 Kamera — prije i poslije</h2>
         <p className="mt-1 text-[13px] text-stone-500">
-          Foto stanje police prije i poslije. Slika se komprimira prije slanja; loše snimke
+          Slikaj stanje police prije i poslije. Slika se komprimira prije slanja; loše snimke
           slobodno obriši i slikaj ponovno.
         </p>
       </div>

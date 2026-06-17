@@ -121,10 +121,10 @@ export default async function UrediPosjetPage({ params }: { params: PageParams }
                 Putnik / teren CRM
               </div>
               <h1 className="mt-1 text-[28px] font-semibold tracking-tight text-stone-800">
-                Uredi posjet — {kupac.nazivLokala}
+                Posjet — {kupac.nazivLokala}
               </h1>
               <div className="mt-1 text-[13px] text-stone-500">
-                Izmjena narudžbe, poklona, duga i zabilješki. Zaliha se preračuna automatski.
+                Prvo slikaj prije/poslije, pa po potrebi dopuni narudžbu, dug i zabilješke.
               </div>
             </div>
 
@@ -145,6 +145,10 @@ export default async function UrediPosjetPage({ params }: { params: PageParams }
           </div>
         </div>
 
+        {/* Kamere PRVO i najistaknutije - glavna terenska radnja */}
+        <PosjetSlike posjetId={posjet.id} slike={slike} />
+
+        {/* Ostatak forme posjeta - sporedno, za dopuniti po potrebi */}
         <PosjetForm
           kupacId={kupac.id}
           danas={danas}
@@ -155,8 +159,6 @@ export default async function UrediPosjetPage({ params }: { params: PageParams }
           action={azurirajPosjet}
           initial={initial}
         />
-
-        <PosjetSlike posjetId={posjet.id} slike={slike} />
       </div>
     </main>
   );

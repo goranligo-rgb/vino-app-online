@@ -3,6 +3,7 @@
 import Link from "next/link";
 import NatragHome from "@/components/NatragHome";
 import { useEffect, useMemo, useState } from "react";
+import { otvoriDanasnjiPosjet } from "./kupci/[id]/posjet/actions";
 
 type Kupac = {
   id: string;
@@ -398,31 +399,45 @@ export default function PutnikPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <Link
-                        href={`/putnik/kupci/${kupac.id}`}
-                        className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
-                      >
-                        Otvori lokal
-                      </Link>
-                      <Link
-                        href={`/putnik/kupci/${kupac.id}/anketa/nova`}
-                        className="border border-orange-200 bg-white px-4 py-2 text-[13px] font-semibold text-stone-700 hover:bg-orange-50"
-                      >
-                        Nova anketa
-                      </Link>
-                      <Link
-                        href={`/putnik/kupci/${kupac.id}/dogovor/novi`}
-                        className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
-                      >
-                        Novi dogovor
-                      </Link>
-                      <Link
-                        href={`/putnik/kupci/${kupac.id}/uredi`}
-                        className="border border-orange-300 bg-white px-4 py-2 text-[13px] font-semibold text-stone-700 hover:bg-orange-50"
-                      >
-                        Uredi kupca
-                      </Link>
+                    <div className="flex flex-col items-stretch gap-2">
+                      {/* GLAVNA dnevna akcija: posjet - istaknut i velik */}
+                      <form action={otvoriDanasnjiPosjet}>
+                        <input type="hidden" name="kupacId" value={kupac.id} />
+                        <button
+                          type="submit"
+                          className="inline-flex w-full items-center justify-center gap-2 border border-orange-500 bg-gradient-to-b from-orange-500 to-amber-600 px-6 py-3 text-[16px] font-bold text-white shadow-sm hover:brightness-105"
+                        >
+                          📷 Posjet
+                        </button>
+                      </form>
+
+                      {/* sporedne akcije - manje */}
+                      <div className="flex flex-wrap gap-1.5">
+                        <Link
+                          href={`/putnik/kupci/${kupac.id}`}
+                          className="border border-orange-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-stone-600 hover:bg-orange-50"
+                        >
+                          Otvori lokal
+                        </Link>
+                        <Link
+                          href={`/putnik/kupci/${kupac.id}/anketa/nova`}
+                          className="border border-orange-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-stone-600 hover:bg-orange-50"
+                        >
+                          Nova anketa
+                        </Link>
+                        <Link
+                          href={`/putnik/kupci/${kupac.id}/dogovor/novi`}
+                          className="border border-orange-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-stone-600 hover:bg-orange-50"
+                        >
+                          Novi dogovor
+                        </Link>
+                        <Link
+                          href={`/putnik/kupci/${kupac.id}/uredi`}
+                          className="border border-orange-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-stone-600 hover:bg-orange-50"
+                        >
+                          Uredi kupca
+                        </Link>
+                      </div>
                     </div>
                   </div>
                 </div>

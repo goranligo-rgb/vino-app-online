@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requirePutnikUser } from "@/lib/putnik-auth";
+import { formatHrDate } from "@/lib/datum";
 
 function text(formData: FormData, name: string) {
   const value = String(formData.get(name) || "").trim();
@@ -162,6 +163,44 @@ async function pripremiOtpise(
     otpisaoKorisnikIme: ime,
     statusPripreme: p.status,
   }));
+}
+
+/**
+ * Glavna dnevna akcija: otvori DANASNJI posjet lokala (kamera + forma).
+ *
+ * Guard za duplikat dana: ako za danas (Zagreb zona) vec postoji posjet ovom
+ * lokalu, otvara se TAJ (bez kreiranja drugog) — tako se istim danom ne
+ * nakupljaju duplikati. Ako ne postoji, tiho se kreira prazan posjet
+ * (datum=danas, putnik=ja) i odmah otvara ekran posjeta. Pokoji prazan posjet
+ * od odustajanja je prihvatljiv jer je posjet svakodnevna radnja.
+ */
+export async function otvoriDanasnjiPosjet(formData: FormData) {
+  const user = await requirePutnikUser();
+
+  const kupacId = String(formData.get("kupacId") || "").trim();
+  if (!kupacId) return;
+
+  const danas = formatHrDate(new Date());
+  const danasnji = await prisma.putnikPosjet.findMany({
+    where: { kupacId },
+    select: { id: true, datum: true },
+    orderBy: { datum: "desc" },
+    take: 50,
+  });
+  const postojeci = danasnji.find((p) => formatHrDate(p.datum) === danas);
+
+  let posjetId = postojeci?.id;
+  if (!posjetId) {
+    const novi = await prisma.putnikPosjet.create({
+      data: { kupacId, putnikIme: user.ime || null, datum: new Date() },
+      select: { id: true },
+    });
+    posjetId = novi.id;
+    revalidatePath("/putnik");
+    revalidatePath(`/putnik/kupci/${kupacId}`);
+  }
+
+  redirect(`/putnik/kupci/${kupacId}/posjet/${posjetId}/uredi`);
 }
 
 export async function spremiPosjet(formData: FormData) {
