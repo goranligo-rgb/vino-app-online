@@ -863,6 +863,11 @@ enum PutnikProdajaTrend {
   NEPOZNATO
 }
 
+enum PutnikPosjetSlikaTip {
+  PRIJE
+  POSLIJE
+}
+
 model PutnikKupac {
   id String @id @default(cuid())
 
@@ -1125,9 +1130,27 @@ model PutnikPosjet {
 
   stavke      PutnikPosjetStavka[]
   promoOtpisi PutnikPromoKupca[]
+  slike       PutnikPosjetSlika[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model PutnikPosjetSlika {
+  id       String       @id @default(cuid())
+  posjetId String
+  posjet   PutnikPosjet @relation(fields: [posjetId], references: [id], onDelete: Cascade)
+
+  tip          PutnikPosjetSlikaTip
+  putanja      String // putanja u Supabase bucketu (ne URL)
+  mimeType     String?
+  velicinaByte Int?
+  putnikIme    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([posjetId])
+  @@index([posjetId, tip])
 }
 
 model PutnikPosjetStavka {

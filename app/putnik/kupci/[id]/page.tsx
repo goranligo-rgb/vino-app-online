@@ -154,6 +154,7 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
         include: {
           stavke: { orderBy: { createdAt: "asc" } },
           promoOtpisi: { include: { artikl: { select: { naziv: true } } } },
+          _count: { select: { slike: true } },
         },
       },
       aktivnosti: {
@@ -757,7 +758,7 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                         href={`/putnik/kupci/${kupac.id}/posjet/${p.id}/uredi`}
                         className="inline-flex border border-orange-300 bg-white px-2 py-1 font-semibold text-orange-900 hover:bg-orange-50"
                       >
-                        Uredi
+                        {p._count.slike > 0 ? `Uredi · 📷 ${p._count.slike}` : "Uredi · 📷"}
                       </Link>
                     </div>
                   </div>

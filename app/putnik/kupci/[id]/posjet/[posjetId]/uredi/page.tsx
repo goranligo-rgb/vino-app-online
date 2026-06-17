@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import PosjetForm, { type InitialPosjet } from "../../posjet-form";
+import PosjetSlike, { type SlikaPrikaz } from "../../posjet-slike";
+import { potpisaniUrl } from "@/lib/supabase-storage";
 import { azurirajPosjet } from "../../actions";
 
 export const dynamic = "force-dynamic";
@@ -58,6 +60,21 @@ export default async function UrediPosjetPage({ params }: { params: PageParams }
   ]);
 
   const danas = new Date().toISOString().slice(0, 10);
+
+  // Slike posjeta + potpisani URL-ovi (bucket je privatan, URL istekne za 1h).
+  // Stranica je force-dynamic pa se URL-ovi svjeze potpisuju na svaki render.
+  const slikeRedovi = await prisma.putnikPosjetSlika.findMany({
+    where: { posjetId },
+    orderBy: { createdAt: "asc" },
+  });
+  const slike: SlikaPrikaz[] = await Promise.all(
+    slikeRedovi.map(async (s) => ({
+      id: s.id,
+      tip: s.tip,
+      url: await potpisaniUrl(s.putanja),
+      putnikIme: s.putnikIme,
+    }))
+  );
 
   const initial: InitialPosjet = {
     id: posjet.id,
@@ -138,6 +155,8 @@ export default async function UrediPosjetPage({ params }: { params: PageParams }
           action={azurirajPosjet}
           initial={initial}
         />
+
+        <PosjetSlike posjetId={posjet.id} slike={slike} />
       </div>
     </main>
   );
