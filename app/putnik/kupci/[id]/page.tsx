@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { formatHrDateTime } from "@/lib/datum";
+import { formatHrDateTime, formatHrDate } from "@/lib/datum";
 import { getAuthUser } from "@/lib/putnik-auth";
 import { postaviAktivanKupca } from "./actions";
 import { otvoriDanasnjiPosjet } from "./posjet/actions";
+import PosjetGalerija from "./posjet/posjet-galerija";
 
 export const dynamic = "force-dynamic";
 
@@ -189,6 +190,10 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
   const zadnjiDogovor = dogovori[dogovori.length - 1] || null;
   const zadnjiPosjet = posjeti[0] || null; // posjeti su sortirani datum desc
   const jePotencijalni = kupac.status === "POTENCIJALNI";
+
+  // Za povijest posjeta: danasnji posjet ima galeriju otvorenu (putnik upravo
+  // slika), prosli su slozeni. URL-ovi se potpisuju lazy u PosjetGalerija.
+  const danasDatum = formatHrDate(new Date());
 
   const eur = (v?: number | null) =>
     v != null ? `${v.toLocaleString("hr-HR")} EUR` : "-";
@@ -819,6 +824,14 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                       ) : null}
                     </div>
                   </div>
+
+                  {p._count.slike > 0 ? (
+                    <PosjetGalerija
+                      posjetId={p.id}
+                      brojSlika={p._count.slike}
+                      defaultOpen={formatHrDate(p.datum) === danasDatum}
+                    />
+                  ) : null}
                 </div>
               ))}
             </div>

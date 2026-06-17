@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePutnikAccess } from "@/lib/putnik-auth";
-import { uploadObjekt, obrisiObjekt } from "@/lib/supabase-storage";
+import { uploadObjekt, obrisiObjekt, potpisaniUrl } from "@/lib/supabase-storage";
 
 const TIPOVI = new Set(["PRIJE", "POSLIJE"]);
 
@@ -15,6 +15,43 @@ const EXT: Record<string, string> = {
 };
 
 const MAX_BYTE = 8 * 1024 * 1024; // 8 MB - klijent komprimira, ovo je zastita
+
+// GET: slike jednog posjeta s potpisanim URL-ovima (lazy - potpisuje se tek
+// kad se posjet razgrne u povijesti, nikad sve odjednom).
+export async function GET(req: Request) {
+  const auth = await requirePutnikAccess();
+  if (auth instanceof NextResponse) return auth;
+
+  try {
+    const posjetId = new URL(req.url).searchParams.get("posjetId")?.trim();
+    if (!posjetId) {
+      return NextResponse.json({ error: "Nedostaje posjetId." }, { status: 400 });
+    }
+
+    const redovi = await prisma.putnikPosjetSlika.findMany({
+      where: { posjetId },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const slike = await Promise.all(
+      redovi.map(async (s) => ({
+        id: s.id,
+        tip: s.tip,
+        url: await potpisaniUrl(s.putanja),
+        putnikIme: s.putnikIme,
+        createdAt: s.createdAt,
+      }))
+    );
+
+    return NextResponse.json({ slike });
+  } catch (error) {
+    console.error("Greska kod dohvata slika posjeta:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Nepoznata greska kod dohvata slika." },
+      { status: 500 }
+    );
+  }
+}
 
 // POST: upload jedne slike (prije/poslije) za postojeci posjet.
 export async function POST(req: Request) {
