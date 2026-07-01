@@ -1269,6 +1269,9 @@ model PutnikVinoArtikl {
   zaduzenja PutnikVinoZaduzenje[]
   stavke    PutnikPosjetStavka[]
 
+  // Faza 9 - povrat vina iz vozila u skladište (izlaz iz zalihe vozila)
+  povrati PutnikVinoPovrat[]
+
   createdAt DateTime @default(now())
 }
 
@@ -1302,6 +1305,9 @@ model PutnikPromoArtikl {
   ulazi  PutnikPromoUlaz[]
   otpisi PutnikPromoKupca[]
 
+  // Faza 9 - povrat promo materijala iz vozila u skladište (izlaz iz zalihe vozila)
+  povrati PutnikPromoPovrat[]
+
   createdAt DateTime @default(now())
 }
 
@@ -1318,6 +1324,48 @@ model PutnikPromoUlaz {
   datum           DateTime @default(now())
   unioKorisnikIme String?
   napomena        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([artiklId])
+  @@index([putnikIme])
+}
+
+// Faza 9 - povrat vina iz vozila u skladište (IZLAZ iz zalihe vozila).
+// Zrcali PutnikVinoZaduzenje, ali obrnuti smjer: putnik vraća neprodanu robu, L1/2 je prime.
+// Ostalo u autu = Σ zaduzeno − Σ (prodano + gratis) − Σ vraceno. Vraćaju samo L1/2.
+model PutnikVinoPovrat {
+  id       String           @id @default(cuid())
+  artiklId String
+  artikl   PutnikVinoArtikl @relation(fields: [artiklId], references: [id])
+
+  putnikIme String // iz čijeg auta se vraća (kao PutnikVinoZaduzenje.putnikIme)
+  kolicina  Float
+  jedinica  String? @default("kom")
+
+  datum             DateTime @default(now())
+  primioKorisnikIme String? // L1/2 koji je primio povrat u skladište
+  napomena          String?
+
+  createdAt DateTime @default(now())
+
+  @@index([artiklId])
+  @@index([putnikIme])
+}
+
+// Faza 9 - povrat promo materijala iz vozila u skladište, analogno PutnikVinoPovrat.
+// Promo količina je Int (kom). Ostalo u autu = Σ zaduzeno − Σ otpisano − Σ vraceno.
+model PutnikPromoPovrat {
+  id       String            @id @default(cuid())
+  artiklId String
+  artikl   PutnikPromoArtikl @relation(fields: [artiklId], references: [id])
+
+  putnikIme String
+  kolicina  Int
+
+  datum             DateTime @default(now())
+  primioKorisnikIme String?
+  napomena          String?
 
   createdAt DateTime @default(now())
 

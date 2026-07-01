@@ -28,7 +28,7 @@ export default async function PromoPage({
 
   const danas = new Date().toISOString().slice(0, 10);
 
-  const [artikli, ulazi, otpisi, kupci, vina] = await Promise.all([
+  const [artikli, ulazi, otpisi, kupci, vina, promoPovrati] = await Promise.all([
     prisma.putnikPromoArtikl.findMany({ orderBy: [{ aktivan: "desc" }, { naziv: "asc" }] }),
     prisma.putnikPromoUlaz.findMany({
       orderBy: { datum: "desc" },
@@ -48,18 +48,20 @@ export default async function PromoPage({
       orderBy: { nazivLokala: "asc" },
     }),
     prisma.putnikVinoArtikl.findMany({ orderBy: [{ aktivan: "desc" }, { naziv: "asc" }] }),
+    // Faza 9 - povrat promo materijala iz auta u skladište (izlaz)
+    prisma.putnikPromoPovrat.findMany({ include: { artikl: { select: { naziv: true } } } }),
   ]);
 
   // Faza 8 - stanje PO PUTNIKU: zaduženo (ulazi.putnikIme) − otpisano (otpisaoKorisnikIme).
   // putnik -> (artiklId -> { naziv, zaduzeno, otpisano })
-  type PromoStanje = { naziv: string; zaduzeno: number; otpisano: number };
+  type PromoStanje = { naziv: string; zaduzeno: number; otpisano: number; vraceno: number };
   const poPutniku = new Map<string, Map<string, PromoStanje>>();
   function recPutnik(putnik: string, artiklId: string, naziv: string): PromoStanje {
     if (!poPutniku.has(putnik)) poPutniku.set(putnik, new Map());
     const m = poPutniku.get(putnik)!;
     let r = m.get(artiklId);
     if (!r) {
-      r = { naziv, zaduzeno: 0, otpisano: 0 };
+      r = { naziv, zaduzeno: 0, otpisano: 0, vraceno: 0 };
       m.set(artiklId, r);
     }
     return r;
@@ -72,6 +74,9 @@ export default async function PromoPage({
     if (!o.artiklId) continue;
     const putnik = o.otpisaoKorisnikIme || "—";
     recPutnik(putnik, o.artiklId, o.artikl?.naziv || o.naziv || "—").otpisano += o.kolicina;
+  }
+  for (const p of promoPovrati) {
+    recPutnik(p.putnikIme, p.artiklId, p.artikl?.naziv || "—").vraceno += p.kolicina;
   }
 
   // Po lokalu: kupac -> (artikl naziv -> kolicina)
@@ -117,7 +122,7 @@ export default async function PromoPage({
         <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
           <h2 className="mb-1 text-[18px] font-semibold text-stone-800">Stanje promo zalihe po putniku</h2>
           <p className="mb-3 text-[12px] text-stone-500">
-            Zaduženo (na <Link href="/putnik/zaduzenje" className="text-orange-800 underline">zaduženju vozila</Link>, L1/2) − otpisano po lokalu = ostalo u autu. Minus zaliha je dopušten i crven.
+            Zaduženo (na <Link href="/putnik/zaduzenje" className="text-orange-800 underline">zaduženju vozila</Link>, L1/2) − otpisano po lokalu − vraćeno u skladište = ostalo u autu. Minus zaliha je dopušten i crven.
           </p>
           {poPutniku.size === 0 ? (
             <div className="border border-orange-200 bg-white px-4 py-3 text-[13px] text-stone-500">
@@ -135,17 +140,19 @@ export default async function PromoPage({
                           <th className="px-3 py-2">Artikl</th>
                           <th className="px-3 py-2 text-right">Zaduženo</th>
                           <th className="px-3 py-2 text-right">Otpisano</th>
+                          <th className="px-3 py-2 text-right">Vraćeno</th>
                           <th className="px-3 py-2 text-right">Ostalo</th>
                         </tr>
                       </thead>
                       <tbody>
                         {[...m.entries()].map(([aid, r]) => {
-                          const ostalo = r.zaduzeno - r.otpisano;
+                          const ostalo = r.zaduzeno - r.otpisano - r.vraceno;
                           return (
                             <tr key={aid} className="border-t border-orange-100">
                               <td className="px-3 py-2 font-semibold text-stone-800">{r.naziv}</td>
                               <td className="px-3 py-2 text-right">{r.zaduzeno}</td>
                               <td className="px-3 py-2 text-right">{r.otpisano}</td>
+                              <td className="px-3 py-2 text-right">{r.vraceno}</td>
                               <td className={`px-3 py-2 text-right font-semibold ${ostalo < 0 ? "text-red-600" : "text-stone-800"}`}>
                                 {ostalo}
                                 {ostalo < 0 ? (

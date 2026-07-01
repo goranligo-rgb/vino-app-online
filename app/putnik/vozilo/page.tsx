@@ -36,7 +36,7 @@ export default async function VoziloPage({
       })
     : [];
 
-  const [zaduzenja, prodajaStavke, promoUlazi, promoOtpisi] = await Promise.all([
+  const [zaduzenja, prodajaStavke, promoUlazi, promoOtpisi, vinoPovrati, promoPovrati] = await Promise.all([
     // VINO ULAZ: zaduženja vina ovom putniku
     prisma.putnikVinoZaduzenje.findMany({
       where: { putnikIme },
@@ -55,6 +55,16 @@ export default async function VoziloPage({
     // PROMO IZLAZ: otpis po lokalu, atribuiran putniku preko otpisaoKorisnikIme
     prisma.putnikPromoKupca.findMany({
       where: { artiklId: { not: null }, otpisaoKorisnikIme: putnikIme },
+      include: { artikl: { select: { naziv: true } } },
+    }),
+    // VINO IZLAZ (Faza 9): povrat vina iz auta u skladište
+    prisma.putnikVinoPovrat.findMany({
+      where: { putnikIme },
+      include: { artikl: { select: { naziv: true, zadanaJedinica: true } } },
+    }),
+    // PROMO IZLAZ (Faza 9): povrat promo materijala iz auta u skladište
+    prisma.putnikPromoPovrat.findMany({
+      where: { putnikIme },
       include: { artikl: { select: { naziv: true } } },
     }),
   ]);
@@ -78,6 +88,10 @@ export default async function VoziloPage({
     const jed = s.artikl?.zadanaJedinica || s.jedinica || "kom";
     recVino(s.artiklId, s.artikl?.naziv || s.nazivProizvoda, jed).izlaz += (s.kolicina || 0) + s.gratis;
   }
+  for (const p of vinoPovrati) {
+    const jed = p.artikl.zadanaJedinica || p.jedinica || "kom";
+    recVino(p.artiklId, p.artikl.naziv, jed).izlaz += p.kolicina; // povrat je izlaz iz auta
+  }
 
   // ── PROMO: ostalo = Σ zaduženo − Σ otpisano ──
   const promoMap = new Map<string, { naziv: string; zaduzeno: number; otpisano: number }>();
@@ -96,6 +110,9 @@ export default async function VoziloPage({
   for (const o of promoOtpisi) {
     if (!o.artiklId) continue;
     recPromo(o.artiklId, o.artikl?.naziv || o.naziv || "—").otpisano += o.kolicina;
+  }
+  for (const p of promoPovrati) {
+    recPromo(p.artiklId, p.artikl?.naziv || "—").otpisano += p.kolicina; // povrat je izlaz iz auta
   }
 
   // ── Jedan spisak: vino + promo zajedno, sortiran po nazivu ──

@@ -68,3 +68,68 @@ export async function zaduziPromo(formData: FormData) {
   revalidatePath("/putnik/zaduzenje");
   revalidatePath("/putnik/promo");
 }
+
+// Faza 9 - POVRAT vina iz vozila u skladiste (IZLAZ iz zalihe putnika).
+// Zrcali zaduziVino, ali suprotan smjer: putnik vraca neprodano, L1/2 primi u skladiste.
+// Smanjuje "ostalo u autu" na svih 5 mjesta kroz agregaciju (nova tablica PutnikVinoPovrat).
+export async function vratiVino(formData: FormData) {
+  const user = await requireLevel12User();
+
+  const artiklId = String(formData.get("artiklId") || "").trim();
+  const putnikIme = String(formData.get("putnikIme") || "").trim();
+  const kolRaw = String(formData.get("kolicina") || "").trim().replace(",", ".");
+  const kolicina = Number(kolRaw);
+  const jedinica = String(formData.get("jedinica") || "kom").trim() || "kom";
+  const napomena = String(formData.get("napomena") || "").trim() || null;
+  const datumRaw = String(formData.get("datum") || "").trim();
+
+  if (!artiklId || !putnikIme || !Number.isFinite(kolicina) || kolicina <= 0) return;
+
+  const datum = datumRaw ? new Date(`${datumRaw}T12:00:00`) : new Date();
+
+  await prisma.putnikVinoPovrat.create({
+    data: {
+      artiklId,
+      putnikIme,
+      kolicina,
+      jedinica,
+      datum: Number.isNaN(datum.getTime()) ? new Date() : datum,
+      primioKorisnikIme: user.ime || null,
+      napomena,
+    },
+  });
+
+  revalidatePath("/putnik/zaduzenje");
+  revalidatePath("/putnik/vozilo");
+}
+
+// Faza 9 - POVRAT promo materijala iz vozila u skladiste, analogno vratiVino (kolicina Int).
+export async function vratiPromo(formData: FormData) {
+  const user = await requireLevel12User();
+
+  const artiklId = String(formData.get("artiklId") || "").trim();
+  const putnikIme = String(formData.get("putnikIme") || "").trim();
+  const kolRaw = String(formData.get("kolicina") || "").trim().replace(",", ".");
+  const kolicina = parseInt(kolRaw, 10);
+  const napomena = String(formData.get("napomena") || "").trim() || null;
+  const datumRaw = String(formData.get("datum") || "").trim();
+
+  if (!artiklId || !putnikIme || !Number.isFinite(kolicina) || kolicina <= 0) return;
+
+  const datum = datumRaw ? new Date(`${datumRaw}T12:00:00`) : new Date();
+
+  await prisma.putnikPromoPovrat.create({
+    data: {
+      artiklId,
+      putnikIme,
+      kolicina,
+      datum: Number.isNaN(datum.getTime()) ? new Date() : datum,
+      primioKorisnikIme: user.ime || null,
+      napomena,
+    },
+  });
+
+  revalidatePath("/putnik/zaduzenje");
+  revalidatePath("/putnik/vozilo");
+  revalidatePath("/putnik/promo");
+}

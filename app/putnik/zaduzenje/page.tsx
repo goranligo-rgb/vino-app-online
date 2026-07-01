@@ -3,7 +3,7 @@ import NatragHome from "@/components/NatragHome";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/putnik-auth";
 import { formatHrDate } from "@/lib/datum";
-import { zaduziVino, zaduziPromo } from "./actions";
+import { zaduziVino, zaduziPromo, vratiVino, vratiPromo } from "./actions";
 import { oznaciIsporuceno } from "../priprema/actions";
 
 export const dynamic = "force-dynamic";
@@ -18,10 +18,10 @@ function Kartica({ naslov, vrijednost, podnaslov }: { naslov: string; vrijednost
   );
 }
 
-// Jedan red zalihe vina po putniku (zaduženo − prodano − gratis = ostalo)
-type VinoRed = { artiklId: string; naziv: string; jedinica: string; zaduzeno: number; prodano: number; gratis: number };
-// Jedan red zalihe promo materijala po putniku (zaduženo − otpisano = ostalo)
-type PromoRed = { artiklId: string; naziv: string; zaduzeno: number; otpisano: number };
+// Jedan red zalihe vina po putniku (zaduženo − prodano − gratis − vraćeno = ostalo)
+type VinoRed = { artiklId: string; naziv: string; jedinica: string; zaduzeno: number; prodano: number; gratis: number; vraceno: number };
+// Jedan red zalihe promo materijala po putniku (zaduženo − otpisano − vraćeno = ostalo)
+type PromoRed = { artiklId: string; naziv: string; zaduzeno: number; otpisano: number; vraceno: number };
 type IspRed = { kind: "vino" | "promo"; id: string; naziv: string; kolicina: number; jedinica?: string };
 
 export default async function ZaduzenjePage({
@@ -49,7 +49,7 @@ export default async function ZaduzenjePage({
     };
   }
 
-  const [zaduzenja, prodajaStavke, isporukaStavke, isporukaPromo, vina, putnici, zadnjaZaduzenja, promoArtikli, promoZaduzenja, promoOtpisi] = await Promise.all([
+  const [zaduzenja, prodajaStavke, isporukaStavke, isporukaPromo, vina, putnici, zadnjaZaduzenja, promoArtikli, promoZaduzenja, promoOtpisi, vinoPovrati, promoPovrati] = await Promise.all([
     // ULAZ u zalihu (zaduženja vina po putniku)
     prisma.putnikVinoZaduzenje.findMany({
       where: filterPutnik ? { putnikIme: filterPutnik } : {},
@@ -101,6 +101,16 @@ export default async function ZaduzenjePage({
       where: { artiklId: { not: null }, ...(filterPutnik ? { otpisaoKorisnikIme: filterPutnik } : {}) },
       include: { artikl: { select: { naziv: true } } },
     }),
+    // VINO IZLAZ (Faza 9): povrat vina iz auta u skladište
+    prisma.putnikVinoPovrat.findMany({
+      where: filterPutnik ? { putnikIme: filterPutnik } : {},
+      include: { artikl: { select: { naziv: true, zadanaJedinica: true } } },
+    }),
+    // PROMO IZLAZ (Faza 9): povrat promo materijala iz auta u skladište
+    prisma.putnikPromoPovrat.findMany({
+      where: filterPutnik ? { putnikIme: filterPutnik } : {},
+      include: { artikl: { select: { naziv: true } } },
+    }),
   ]);
 
   // ── ZA PRODAJU: zaliha vina po putniku (zaduženo − prodano − gratis) ──
@@ -110,7 +120,7 @@ export default async function ZaduzenjePage({
     const m = poPutnikuProdaja.get(putnik)!;
     let r = m.get(artiklId);
     if (!r) {
-      r = { artiklId, naziv, jedinica, zaduzeno: 0, prodano: 0, gratis: 0 };
+      r = { artiklId, naziv, jedinica, zaduzeno: 0, prodano: 0, gratis: 0, vraceno: 0 };
       m.set(artiklId, r);
     }
     return r;
@@ -127,6 +137,10 @@ export default async function ZaduzenjePage({
     r.prodano += s.kolicina || 0;
     r.gratis += s.gratis;
   }
+  for (const p of vinoPovrati) {
+    const jed = p.artikl.zadanaJedinica || p.jedinica || "kom";
+    recZa(p.putnikIme, p.artiklId, p.artikl.naziv, jed).vraceno += p.kolicina;
+  }
 
   // ── ZA PRODAJU (promo): zaliha promo po putniku (zaduženo − otpisano) ──
   const poPutnikuPromo = new Map<string, Map<string, PromoRed>>();
@@ -135,7 +149,7 @@ export default async function ZaduzenjePage({
     const m = poPutnikuPromo.get(putnik)!;
     let r = m.get(artiklId);
     if (!r) {
-      r = { artiklId, naziv, zaduzeno: 0, otpisano: 0 };
+      r = { artiklId, naziv, zaduzeno: 0, otpisano: 0, vraceno: 0 };
       m.set(artiklId, r);
     }
     return r;
@@ -148,6 +162,9 @@ export default async function ZaduzenjePage({
     if (!o.artiklId) continue;
     const putnik = o.otpisaoKorisnikIme || "—"; // otpis je atribuiran putniku koji ga je upisao
     recPromo(putnik, o.artiklId, o.artikl?.naziv || o.naziv || "—").otpisano += o.kolicina;
+  }
+  for (const p of promoPovrati) {
+    recPromo(p.putnikIme, p.artiklId, p.artikl?.naziv || "—").vraceno += p.kolicina;
   }
 
   // ── ZA ISPORUKU: pripremljeno po putniku → po lokalu ──
@@ -309,6 +326,82 @@ export default async function ZaduzenjePage({
           </div>
         ) : null}
 
+        {/* POVRAT ROBE U SKLADIŠTE (samo L1/2) — putnik se vrati s terena s neprodanom robom */}
+        {jeL12 ? (
+          <div className="border border-red-200 bg-gradient-to-b from-white to-red-50 p-4">
+            <h2 className="mb-1 text-[18px] font-semibold text-stone-800">Povrat robe u skladište (L1/L2)</h2>
+            <p className="mb-3 text-[12px] text-stone-500">
+              IZLAZ iz zalihe putnika: putnik vrati neprodano vino/promo, L1/2 ga primi natrag u skladište. Smanjuje „Ostalo u autu".
+            </p>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* Povrat vina */}
+              <div>
+                <div className="mb-2 text-[13px] font-semibold text-red-900">Povrat vina</div>
+                {vina.length === 0 ? (
+                  <div className="text-[13px] text-stone-500">Nema vina u katalogu.</div>
+                ) : (
+                  <form action={vratiVino} className="grid gap-2">
+                    <select name="putnikIme" required className={polje}>
+                      <option value="">Putnik…</option>
+                      {putnici.map((p) => (
+                        <option key={p.ime} value={p.ime}>{p.ime}</option>
+                      ))}
+                    </select>
+                    <select name="artiklId" required className={polje}>
+                      <option value="">Vino…</option>
+                      {vina.map((v) => (
+                        <option key={v.id} value={v.id}>{v.naziv}</option>
+                      ))}
+                    </select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input name="kolicina" type="number" step="any" placeholder="Količina" required className={polje} />
+                      <select name="jedinica" defaultValue="kom" className={polje}>
+                        <option value="kom">kom</option>
+                        <option value="L">L</option>
+                      </select>
+                    </div>
+                    <input name="datum" type="date" defaultValue={danas} className={polje} />
+                    <input name="napomena" placeholder="Napomena (opc.)" className={polje} />
+                    <button type="submit" className="border border-red-300 bg-gradient-to-b from-red-100 to-orange-100 px-4 py-2 text-[13px] font-semibold text-red-950 hover:brightness-105">
+                      Vrati u skladište
+                    </button>
+                  </form>
+                )}
+              </div>
+
+              {/* Povrat promo */}
+              <div>
+                <div className="mb-2 text-[13px] font-semibold text-red-900">Povrat promo materijala</div>
+                {promoArtikli.length === 0 ? (
+                  <div className="text-[13px] text-stone-500">Nema promo artikala u katalogu.</div>
+                ) : (
+                  <form action={vratiPromo} className="grid gap-2">
+                    <select name="putnikIme" required className={polje}>
+                      <option value="">Putnik…</option>
+                      {putnici.map((p) => (
+                        <option key={p.ime} value={p.ime}>{p.ime}</option>
+                      ))}
+                    </select>
+                    <select name="artiklId" required className={polje}>
+                      <option value="">Promo artikl…</option>
+                      {promoArtikli.map((a) => (
+                        <option key={a.id} value={a.id}>{a.naziv}</option>
+                      ))}
+                    </select>
+                    <input name="kolicina" type="number" placeholder="Količina (kom)" required className={polje} />
+                    <input name="datum" type="date" defaultValue={danas} className={polje} />
+                    <input name="napomena" placeholder="Napomena (opc.)" className={polje} />
+                    <button type="submit" className="border border-red-300 bg-gradient-to-b from-red-100 to-orange-100 px-4 py-2 text-[13px] font-semibold text-red-950 hover:brightness-105">
+                      Vrati u skladište
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {/* ZA PRODAJU (vino) — zaliha po putniku */}
         <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
           <h2 className="mb-3 text-[18px] font-semibold text-stone-800">Za prodaju — zaliha vina po putniku</h2>
@@ -327,18 +420,20 @@ export default async function ZaduzenjePage({
                           <th className="px-3 py-2 text-right">Zaduženo</th>
                           <th className="px-3 py-2 text-right">Prodano</th>
                           <th className="px-3 py-2 text-right">Gratis</th>
+                          <th className="px-3 py-2 text-right">Vraćeno</th>
                           <th className="px-3 py-2 text-right">Ostalo u autu</th>
                         </tr>
                       </thead>
                       <tbody>
                         {[...vinaMap.values()].map((r) => {
-                          const ostalo = r.zaduzeno - r.prodano - r.gratis;
+                          const ostalo = r.zaduzeno - r.prodano - r.gratis - r.vraceno;
                           return (
                             <tr key={r.artiklId} className="border-t border-orange-100">
                               <td className="px-3 py-2 font-semibold text-stone-800">{r.naziv}</td>
                               <td className="px-3 py-2 text-right">{r.zaduzeno} {r.jedinica}</td>
                               <td className="px-3 py-2 text-right">{r.prodano}</td>
                               <td className="px-3 py-2 text-right">{r.gratis}</td>
+                              <td className="px-3 py-2 text-right">{r.vraceno}</td>
                               <td className={`px-3 py-2 text-right font-semibold ${ostalo < 0 ? "text-red-600" : "text-stone-800"}`}>
                                 {ostalo} {r.jedinica}
                                 {ostalo < 0 ? (
@@ -374,17 +469,19 @@ export default async function ZaduzenjePage({
                           <th className="px-3 py-2">Promo artikl</th>
                           <th className="px-3 py-2 text-right">Zaduženo</th>
                           <th className="px-3 py-2 text-right">Otpisano</th>
+                          <th className="px-3 py-2 text-right">Vraćeno</th>
                           <th className="px-3 py-2 text-right">Ostalo u autu</th>
                         </tr>
                       </thead>
                       <tbody>
                         {[...promoMap.values()].map((r) => {
-                          const ostalo = r.zaduzeno - r.otpisano;
+                          const ostalo = r.zaduzeno - r.otpisano - r.vraceno;
                           return (
                             <tr key={r.artiklId} className="border-t border-orange-100">
                               <td className="px-3 py-2 font-semibold text-stone-800">{r.naziv}</td>
                               <td className="px-3 py-2 text-right">{r.zaduzeno}</td>
                               <td className="px-3 py-2 text-right">{r.otpisano}</td>
+                              <td className="px-3 py-2 text-right">{r.vraceno}</td>
                               <td className={`px-3 py-2 text-right font-semibold ${ostalo < 0 ? "text-red-600" : "text-stone-800"}`}>
                                 {ostalo}
                                 {ostalo < 0 ? (
