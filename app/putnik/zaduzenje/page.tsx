@@ -5,6 +5,7 @@ import { getAuthUser } from "@/lib/putnik-auth";
 import { formatHrDate } from "@/lib/datum";
 import { zaduziVino, zaduziPromo, vratiVino, vratiPromo } from "./actions";
 import { oznaciIsporuceno } from "../priprema/actions";
+import ZaduzenjeForm from "./zaduzenje-form";
 
 export const dynamic = "force-dynamic";
 
@@ -244,161 +245,76 @@ export default async function ZaduzenjePage({
           <Kartica naslov="Aktivnih vina / promo" vrijednost={`${vina.length} / ${promoArtikli.length}`} />
         </div>
 
-        {/* ZADUŽI VINO (samo L1/2) */}
+        {/* ULAZ — zaduži vino/promo (samo L1/2); više redova odjednom po putniku */}
         {jeL12 ? (
-          <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
-            <h2 className="mb-1 text-[18px] font-semibold text-stone-800">Zaduži vino putniku (L1/L2)</h2>
-            <p className="mb-3 text-[12px] text-stone-500">
-              Ovo je ULAZ u zalihu putnika (standardno punjenje za prodaju/gratis). Skida se na terenu kroz prodaju i gratis.
-            </p>
-            {vina.length === 0 ? (
-              <div className="text-[13px] text-stone-500">Prvo dodaj vino u katalog na /putnik/promo.</div>
-            ) : (
-              <form action={zaduziVino} className="grid gap-2 md:grid-cols-6">
-                <select name="putnikIme" required className={polje}>
-                  <option value="">Putnik…</option>
-                  {putnici.map((p) => (
-                    <option key={p.ime} value={p.ime}>{p.ime}</option>
-                  ))}
-                </select>
-                <select name="artiklId" required className={`${polje} md:col-span-2`}>
-                  <option value="">Vino…</option>
-                  {vina.map((v) => (
-                    <option key={v.id} value={v.id}>{v.naziv}</option>
-                  ))}
-                </select>
-                <input name="kolicina" type="number" step="any" placeholder="Količina" required className={polje} />
-                <select name="jedinica" defaultValue="kom" className={polje}>
-                  <option value="kom">kom</option>
-                  <option value="L">L</option>
-                </select>
-                <input name="datum" type="date" defaultValue={danas} className={polje} />
-                <input name="napomena" placeholder="Napomena (opc.)" className={`${polje} md:col-span-5`} />
-                <button type="submit" className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105">
-                  Zaduži
-                </button>
-              </form>
-            )}
-            {zadnjaZaduzenja.length ? (
-              <div className="mt-3 space-y-1 text-[13px]">
-                {zadnjaZaduzenja.map((z) => (
-                  <div key={z.id} className="flex flex-wrap justify-between gap-2 border border-orange-100 bg-white px-3 py-1.5">
-                    <span><strong>{z.putnikIme}</strong> — {z.artikl.naziv} <strong>+{z.kolicina} {z.jedinica || "kom"}</strong></span>
-                    <span className="text-stone-500">{formatHrDate(z.datum)}{z.unioKorisnikIme ? ` · ${z.unioKorisnikIme}` : ""}</span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ZaduzenjeForm
+              action={zaduziVino}
+              putnici={putnici}
+              artikli={vina}
+              danas={danas}
+              withJedinica
+              naslov="Zaduži vino putniku (L1/L2)"
+              opis="ULAZ u zalihu putnika (punjenje za prodaju/gratis). Odaberi putnika jednom, dodaj više vina, spremi sve."
+              gumb="Zaduži sve"
+              artiklPlaceholder="Vino"
+            />
+            <ZaduzenjeForm
+              action={zaduziPromo}
+              putnici={putnici}
+              artikli={promoArtikli}
+              danas={danas}
+              withJedinica={false}
+              naslov="Zaduži promo putniku (L1/L2)"
+              opis="ULAZ u promo zalihu (čaše, pokloni, reklamni materijal). Skida se na terenu kroz otpis po lokalu."
+              gumb="Zaduži sve"
+              artiklPlaceholder="Promo artikl"
+            />
           </div>
         ) : null}
 
-        {/* ZADUŽI PROMO (samo L1/2) */}
-        {jeL12 ? (
+        {/* Zadnja zaduženja vina (pregled) */}
+        {jeL12 && zadnjaZaduzenja.length ? (
           <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
-            <h2 className="mb-1 text-[18px] font-semibold text-stone-800">Zaduži promo putniku (L1/L2)</h2>
-            <p className="mb-3 text-[12px] text-stone-500">
-              ULAZ u promo zalihu putnika (čaše, pokloni, reklamni materijal). Skida se na terenu kroz otpis po lokalu.
-            </p>
-            {promoArtikli.length === 0 ? (
-              <div className="text-[13px] text-stone-500">Prvo dodaj promo artikl u katalog na /putnik/promo.</div>
-            ) : (
-              <form action={zaduziPromo} className="grid gap-2 md:grid-cols-6">
-                <select name="putnikIme" required className={polje}>
-                  <option value="">Putnik…</option>
-                  {putnici.map((p) => (
-                    <option key={p.ime} value={p.ime}>{p.ime}</option>
-                  ))}
-                </select>
-                <select name="artiklId" required className={`${polje} md:col-span-3`}>
-                  <option value="">Promo artikl…</option>
-                  {promoArtikli.map((a) => (
-                    <option key={a.id} value={a.id}>{a.naziv}</option>
-                  ))}
-                </select>
-                <input name="kolicina" type="number" placeholder="Količina (kom)" required className={polje} />
-                <input name="datum" type="date" defaultValue={danas} className={polje} />
-                <input name="napomena" placeholder="Napomena (opc.)" className={`${polje} md:col-span-5`} />
-                <button type="submit" className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105">
-                  Zaduži
-                </button>
-              </form>
-            )}
+            <h2 className="mb-2 text-[15px] font-semibold text-stone-800">Zadnja zaduženja vina</h2>
+            <div className="space-y-1 text-[13px]">
+              {zadnjaZaduzenja.map((z) => (
+                <div key={z.id} className="flex flex-wrap justify-between gap-2 border border-orange-100 bg-white px-3 py-1.5">
+                  <span><strong>{z.putnikIme}</strong> — {z.artikl.naziv} <strong>+{z.kolicina} {z.jedinica || "kom"}</strong></span>
+                  <span className="text-stone-500">{formatHrDate(z.datum)}{z.unioKorisnikIme ? ` · ${z.unioKorisnikIme}` : ""}</span>
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
 
         {/* POVRAT ROBE U SKLADIŠTE (samo L1/2) — putnik se vrati s terena s neprodanom robom */}
         {jeL12 ? (
-          <div className="border border-red-200 bg-gradient-to-b from-white to-red-50 p-4">
-            <h2 className="mb-1 text-[18px] font-semibold text-stone-800">Povrat robe u skladište (L1/L2)</h2>
-            <p className="mb-3 text-[12px] text-stone-500">
-              IZLAZ iz zalihe putnika: putnik vrati neprodano vino/promo, L1/2 ga primi natrag u skladište. Smanjuje „Ostalo u autu".
-            </p>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              {/* Povrat vina */}
-              <div>
-                <div className="mb-2 text-[13px] font-semibold text-red-900">Povrat vina</div>
-                {vina.length === 0 ? (
-                  <div className="text-[13px] text-stone-500">Nema vina u katalogu.</div>
-                ) : (
-                  <form action={vratiVino} className="grid gap-2">
-                    <select name="putnikIme" required className={polje}>
-                      <option value="">Putnik…</option>
-                      {putnici.map((p) => (
-                        <option key={p.ime} value={p.ime}>{p.ime}</option>
-                      ))}
-                    </select>
-                    <select name="artiklId" required className={polje}>
-                      <option value="">Vino…</option>
-                      {vina.map((v) => (
-                        <option key={v.id} value={v.id}>{v.naziv}</option>
-                      ))}
-                    </select>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input name="kolicina" type="number" step="any" placeholder="Količina" required className={polje} />
-                      <select name="jedinica" defaultValue="kom" className={polje}>
-                        <option value="kom">kom</option>
-                        <option value="L">L</option>
-                      </select>
-                    </div>
-                    <input name="datum" type="date" defaultValue={danas} className={polje} />
-                    <input name="napomena" placeholder="Napomena (opc.)" className={polje} />
-                    <button type="submit" className="border border-red-300 bg-gradient-to-b from-red-100 to-orange-100 px-4 py-2 text-[13px] font-semibold text-red-950 hover:brightness-105">
-                      Vrati u skladište
-                    </button>
-                  </form>
-                )}
-              </div>
-
-              {/* Povrat promo */}
-              <div>
-                <div className="mb-2 text-[13px] font-semibold text-red-900">Povrat promo materijala</div>
-                {promoArtikli.length === 0 ? (
-                  <div className="text-[13px] text-stone-500">Nema promo artikala u katalogu.</div>
-                ) : (
-                  <form action={vratiPromo} className="grid gap-2">
-                    <select name="putnikIme" required className={polje}>
-                      <option value="">Putnik…</option>
-                      {putnici.map((p) => (
-                        <option key={p.ime} value={p.ime}>{p.ime}</option>
-                      ))}
-                    </select>
-                    <select name="artiklId" required className={polje}>
-                      <option value="">Promo artikl…</option>
-                      {promoArtikli.map((a) => (
-                        <option key={a.id} value={a.id}>{a.naziv}</option>
-                      ))}
-                    </select>
-                    <input name="kolicina" type="number" placeholder="Količina (kom)" required className={polje} />
-                    <input name="datum" type="date" defaultValue={danas} className={polje} />
-                    <input name="napomena" placeholder="Napomena (opc.)" className={polje} />
-                    <button type="submit" className="border border-red-300 bg-gradient-to-b from-red-100 to-orange-100 px-4 py-2 text-[13px] font-semibold text-red-950 hover:brightness-105">
-                      Vrati u skladište
-                    </button>
-                  </form>
-                )}
-              </div>
-            </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ZaduzenjeForm
+              action={vratiVino}
+              putnici={putnici}
+              artikli={vina}
+              danas={danas}
+              withJedinica
+              naslov="Povrat vina u skladište (L1/L2)"
+              opis="IZLAZ iz zalihe putnika: putnik vrati neprodano vino, L1/2 ga primi natrag. Smanjuje „Ostalo u autu”."
+              gumb="Vrati sve"
+              artiklPlaceholder="Vino"
+              accent="red"
+            />
+            <ZaduzenjeForm
+              action={vratiPromo}
+              putnici={putnici}
+              artikli={promoArtikli}
+              danas={danas}
+              withJedinica={false}
+              naslov="Povrat promo u skladište (L1/L2)"
+              opis="IZLAZ iz promo zalihe putnika: vraćeni neprodani promo materijal se vraća u skladište."
+              gumb="Vrati sve"
+              artiklPlaceholder="Promo artikl"
+              accent="red"
+            />
           </div>
         ) : null}
 
