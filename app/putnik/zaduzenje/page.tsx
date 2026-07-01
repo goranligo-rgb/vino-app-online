@@ -238,6 +238,38 @@ export default async function ZaduzenjePage({
           </form>
         </div>
 
+        {/* DOKUMENTI ZA ISPIS (samo L1/2) — po odabranom putniku + datumu */}
+        {jeL12 ? (
+          <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
+            <h2 className="mb-1 text-[16px] font-semibold text-stone-800">Dokumenti za ispis</h2>
+            {filterPutnik && sp.datum ? (
+              <>
+                <p className="mb-3 text-[12px] text-stone-500">
+                  Za: <strong>{filterPutnik}</strong> · {formatHrDate(sp.datum)}. Otvara se čist ispis (Ctrl+P → Save as PDF).
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { vrsta: "otpremnica", label: "Otpremnica (zaduženje)" },
+                    { vrsta: "razduzenje", label: "Razduženje (povrat)" },
+                    { vrsta: "prodaja", label: "Popis prodaje / gratisa" },
+                  ].map((d) => (
+                    <Link
+                      key={d.vrsta}
+                      href={`/putnik/zaduzenje/dokument/${d.vrsta}?putnik=${encodeURIComponent(filterPutnik)}&datum=${encodeURIComponent(sp.datum!)}`}
+                      target="_blank"
+                      className="border border-orange-300 bg-white px-4 py-2 text-[13px] font-semibold text-orange-900 hover:bg-orange-50"
+                    >
+                      {d.label}
+                    </Link>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-[13px] text-stone-500">Odaberi <strong>putnika</strong> i <strong>datum</strong> u filtru pa se pojave dokumenti za ispis.</p>
+            )}
+          </div>
+        ) : null}
+
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           <Kartica naslov="Putnika (vino)" vrijednost={String(poPutnikuProdaja.size)} podnaslov="zaliha za prodaju" />
           <Kartica naslov="Putnika (promo)" vrijednost={String(poPutnikuPromo.size)} podnaslov="zaliha za prodaju" />
