@@ -9,6 +9,14 @@ import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
 import TankRoleActions from "./tank-role-actions";
 import TankRoleSastavModal from "./tank-role-sastav-modal";
 import TankRoleDokumentiUpload from "./tank-role-dokumenti-upload";
+import HladjenjeGraf from "./hladjenje-graf";
+import {
+  izracunajStatus,
+  stilZaStatus,
+  formatTemp,
+  prijeKoliko,
+  uBroj,
+} from "@/lib/temperatura";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -587,6 +595,25 @@ export default async function TankPregledPage({
 
   if (!tank) return notFound();
 
+  // Nadzor temperature: zadnje ocitanje + aktivni alarmi (Faza A, samo prikaz).
+  const [zadnjeOcitanje, aktivniAlarmi] = await Promise.all([
+    prisma.ocitanjeTemperature.findFirst({
+      where: { tankId: id },
+      orderBy: { mjerenoU: "desc" },
+    }),
+    prisma.tankAlarm.findMany({
+      where: { tankId: id, aktivan: true },
+      orderBy: { nastaoU: "desc" },
+    }),
+  ]);
+
+  const tempStatus = izracunajStatus({
+    mjerenoU: zadnjeOcitanje?.mjerenoU ?? null,
+    imaAktivanAlarm: aktivniAlarmi.length > 0,
+  });
+  const tempStil = stilZaStatus(tempStatus);
+  const hladiSad = zadnjeOcitanje?.hladjenjeAktivno ?? null;
+
   const mjerenjaZaTop = await prisma.mjerenje.findMany({
     where: { tankId: id },
     orderBy: { izmjerenoAt: "desc" },
@@ -867,15 +894,6 @@ const izvrseniZadaci = tankJePrazan
 
           <div style={measurementSecondaryGridStyle}>
             <ParamTop
-              label="Temperatura"
-              value={
-                zadnje?.temperatura != null
-                  ? formatBroj(zadnje.temperatura)
-                  : "—"
-              }
-              unit="°C"
-            />
-            <ParamTop
               label="pH"
               value={zadnje?.ph != null ? formatBroj(zadnje.ph) : "—"}
             />
@@ -935,6 +953,121 @@ const izvrseniZadaci = tankJePrazan
               : "nema bentotesta"}
           </div>
           {zadnje?.napomena ? <div>Napomena: {zadnje.napomena}</div> : null}
+        </div>
+      </Card>
+
+      <div id="hladjenje" style={{ scrollMarginTop: 16 }} />
+      <Card title="Hlađenje">
+        <div style={{ display: "grid", gap: 14 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 12px",
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: "0.4px",
+                background: tempStil.bg,
+                border: `1px solid ${tempStil.border}`,
+                color: tempStil.text,
+              }}
+            >
+              <span
+                style={{
+                  width: 9,
+                  height: 9,
+                  background: tempStil.dot,
+                }}
+              />
+              {tempStil.label}
+            </span>
+            <span style={{ fontSize: 12, color: "#777" }}>
+              Zadnje očitanje:{" "}
+              {zadnjeOcitanje
+                ? `${formatDatum(zadnjeOcitanje.mjerenoU)} (${prijeKoliko(
+                    zadnjeOcitanje.mjerenoU
+                  )})`
+                : "nema očitanja"}
+            </span>
+          </div>
+
+          <div style={topParamsGridStyle}>
+            <ParamTop
+              label="Trenutna temperatura"
+              value={formatTemp(zadnjeOcitanje?.temperatura)}
+              unit="°C"
+              emphasize
+              tone={tempStatus === "ALARM" ? "red" : "default"}
+            />
+            <ParamTop
+              label="Zadana temperatura"
+              value={formatTemp(tank.zadanaTemp)}
+              unit="°C"
+            />
+            <ParamTop
+              label="Hlađenje"
+              value={
+                hladiSad == null ? "—" : hladiSad ? "Hladi (ON)" : "Ne hladi (OFF)"
+              }
+              tone={hladiSad ? "green" : "default"}
+            />
+          </div>
+
+          <div style={topParamsGridStyle}>
+            <ParamTop
+              label="Alarm −"
+              value={formatTemp(tank.alarmMinus)}
+              unit="°C"
+            />
+            <ParamTop
+              label="Alarm +"
+              value={formatTemp(tank.alarmPlus)}
+              unit="°C"
+            />
+            <ParamTop
+              label="Modbus adresa"
+              value={tank.modbusAdresa ?? "—"}
+            />
+          </div>
+
+          {aktivniAlarmi.length > 0 ? (
+            <div
+              style={{
+                border: "1px solid #e0776f",
+                background: "#fdecec",
+                padding: 12,
+                display: "grid",
+                gap: 6,
+              }}
+            >
+              <div style={{ fontWeight: 700, color: "#a11d1d", fontSize: 13 }}>
+                Aktivni alarmi
+              </div>
+              {aktivniAlarmi.map((a) => (
+                <div key={a.id} style={{ fontSize: 13, color: "#a11d1d" }}>
+                  <strong>{a.tip}</strong> — {a.poruka}{" "}
+                  <span style={{ color: "#c06a63" }}>
+                    ({formatDatum(a.nastaoU)})
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <HladjenjeGraf tankId={tank.id} zadanaPocetna={uBroj(tank.zadanaTemp)} />
+
+          <div style={{ fontSize: 11, color: "#999" }}>
+            Samo prikaz — upravljanje temperaturom je zasebna faza.
+          </div>
         </div>
       </Card>
 

@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import {
+  izracunajStatus,
+  stilZaStatus,
+  formatTemp,
+} from "@/lib/temperatura";
 
 type Tank = {
   id: string;
@@ -10,6 +15,11 @@ type Tank = {
   tip: string | null;
   kolicinaVinaUTanku: number | null;
   sorta: string | null;
+  zadnjaTemp: number | null;
+  zadanaTemp: number | null;
+  hladjenjeAktivno: boolean | null;
+  mjerenoU: string | null;
+  imaAktivanAlarm: boolean;
 };
 
 type TankSaZadacima = Tank & {
@@ -220,6 +230,11 @@ export default function MonitorPage() {
       >
         {tankovi.map((tank) => {
           const status = getStatus(tank);
+          const tempStatus = izracunajStatus({
+            mjerenoU: tank.mjerenoU,
+            imaAktivanAlarm: tank.imaAktivanAlarm,
+          });
+          const tempStil = stilZaStatus(tempStatus);
 
           return (
             <Link
@@ -267,6 +282,41 @@ export default function MonitorPage() {
 
                   <div style={{ fontSize: 12 }}>
                     Aktivni zadaci: {tank.brojZadataka}
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      marginTop: 8,
+                      paddingTop: 8,
+                      borderTop: "1px solid rgba(0,0,0,0.08)",
+                      fontSize: 13,
+                    }}
+                    title={`Temperatura: ${tempStil.label}`}
+                  >
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        background: tempStil.dot,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span style={{ fontWeight: 700 }}>
+                      {formatTemp(tank.zadnjaTemp)} °C
+                    </span>
+                    {tank.zadanaTemp != null ? (
+                      <span style={{ color: "#888", fontSize: 12 }}>
+                        / {formatTemp(tank.zadanaTemp)}
+                      </span>
+                    ) : null}
+                    {tank.hladjenjeAktivno ? (
+                      <span style={{ marginLeft: "auto", fontSize: 12 }} title="Hlađenje aktivno">
+                        ❄
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 

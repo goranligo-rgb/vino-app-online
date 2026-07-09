@@ -146,6 +146,12 @@ export default async function DashboardPage() {
             />
           )}
 
+          <DashboardCard
+            href="/dashboard/hladjenje"
+            title="Hlađenje"
+            description="Nadzor i upravljanje temperaturom tankova"
+          />
+
           {canSeeMainDashboard && (
             <>
               <DashboardCard

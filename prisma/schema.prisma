@@ -24,6 +24,7 @@ model User {
   transfers      Transfer[]
   zadaciIzvrseni Zadatak[]     @relation("ZadatakIzvrsio")
   zadaciZadani   Zadatak[]     @relation("ZadatakZadao")
+  tankKomande    TankKomanda[]
 }
 
 model Tank {
@@ -37,6 +38,12 @@ model Tank {
   sorta              String?
   nazivVina          String?
   godiste            Int?
+  // --- Nadzor temperature (Faza A): sve nullable, aditivno na postojeci Tank ---
+  modbusAdresa       Int?             @unique
+  grana              String?
+  zadanaTemp         Decimal?         @db.Decimal(4, 1)
+  alarmMinus         Decimal?         @default(2.0) @db.Decimal(3, 1)
+  alarmPlus          Decimal?         @default(2.0) @db.Decimal(3, 1)
   additions          Addition[]
   blendIzvori        BlendIzvor[]     @relation("CiljniBlendTank")
   kaoIzvorBlenda     BlendIzvor[]     @relation("IzvorBlendTank")
@@ -57,6 +64,57 @@ model Tank {
   sourceTransfers    Transfer[]       @relation("SourceTankTransfers")
   targetTransfers    Transfer[]       @relation("TargetTankTransfers")
   zadaci             Zadatak[]
+  ocitanjaTemp       OcitanjeTemperature[]
+  tankAlarmi         TankAlarm[]
+  komande            TankKomanda[]
+}
+
+// Ocitanje temperature tanka (telemetrija sa sonde / Modbus ploce).
+// Faza A: puni se seedom testnih podataka; kasnije pise hardverski sloj.
+model OcitanjeTemperature {
+  id                String   @id @default(cuid())
+  tankId            String
+  temperatura       Decimal  @db.Decimal(4, 1)
+  zadanaTemperatura Decimal  @db.Decimal(4, 1)
+  hladjenjeAktivno  Boolean
+  status            String // "OK" | "ALARM" | "OFFLINE"
+  mjerenoU          DateTime
+  tank              Tank     @relation(fields: [tankId], references: [id], onDelete: Cascade)
+
+  @@index([tankId, mjerenoU(sort: Desc)])
+}
+
+// Aktivan/rijesen alarm tanka (previsoka temp, greska sonde, nema veze).
+model TankAlarm {
+  id          String    @id @default(cuid())
+  tankId      String
+  tip         String // "PREVISOKA_TEMP" | "GRESKA_SONDE" | "NEMA_VEZE"
+  poruka      String
+  aktivan     Boolean   @default(true)
+  nastaoU     DateTime  @default(now())
+  razrijesenU DateTime?
+  tank        Tank      @relation(fields: [tankId], references: [id], onDelete: Cascade)
+
+  @@index([tankId])
+}
+
+// Zahtjev za promjenu parametra tanka (zadana temp, alarm pragovi, hladjenje ON/OFF).
+// Faza A: komanda samo stoji NA_CEKANJU - nista se ne salje hardveru (gateway ne postoji).
+model TankKomanda {
+  id            String    @id @default(cuid())
+  tankId        String
+  tip           String // "ZADANA_TEMP" | "ALARM_MINUS" | "ALARM_PLUS" | "HLADJENJE_ON" | "HLADJENJE_OFF"
+  vrijednost    Decimal?  @db.Decimal(4, 1) // null za ON/OFF
+  status        String    @default("NA_CEKANJU") // "NA_CEKANJU" | "PRIMIJENJENO" | "NEUSPJELO"
+  trazioUserId  String
+  trazenoU      DateTime  @default(now())
+  primijenjenoU DateTime?
+  greska        String?
+  tank          Tank      @relation(fields: [tankId], references: [id], onDelete: Cascade)
+  trazioUser    User      @relation(fields: [trazioUserId], references: [id])
+
+  @@index([tankId, trazenoU(sort: Desc)])
+  @@index([status])
 }
 
 model Pretok {
