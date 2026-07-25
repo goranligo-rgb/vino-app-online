@@ -41,10 +41,13 @@ export function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // LEVEL 3: dashboard, zadaci, monitor, putnik + samo detalj tanka iz monitora
+  // LEVEL 3: dashboard, hladjenje, zadaci, monitor, putnik + samo detalj tanka
+  // iz monitora. Hladjenje je tocan match (ne prefiks) da se ne otvori nista
+  // drugo pod /dashboard - enolog je ionako u ROLE_UPRAVLJANJE (lib/tank-komanda).
   if (role === "ENOLOG") {
     const allowed =
       pathname === "/dashboard" ||
+      pathname === "/dashboard/hladjenje" ||
       pathname.startsWith("/zadaci") ||
       pathname.startsWith("/monitor") ||
       pathname.startsWith("/putnik") ||
