@@ -75,9 +75,11 @@ export default function PutnikPage() {
   const [search, setSearch] = useState("");
   const [prikaziNeaktivne, setPrikaziNeaktivne] = useState(false);
   const [jeAdmin, setJeAdmin] = useState(false);
+  const [jeL12, setJeL12] = useState(false);
 
   // Uloga iz auth_user cookieja (httpOnly:false, isti izvor kao server).
-  // Sluzi SAMO za skrivanje checkboxa; pravu zastitu radi API (ne-admin ne dobije neaktivne).
+  // Sluzi SAMO za skrivanje checkboxa i L1/2 linkova; pravu zastitu rade API
+  // (ne-admin ne dobije neaktivne) i requireLevel12User na samoj stranici.
   useEffect(() => {
     try {
       const raw = document.cookie
@@ -87,9 +89,11 @@ export default function PutnikPage() {
       if (raw) {
         const u = JSON.parse(decodeURIComponent(raw));
         setJeAdmin(u?.role === "ADMIN");
+        setJeL12(u?.role === "ADMIN" || u?.role === "PODRUM");
       }
     } catch {
       setJeAdmin(false);
+      setJeL12(false);
     }
   }, []);
 
@@ -294,6 +298,9 @@ export default function PutnikPage() {
             <Link href="/putnik/priprema" className={malaVeza}>Priprema</Link>
             <Link href="/putnik/dnevni-rad" className={malaVeza}>Dnevni rad</Link>
             <Link href="/putnik/dnevni-izvjestaj" className={malaVeza}>Dnevni izvještaj</Link>
+            {jeL12 ? (
+              <Link href="/putnik/izvjestaj-razdoblje" className={malaVeza}>Izvještaj po razdoblju</Link>
+            ) : null}
           </div>
         </div>
       </div>
