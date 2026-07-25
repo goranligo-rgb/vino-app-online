@@ -73,6 +73,7 @@ export default async function UrediPosjetPage({ params }: { params: PageParams }
       tip: s.tip,
       url: await potpisaniUrl(s.putanja),
       putnikIme: s.putnikIme,
+      createdAt: s.createdAt.toISOString(),
     }))
   );
 

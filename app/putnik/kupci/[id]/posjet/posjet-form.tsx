@@ -5,16 +5,24 @@ import { useState } from "react";
 type Artikl = { id: string; naziv: string };
 type Vino = { id: string; naziv: string; zadanaJedinica?: string | null };
 
+// Tip stavke = JASAN izbor po redu (jedan klik). Ispod haube ostaje POSTOJEĆI
+// model (statusPripreme + kolicina + gratis) — mijenja se samo UI, ne obračun:
+//   NARUDZBA → statusPripreme=PRIPREMITI, kolicina=X, gratis=0  (ne dira stanje auta)
+//   PRODAJA  → statusPripreme=ODMAH,      kolicina=X, gratis=0  (skida s auta, naplata)
+//   POKLON   → statusPripreme=(status),   kolicina=0, gratis=X  (skida kao gratis, bez naplate)
+// Kod POKLON reda `status` se PAMTI iz baze da legacy "PRIPREMITI + gratis"
+// (gratis boce uz isporuku) ostane egzaktan; novi poklon je ODMAH (iz auta).
+type Tip = "NARUDZBA" | "PRODAJA" | "POKLON";
+
 type Stavka = {
   key: number;
   naziv: string;
   artiklId: string; // Faza 7 - id vina iz kataloga ("" = slobodan unos, ne prati se u zalihi)
   rucno: boolean;
-  kolicina: string;
+  kolicina: string; // jedna količina po redu (za POKLON = broj gratis komada)
   jedinica: string;
-  gratis: string;
-  gratisRucno: boolean;
-  status: string;
+  tip: Tip;
+  status: string; // izvorni statusPripreme (round-trip PRIPREMLJENO/ISPORUCENO/PRIPREMITI/ODMAH)
 };
 
 type Poklon = {
@@ -41,7 +49,7 @@ type InitialOtpis = {
 export type InitialPosjet = {
   id: string;
   datum: string | Date;
-  ukupanDug: number | null;
+  ukupanDug: number | null; // zadržano u tipu (ne prikazuje se više na formi), da uredi-stranica ne puca
   dospjeliDug: number | null;
   biljeska: string | null;
   mjesto: string | null;
@@ -63,17 +71,28 @@ export type InitialPosjet = {
 };
 
 const OSTALO = "__OSTALO__";
+const PREP_STATUSI = ["PRIPREMITI", "PRIPREMLJENO", "ISPORUCENO"];
 
-// Status pripreme: osnovne dvije opcije; ako je red već napredovao kod vinarije
-// (PRIPREMLJENO/ISPORUCENO), zadrži tu vrijednost kao opciju da se ne izgubi.
-function statusOpcije(status: string) {
-  const opcije = [
-    { v: "PRIPREMITI", l: "Pripremiti" },
-    { v: "ODMAH", l: "Dati odmah" },
-  ];
-  if (status === "PRIPREMLJENO") opcije.push({ v: "PRIPREMLJENO", l: "Pripremljeno (zadrži)" });
-  if (status === "ISPORUCENO") opcije.push({ v: "ISPORUCENO", l: "Isporučeno (zadrži)" });
-  return opcije;
+function jePrep(status: string) {
+  return PREP_STATUSI.includes(status);
+}
+
+// Status koji red dobije kad korisnik KLIKNE tip (svjesna reklasifikacija):
+//  - NARUDZBA: zadrži prep-status ako već je prep (ne gubi PRIPREMLJENO/ISPORUCENO), inače PRIPREMITI
+//  - PRODAJA / POKLON: ODMAH (iz auta)
+function statusZaTip(tip: Tip, trenutni: string): string {
+  if (tip === "NARUDZBA") return jePrep(trenutni) ? trenutni : "PRIPREMITI";
+  return "ODMAH";
+}
+
+// Podaci koje red šalje serveru (ista polja kao dosad — server se NE mijenja).
+function izlazStavke(s: Stavka) {
+  const jePoklon = s.tip === "POKLON";
+  return {
+    kolicina: jePoklon ? "0" : s.kolicina,
+    gratis: jePoklon ? s.kolicina || "0" : "0",
+    status: s.status,
+  };
 }
 
 function toDateInput(value: string | Date) {
@@ -90,30 +109,56 @@ function novaStavka(): Stavka {
     rucno: false,
     kolicina: "",
     jedinica: "kom",
-    gratis: "0",
-    gratisRucno: false,
+    tip: "NARUDZBA",
     status: "PRIPREMITI",
   };
 }
 
-// Stavke iz postojećeg posjeta. gratisRucno=true da uređivanje količine ne
-// pregazi spremljeni gratis.
+// Stavke iz postojećeg posjeta. Red s kolicina>0 I gratis>0 se RAZDVAJA u dva
+// reda (glavni + POKLON), oba čuvaju izvorni status → egzaktan round-trip.
 function stavkeIzInitial(initial?: InitialPosjet): Stavka[] {
   if (!initial || initial.stavke.length === 0) return [novaStavka()];
-  return initial.stavke.map((st) => {
-    brojac += 1;
-    return {
-      key: brojac,
-      naziv: st.nazivProizvoda,
-      artiklId: st.artiklId || "",
-      rucno: !st.artiklId,
-      kolicina: st.kolicina != null ? String(st.kolicina) : "",
-      jedinica: st.jedinica === "L" ? "L" : "kom",
-      gratis: String(st.gratis ?? 0),
-      gratisRucno: true,
-      status: st.statusPripreme || "PRIPREMITI",
-    };
-  });
+
+  const redovi: Stavka[] = [];
+  for (const st of initial.stavke) {
+    const status = st.statusPripreme || "PRIPREMITI";
+    const jedinica = st.jedinica === "L" ? "L" : "kom";
+    const kol = st.kolicina ?? 0;
+    const gratis = st.gratis ?? 0;
+    const glavniTip: Tip = jePrep(status) ? "NARUDZBA" : "PRODAJA";
+
+    // Glavni dio (prodaja/narudžba) — preskoči ako je red ČISTI poklon (kol 0, gratis>0).
+    if (kol > 0 || gratis <= 0) {
+      brojac += 1;
+      redovi.push({
+        key: brojac,
+        naziv: st.nazivProizvoda,
+        artiklId: st.artiklId || "",
+        rucno: !st.artiklId,
+        kolicina: st.kolicina != null ? String(st.kolicina) : "",
+        jedinica,
+        tip: glavniTip,
+        status,
+      });
+    }
+
+    // Poklon dio — zadrži izvorni status (legacy PRIPREMITI+gratis ostaje egzaktan).
+    if (gratis > 0) {
+      brojac += 1;
+      redovi.push({
+        key: brojac,
+        naziv: st.nazivProizvoda,
+        artiklId: st.artiklId || "",
+        rucno: !st.artiklId,
+        kolicina: String(gratis),
+        jedinica,
+        tip: "POKLON",
+        status,
+      });
+    }
+  }
+
+  return redovi.length ? redovi : [novaStavka()];
 }
 
 let brojacP = 0;
@@ -140,6 +185,45 @@ function predlozenGratis(kolicina: string, akcijaX: number, akcijaY: number): nu
   const k = parseFloat(kolicina.replace(",", "."));
   if (!Number.isFinite(k) || k <= 0) return 0;
   return Math.floor(k / akcijaX) * akcijaY;
+}
+
+// Segmentirani izbornik tipa stavke (amber tema, jedan klik).
+function TipIzbor({
+  tip,
+  onChange,
+}: {
+  tip: Tip;
+  onChange: (t: Tip) => void;
+}) {
+  const opcije: { v: Tip; l: string; naslov: string }[] = [
+    { v: "NARUDZBA", l: "Narudžba", naslov: "Dogovoreno za isporuku — ne dira stanje auta" },
+    { v: "PRODAJA", l: "Prodaja", naslov: "Prodano odmah iz auta — skida sa stanja, naplaćuje se" },
+    { v: "POKLON", l: "Poklon", naslov: "Dano besplatno — skida sa stanja kao gratis, bez naplate" },
+  ];
+  return (
+    <div className="inline-flex overflow-hidden border border-orange-300 bg-white">
+      {opcije.map((o, i) => {
+        const aktivan = tip === o.v;
+        return (
+          <button
+            key={o.v}
+            type="button"
+            title={o.naslov}
+            onClick={() => onChange(o.v)}
+            className={`px-3 py-2 text-[13px] font-semibold transition ${
+              i > 0 ? "border-l border-orange-300" : ""
+            } ${
+              aktivan
+                ? "bg-gradient-to-b from-orange-500 to-amber-600 text-white"
+                : "bg-white text-stone-600 hover:bg-orange-50"
+            }`}
+          >
+            {o.l}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function PosjetForm({
@@ -189,9 +273,15 @@ export default function PosjetForm({
         initial.aktAkcijskaCijena)
   );
 
-  function azuriraj(key: number, polje: "naziv" | "jedinica" | "status", vrijednost: string) {
+  function azuriraj(key: number, polje: "naziv" | "jedinica" | "kolicina", vrijednost: string) {
     setStavke((prev) =>
       prev.map((s) => (s.key === key ? { ...s, [polje]: vrijednost } : s))
+    );
+  }
+
+  function postaviTip(key: number, tip: Tip) {
+    setStavke((prev) =>
+      prev.map((s) => (s.key === key ? { ...s, tip, status: statusZaTip(tip, s.status) } : s))
     );
   }
 
@@ -208,6 +298,37 @@ export default function PosjetForm({
     );
   }
 
+  function dodajRed() {
+    setStavke((prev) => [...prev, novaStavka()]);
+  }
+
+  function obrisiRed(key: number) {
+    setStavke((prev) =>
+      prev.length === 1 ? prev : prev.filter((s) => s.key !== key)
+    );
+  }
+
+  // Akcija X+Y: iz PRODAJA/NARUDŽBA reda dodaj zaseban POKLON red s predloženim gratisom.
+  function dodajPoklonZaAkciju(izvor: Stavka, predlozeno: number) {
+    setStavke((prev) => {
+      const idx = prev.findIndex((s) => s.key === izvor.key);
+      brojac += 1;
+      const poklonRed: Stavka = {
+        key: brojac,
+        naziv: izvor.naziv,
+        artiklId: izvor.artiklId,
+        rucno: izvor.rucno,
+        kolicina: String(predlozeno),
+        jedinica: izvor.jedinica,
+        tip: "POKLON",
+        status: "ODMAH",
+      };
+      const kopija = [...prev];
+      kopija.splice(idx + 1, 0, poklonRed);
+      return kopija;
+    });
+  }
+
   function azurirajPoklon(
     key: number,
     polje: "artiklId" | "kolicina" | "status",
@@ -222,39 +343,6 @@ export default function PosjetForm({
   }
   function obrisiPoklon(key: number) {
     setPokloni((prev) => (prev.length === 1 ? prev : prev.filter((p) => p.key !== key)));
-  }
-
-  // Promjena količine: ako gratis nije ručno mijenjan, osvježi prijedlog.
-  function postaviKolicinu(key: number, vrijednost: string) {
-    setStavke((prev) =>
-      prev.map((s) => {
-        if (s.key !== key) return s;
-        const next = { ...s, kolicina: vrijednost };
-        if (!s.gratisRucno) {
-          next.gratis = String(predlozenGratis(vrijednost, akcijaX, akcijaY));
-        }
-        return next;
-      })
-    );
-  }
-
-  // Ručni override gratisa — od tada ne diramo automatski (radi UVIJEK, i kad je prijedlog 0).
-  function postaviGratis(key: number, vrijednost: string) {
-    setStavke((prev) =>
-      prev.map((s) =>
-        s.key === key ? { ...s, gratis: vrijednost, gratisRucno: true } : s
-      )
-    );
-  }
-
-  function dodajRed() {
-    setStavke((prev) => [...prev, novaStavka()]);
-  }
-
-  function obrisiRed(key: number) {
-    setStavke((prev) =>
-      prev.length === 1 ? prev : prev.filter((s) => s.key !== key)
-    );
   }
 
   return (
@@ -294,111 +382,117 @@ export default function PosjetForm({
           </button>
         </div>
 
-        <p className="mb-2 text-[12px] text-stone-500">
-          {imaAkciju
-            ? `Gratis se predlaže iz zadnjeg dogovora (${akcijaX}+${akcijaY}); možeš ga ručno promijeniti.`
-            : "Lokal nema dogovorenu akciju — prijedlog gratisa je 0, ali ga možeš ručno upisati."}
-        </p>
+        <div className="mb-3 grid gap-1 text-[12px] text-stone-500 sm:grid-cols-3">
+          <span><strong className="text-stone-700">Narudžba</strong> — dogovoreno za isporuku (ne dira auto)</span>
+          <span><strong className="text-stone-700">Prodaja</strong> — prodano odmah iz auta (naplata)</span>
+          <span><strong className="text-stone-700">Poklon</strong> — dano besplatno (gratis, bez naplate)</span>
+        </div>
 
         <div className="space-y-2">
-          {stavke.map((s, index) => (
-            <div
-              key={s.key}
-              className="grid gap-2 border border-orange-100 bg-white p-2 md:grid-cols-[1fr_90px_72px_120px_120px_auto]"
-            >
-              <div className="space-y-1">
-                <select
-                  value={s.rucno ? OSTALO : s.naziv}
-                  onChange={(e) => postaviVino(s.key, e.target.value)}
-                  className="w-full border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
-                >
-                  <option value="">{`Vino ${index + 1}…`}</option>
-                  {vina.map((v) => (
-                    <option key={v.id} value={v.naziv}>
-                      {v.naziv}
-                    </option>
-                  ))}
-                  <option value={OSTALO}>Ostalo (ručno)</option>
-                </select>
-                {s.rucno ? (
+          {stavke.map((s, index) => {
+            const predlozeno = predlozenGratis(s.kolicina, akcijaX, akcijaY);
+            const prikaziAkciju = imaAkciju && s.tip !== "POKLON" && predlozeno > 0;
+            const izlaz = izlazStavke(s);
+            return (
+              <div
+                key={s.key}
+                className="border border-orange-100 bg-white p-2"
+              >
+                <div className="grid gap-2 md:grid-cols-[1fr_auto_90px_72px_auto] md:items-start">
+                  <div className="space-y-1">
+                    <select
+                      value={s.rucno ? OSTALO : s.naziv}
+                      onChange={(e) => postaviVino(s.key, e.target.value)}
+                      className="w-full border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
+                    >
+                      <option value="">{`Vino ${index + 1}…`}</option>
+                      {vina.map((v) => (
+                        <option key={v.id} value={v.naziv}>
+                          {v.naziv}
+                        </option>
+                      ))}
+                      <option value={OSTALO}>Ostalo (ručno)</option>
+                    </select>
+                    {s.rucno ? (
+                      <input
+                        value={s.naziv}
+                        onChange={(e) => azuriraj(s.key, "naziv", e.target.value)}
+                        placeholder="Upiši naziv vina"
+                        className="w-full border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
+                      />
+                    ) : null}
+                    {/* Skrivena polja = POSTOJEĆI model (server nepromijenjen) */}
+                    <input type="hidden" name="stavkaNaziv" value={s.naziv} />
+                    <input type="hidden" name="stavkaArtiklId" value={s.artiklId} />
+                    <input type="hidden" name="stavkaKolicina" value={izlaz.kolicina} />
+                    <input type="hidden" name="stavkaGratis" value={izlaz.gratis} />
+                    <input type="hidden" name="stavkaStatus" value={izlaz.status} />
+                  </div>
+
+                  <TipIzbor tip={s.tip} onChange={(t) => postaviTip(s.key, t)} />
+
                   <input
-                    value={s.naziv}
-                    onChange={(e) => azuriraj(s.key, "naziv", e.target.value)}
-                    placeholder="Upiši naziv vina"
-                    className="w-full border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
+                    value={s.kolicina}
+                    onChange={(e) => azuriraj(s.key, "kolicina", e.target.value)}
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder={s.tip === "POKLON" ? "Gratis" : "Količina"}
+                    className="border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
                   />
+                  <select
+                    value={s.jedinica === "L" ? "L" : "kom"}
+                    onChange={(e) => azuriraj(s.key, "jedinica", e.target.value)}
+                    className="border border-orange-200 bg-white px-2 py-2 text-[14px] outline-none focus:border-orange-400"
+                  >
+                    <option value="kom">kom</option>
+                    <option value="L">L</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => obrisiRed(s.key)}
+                    disabled={stavke.length === 1}
+                    className="border border-orange-200 bg-white px-3 py-2 text-[13px] font-semibold text-stone-600 hover:bg-orange-50 disabled:opacity-40"
+                  >
+                    Ukloni
+                  </button>
+                </div>
+
+                {prikaziAkciju ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-orange-100 pt-2 text-[12px] text-amber-900">
+                    <span>
+                      Akcija {akcijaX}+{akcijaY} → poklon <strong>{predlozeno}</strong> {s.jedinica}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => dodajPoklonZaAkciju(s, predlozeno)}
+                      className="border border-amber-300 bg-amber-50 px-2 py-1 font-semibold text-amber-900 hover:brightness-105"
+                    >
+                      + Dodaj poklon {predlozeno}
+                    </button>
+                  </div>
                 ) : null}
-                <input type="hidden" name="stavkaNaziv" value={s.naziv} />
-                <input type="hidden" name="stavkaArtiklId" value={s.artiklId} />
               </div>
-              <input
-                name="stavkaKolicina"
-                value={s.kolicina}
-                onChange={(e) => postaviKolicinu(s.key, e.target.value)}
-                type="number"
-                step="any"
-                placeholder="Količina"
-                className="border border-orange-200 bg-white px-3 py-2 text-[14px] outline-none focus:border-orange-400"
-              />
-              <select
-                name="stavkaJedinica"
-                value={s.jedinica === "L" ? "L" : "kom"}
-                onChange={(e) => azuriraj(s.key, "jedinica", e.target.value)}
-                className="border border-orange-200 bg-white px-2 py-2 text-[14px] outline-none focus:border-orange-400"
-              >
-                <option value="kom">kom</option>
-                <option value="L">L</option>
-              </select>
-              <label className="flex items-center gap-1 border border-amber-300 bg-amber-50 px-2 text-[12px] font-semibold text-amber-900">
-                <span className="shrink-0">Gratis</span>
-                <input
-                  name="stavkaGratis"
-                  value={s.gratis}
-                  onChange={(e) => postaviGratis(s.key, e.target.value)}
-                  type="number"
-                  min="0"
-                  className="w-full bg-transparent py-2 text-[14px] text-stone-800 outline-none"
-                />
-              </label>
-              <select
-                name="stavkaStatus"
-                value={s.status}
-                onChange={(e) => azuriraj(s.key, "status", e.target.value)}
-                title="Dati odmah ili pripremiti u vinariji"
-                className="border border-orange-200 bg-white px-2 py-2 text-[13px] outline-none focus:border-orange-400"
-              >
-                {statusOpcije(s.status).map((o) => (
-                  <option key={o.v} value={o.v}>
-                    {o.l}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => obrisiRed(s.key)}
-                disabled={stavke.length === 1}
-                className="border border-orange-200 bg-white px-3 py-2 text-[13px] font-semibold text-stone-600 hover:bg-orange-50 disabled:opacity-40"
-              >
-                Ukloni
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <p className="mt-2 text-[12px] text-stone-500">
-          Prazni redovi (bez naziva proizvoda) se ne spremaju.
+          {imaAkciju
+            ? `Lokal ima dogovorenu akciju ${akcijaX}+${akcijaY} — kod prodaje/narudžbe ponudi se dodavanje poklona jednim klikom.`
+            : "Prazni redovi (bez naziva proizvoda) se ne spremaju."}
         </p>
       </div>
 
       <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-[18px] font-semibold text-stone-800">Pokloni / promo materijal</h2>
+          <h2 className="text-[18px] font-semibold text-stone-800">Promo materijal (pokloni lokalu)</h2>
           <button
             type="button"
             onClick={dodajPoklon}
             className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-3 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105"
           >
-            + Dodaj poklon
+            + Dodaj promo
           </button>
         </div>
 
@@ -445,11 +539,10 @@ export default function PosjetForm({
                   title="Dati odmah ili pripremiti u vinariji"
                   className="border border-orange-200 bg-white px-2 py-2 text-[13px] outline-none focus:border-orange-400"
                 >
-                  {statusOpcije(p.status).map((o) => (
-                    <option key={o.v} value={o.v}>
-                      {o.l}
-                    </option>
-                  ))}
+                  <option value="PRIPREMITI">Pripremiti</option>
+                  <option value="ODMAH">Dati odmah</option>
+                  {p.status === "PRIPREMLJENO" ? <option value="PRIPREMLJENO">Pripremljeno (zadrži)</option> : null}
+                  {p.status === "ISPORUCENO" ? <option value="ISPORUCENO">Isporučeno (zadrži)</option> : null}
                 </select>
                 <button
                   type="button"
@@ -467,38 +560,10 @@ export default function PosjetForm({
 
       <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
         <h2 className="mb-4 text-[18px] font-semibold text-stone-800">
-          Dug i zabilješke
+          Zabilješke
         </h2>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-[13px] font-semibold text-stone-700">
-              Ukupan dug (EUR)
-            </label>
-            <input
-              name="ukupanDug"
-              type="number"
-              step="any"
-              defaultValue={initial?.ukupanDug != null ? String(initial.ukupanDug) : undefined}
-              className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-[13px] font-semibold text-stone-700">
-              Dospjeli dug (EUR)
-            </label>
-            <input
-              name="dospjeliDug"
-              type="number"
-              step="any"
-              defaultValue={initial?.dospjeliDug != null ? String(initial.dospjeliDug) : undefined}
-              className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
-            />
-          </div>
-        </div>
-
-        <div className="mt-4">
+        <div>
           <label className="mb-1 block text-[13px] font-semibold text-stone-700">
             Zabilješke
           </label>

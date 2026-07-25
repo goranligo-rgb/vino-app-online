@@ -1,18 +1,53 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type SlikaPrikaz = {
   id: string;
   tip: "PRIJE" | "POSLIJE";
   url: string; // potpisani URL (istekne)
   putnikIme: string | null;
+  createdAt: string; // ISO — za pravilo "isti dan"
 };
+
+type Korisnik = { ime: string | null; role: string | null };
 
 type Props = {
   posjetId: string;
   slike: SlikaPrikaz[];
 };
+
+// Trenutni korisnik iz auth_user cookieja (isti izvor kao server; httpOnly:false).
+// Služi SAMO za skrivanje gumba — pravu provjeru radi server (DELETE ruta).
+function citajKorisnika(): Korisnik {
+  if (typeof document === "undefined") return { ime: null, role: null };
+  try {
+    const raw = document.cookie
+      .split("; ")
+      .find((c) => c.startsWith("auth_user="))
+      ?.slice("auth_user=".length);
+    if (!raw) return { ime: null, role: null };
+    const u = JSON.parse(decodeURIComponent(raw));
+    return { ime: u?.ime ?? null, role: u?.role ?? null };
+  } catch {
+    return { ime: null, role: null };
+  }
+}
+
+// Isti kalendarski dan u zoni Europe/Zagreb (zrcali server formatHrDate).
+function jeDanasZagreb(iso: string): boolean {
+  const opts = { timeZone: "Europe/Zagreb", year: "numeric", month: "2-digit", day: "2-digit" } as const;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.toLocaleDateString("en-GB", opts) === new Date().toLocaleDateString("en-GB", opts);
+}
+
+// Pravilo prava (UI): admin uvijek; inače vlastita slika i isti dan snimanja.
+function smijeObrisati(s: SlikaPrikaz, k: Korisnik): boolean {
+  if (k.role === "ADMIN") return true;
+  const vlastita = !!s.putnikIme && !!k.ime && s.putnikIme === k.ime;
+  return vlastita && jeDanasZagreb(s.createdAt);
+}
 
 // Kompresija u pregledniku PRIJE slanja: skaliraj na max 1600px duzu stranicu i
 // spremi kao JPEG q0.72. Tako s terena (slaba mreza) ide par stotina KB umjesto
@@ -66,11 +101,13 @@ function Grupa({
   tip,
   naslov,
   slike,
+  korisnik,
 }: {
   posjetId: string;
   tip: "PRIJE" | "POSLIJE";
   naslov: string;
   slike: SlikaPrikaz[];
+  korisnik: Korisnik;
 }) {
   const [loading, setLoading] = useState(false);
   const [poruka, setPoruka] = useState("");
@@ -155,14 +192,16 @@ function Grupa({
                   loading="lazy"
                 />
               </a>
-              <button
-                type="button"
-                onClick={() => obrisi(s.id)}
-                disabled={loading}
-                className="absolute right-1 top-1 border border-red-300 bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-red-700 hover:bg-red-50"
-              >
-                Obriši
-              </button>
+              {smijeObrisati(s, korisnik) ? (
+                <button
+                  type="button"
+                  onClick={() => obrisi(s.id)}
+                  disabled={loading}
+                  className="absolute right-1 top-1 border border-red-300 bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-red-700 hover:bg-red-50"
+                >
+                  Obriši
+                </button>
+              ) : null}
               {s.putnikIme ? (
                 <div className="truncate px-1 py-0.5 text-[10px] text-stone-500">
                   {s.putnikIme}
@@ -183,6 +222,10 @@ function Grupa({
 }
 
 export default function PosjetSlike({ posjetId, slike }: Props) {
+  // Korisnik se čita na klijentu (nakon mounta) — do tada gumb "Obriši" skriven.
+  const [korisnik, setKorisnik] = useState<Korisnik>({ ime: null, role: null });
+  useEffect(() => setKorisnik(citajKorisnika()), []);
+
   const prije = slike.filter((s) => s.tip === "PRIJE");
   const poslije = slike.filter((s) => s.tip === "POSLIJE");
 
@@ -191,14 +234,14 @@ export default function PosjetSlike({ posjetId, slike }: Props) {
       <div className="border-b border-orange-200 pb-3">
         <h2 className="text-[22px] font-bold text-stone-800">📷 Kamera — prije i poslije</h2>
         <p className="mt-1 text-[13px] text-stone-500">
-          Slikaj stanje police prije i poslije. Slika se komprimira prije slanja; loše snimke
-          slobodno obriši i slikaj ponovno.
+          Slikaj stanje police prije i poslije. Slika se komprimira prije slanja; lošu snimku
+          možeš obrisati isti dan (svoju); starije briše samo Level 1.
         </p>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <Grupa posjetId={posjetId} tip="PRIJE" naslov="Prije" slike={prije} />
-        <Grupa posjetId={posjetId} tip="POSLIJE" naslov="Poslije" slike={poslije} />
+        <Grupa posjetId={posjetId} tip="PRIJE" naslov="Prije" slike={prije} korisnik={korisnik} />
+        <Grupa posjetId={posjetId} tip="POSLIJE" naslov="Poslije" slike={poslije} korisnik={korisnik} />
       </div>
     </div>
   );

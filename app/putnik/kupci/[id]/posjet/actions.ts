@@ -111,10 +111,11 @@ function citajPokloni(formData: FormData) {
 // Zajednička skalarni polja posjeta (bez reklamniMaterijal — to forma ne ureduje,
 // pa se kod izmjene NE prepisuje). Koriste create i update.
 function posjetSkalar(formData: FormData) {
+  // ukupanDug/dospjeliDug se NAMJERNO ne diraju s posjet forme (putnik ih ne
+  // kontrolira) — nisu ovdje pa ih ni create ni update ne prepisuje; postojeći
+  // podaci u bazi ostaju netaknuti.
   return {
     biljeska: text(formData, "biljeska"),
-    ukupanDug: num(formData, "ukupanDug"),
-    dospjeliDug: num(formData, "dospjeliDug"),
 
     mjesto: text(formData, "mjesto"),
     vrijemeOd: text(formData, "vrijemeOd"),

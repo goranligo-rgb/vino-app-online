@@ -33,7 +33,20 @@ export async function GET() {
       ],
     });
 
-    return NextResponse.json(kupci);
+    // Datum zadnjeg posjeta po lokalu (za "dani od zadnjeg posjeta" na popisu).
+    // Jedan groupBy umjesto N upita; lokali bez posjeta nisu u mapi.
+    const zadnji = await prisma.putnikPosjet.groupBy({
+      by: ["kupacId"],
+      _max: { datum: true },
+    });
+    const zadnjiMap = new Map(zadnji.map((z) => [z.kupacId, z._max.datum]));
+
+    const rezultat = kupci.map((k) => ({
+      ...k,
+      zadnjiPosjetDatum: zadnjiMap.get(k.id) ?? null,
+    }));
+
+    return NextResponse.json(rezultat);
   } catch (error) {
     console.error("Greška GET /api/putnik/kupci:", error);
 

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePutnikAccess } from "@/lib/putnik-auth";
 import { uploadObjekt, obrisiObjekt, potpisaniUrl } from "@/lib/supabase-storage";
+import { formatHrDate } from "@/lib/datum";
 
 const TIPOVI = new Set(["PRIJE", "POSLIJE"]);
 
@@ -119,7 +120,10 @@ export async function POST(req: Request) {
   }
 }
 
-// DELETE: brisanje slike (svi putnici - losu sliku putnik briše sam na terenu).
+// DELETE: brisanje slike uz PRAVILO PRAVA (provjera na serveru, ne samo UI):
+//  - ADMIN (L1): smije obrisati bilo koju sliku, bilo kad.
+//  - Ostali putnici: SAMO vlastitu sliku (putnikIme = ja) i SAMO isti dan
+//    (datum snimanja = danas, Europe/Zagreb). Inače 403.
 // Prvo brisemo iz baze, pa sa Storagea: ako Storage zakaze, red je vec nestao
 // i orphan datoteka je bezopasna (nigdje se ne referencira).
 export async function DELETE(req: Request) {
@@ -135,6 +139,19 @@ export async function DELETE(req: Request) {
     const slika = await prisma.putnikPosjetSlika.findUnique({ where: { id } });
     if (!slika) {
       return NextResponse.json({ error: "Slika ne postoji." }, { status: 404 });
+    }
+
+    // Pravilo prava: admin uvijek; inače samo vlastita slika i isti dan.
+    const jeAdmin = auth.role === "ADMIN";
+    if (!jeAdmin) {
+      const vlastita = !!slika.putnikIme && !!auth.ime && slika.putnikIme === auth.ime;
+      const istiDan = formatHrDate(slika.createdAt) === formatHrDate(new Date());
+      if (!vlastita || !istiDan) {
+        return NextResponse.json(
+          { error: "Smiješ obrisati samo vlastitu sliku i to isti dan snimanja." },
+          { status: 403 }
+        );
+      }
     }
 
     await prisma.putnikPosjetSlika.delete({ where: { id } });
