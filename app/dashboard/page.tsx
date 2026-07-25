@@ -84,6 +84,8 @@ export default async function DashboardPage() {
   const canSeePutnik = isLevel1 || isLevel2 || isLevel3 || isLevel4;
   const canSeeUsers = isLevel1;
   const canSeeReset = isLevel1;
+  // Hlađenje ide svima OSIM putnika (PREGLED = Level 4 "samo putnik").
+  const canSeeHladjenje = isLevel1 || isLevel2 || isLevel3;
 
   if (
     !isLevel1 &&
@@ -146,11 +148,13 @@ export default async function DashboardPage() {
             />
           )}
 
-          <DashboardCard
-            href="/dashboard/hladjenje"
-            title="Hlađenje"
-            description="Nadzor i upravljanje temperaturom tankova"
-          />
+          {canSeeHladjenje && (
+            <DashboardCard
+              href="/dashboard/hladjenje"
+              title="Hlađenje"
+              description="Nadzor i upravljanje temperaturom tankova"
+            />
+          )}
 
           {canSeeMainDashboard && (
             <>
