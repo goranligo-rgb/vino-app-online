@@ -4,6 +4,8 @@ import Link from "next/link";
 import NatragHome from "@/components/NatragHome";
 import { useEffect, useMemo, useState } from "react";
 import { otvoriDanasnjiPosjet } from "./kupci/[id]/posjet/actions";
+import PutnikIzbornik from "./putnik-izbornik";
+import { citajAuthUserKlijent } from "@/lib/auth-klijent";
 
 type Kupac = {
   id: string;
@@ -75,26 +77,14 @@ export default function PutnikPage() {
   const [search, setSearch] = useState("");
   const [prikaziNeaktivne, setPrikaziNeaktivne] = useState(false);
   const [jeAdmin, setJeAdmin] = useState(false);
-  const [jeL12, setJeL12] = useState(false);
 
-  // Uloga iz auth_user cookieja (httpOnly:false, isti izvor kao server).
-  // Sluzi SAMO za skrivanje checkboxa i L1/2 linkova; pravu zastitu rade API
-  // (ne-admin ne dobije neaktivne) i requireLevel12User na samoj stranici.
+  // Uloga iz auth_user cookieja. Citanje ide preko citajAuthUserKlijent jer je
+  // cookie dvostruko kodiran (login kodira sam + NextResponse.cookies.set opet),
+  // pa jedan decodeURIComponent nije dovoljan — raniji inline parse je uvijek
+  // pucao i checkbox se nikad nije prikazivao ni adminu.
+  // Sluzi SAMO za prikaz; pravu zastitu radi API (ne-admin ne dobije neaktivne).
   useEffect(() => {
-    try {
-      const raw = document.cookie
-        .split("; ")
-        .find((c) => c.startsWith("auth_user="))
-        ?.slice("auth_user=".length);
-      if (raw) {
-        const u = JSON.parse(decodeURIComponent(raw));
-        setJeAdmin(u?.role === "ADMIN");
-        setJeL12(u?.role === "ADMIN" || u?.role === "PODRUM");
-      }
-    } catch {
-      setJeAdmin(false);
-      setJeL12(false);
-    }
+    setJeAdmin(citajAuthUserKlijent()?.role === "ADMIN");
   }, []);
 
   useEffect(() => {
@@ -139,16 +129,15 @@ export default function PutnikPage() {
   const brojNeaktivnih = kupci.filter((k) => !k.aktivan).length;
   const brojAktivnih = kupci.filter((k) => k.aktivan).length;
 
-  const malaVeza =
-    "border border-orange-200 bg-white px-3 py-2 text-[13px] font-semibold text-stone-600 hover:bg-orange-50";
-
   return (
     <main className="min-h-screen bg-[#f6f3ee] px-4 py-4 text-stone-800 [font-family:Calibri,Segoe_UI,Arial,sans-serif] md:px-6">
       <NatragHome />
+      <PutnikIzbornik />
 
       <div className="mx-auto max-w-[1100px] space-y-4">
         {/* SLIM HEADER */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* pr- zdesna: da fiksni ☰ (gore desno) ne prekrije "+ Novi lokal" */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pr-16 xl:pr-0">
           <div>
             <h1 className="text-[24px] font-semibold tracking-tight text-stone-800">Moji lokali</h1>
             <div className="text-[13px] text-stone-500">
@@ -169,7 +158,7 @@ export default function PutnikPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="🔍  Traži lokal — naziv, grad, kontakt…"
-            className="w-full border border-orange-300 bg-white px-4 py-3.5 text-[16px] shadow-sm outline-none focus:border-orange-500"
+            className="w-full border border-orange-300 bg-white py-3.5 pl-4 pr-[76px] text-[16px] shadow-sm outline-none focus:border-orange-500 xl:pr-4"
           />
           {jeAdmin ? (
             <label className="mt-2 flex items-center gap-2 text-[13px] font-semibold text-stone-600">
@@ -275,34 +264,7 @@ export default function PutnikPage() {
           </div>
         )}
 
-        {/* SKLONJENO DOLJE: Ruta + Vozilo (glavne sekundarne), pa manji linkovi */}
-        <div className="mt-6 border-t border-orange-200 pt-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Link
-              href="/putnik/ruta"
-              className="flex items-center justify-center gap-2 border border-orange-300 bg-gradient-to-b from-white to-orange-50 px-4 py-3 text-[15px] font-semibold text-stone-700 hover:brightness-[1.02]"
-            >
-              🗺️ Ruta
-            </Link>
-            <Link
-              href="/putnik/vozilo"
-              className="flex items-center justify-center gap-2 border border-orange-300 bg-gradient-to-b from-white to-orange-50 px-4 py-3 text-[15px] font-semibold text-stone-700 hover:brightness-[1.02]"
-            >
-              🚚 Vozilo
-            </Link>
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Link href="/putnik/zaduzenje" className={malaVeza}>Zaduženje</Link>
-            <Link href="/putnik/promo" className={malaVeza}>Promo</Link>
-            <Link href="/putnik/priprema" className={malaVeza}>Priprema</Link>
-            <Link href="/putnik/dnevni-rad" className={malaVeza}>Dnevni rad</Link>
-            <Link href="/putnik/dnevni-izvjestaj" className={malaVeza}>Dnevni izvještaj</Link>
-            {jeL12 ? (
-              <Link href="/putnik/izvjestaj-razdoblje" className={malaVeza}>Izvještaj po razdoblju</Link>
-            ) : null}
-          </div>
-        </div>
+        {/* Sve sekundarne stranice su u bocnom izborniku (☰ gore desno). */}
       </div>
     </main>
   );
