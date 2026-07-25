@@ -2,7 +2,7 @@ import Link from "next/link";
 import NatragHome from "@/components/NatragHome";
 import { prisma } from "@/lib/prisma";
 import { requirePutnikUser } from "@/lib/putnik-auth";
-import { generirajPlan, oznaciStatus, dodajRucnuRutu, obrisiStavku } from "./actions";
+import { oznaciStatus, dodajRucnuRutu, obrisiStavku } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -110,19 +110,13 @@ function StatusGumbi({ id, status, rucno }: { id: string; status: string; rucno?
 export default async function RutaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ gen?: string; plan?: string; kupci?: string; datum?: string }>;
+  searchParams: Promise<{ datum?: string }>;
 }) {
   const sp = await searchParams;
   const user = await requirePutnikUser();
   const danas = new Date().toISOString().slice(0, 10);
 
-  const [autoStavke, mojaRuta, kupci] = await Promise.all([
-    // AUTO plan (zajednički): redci uvijek imaju tjedan
-    prisma.putnikPlanObilaska.findMany({
-      where: { tjedan: { not: null } },
-      include: { kupac: { select: { id: true, nazivLokala: true, grad: true, kategorija: true } } },
-      orderBy: [{ datum: "asc" }],
-    }),
+  const [mojaRuta, kupci] = await Promise.all([
     // MOJA ručna ruta: po putniku, ručni redci (tjedan = null)
     prisma.putnikPlanObilaska.findMany({
       where: { putnikIme: user.ime, tjedan: null },
@@ -137,20 +131,8 @@ export default async function RutaPage({
     }),
   ]);
 
-  // ── AUTO: grupiranje tjedan -> datum (dan) -> stavke ──
-  const poTjednu = new Map<number, Map<string, typeof autoStavke>>();
-  for (const s of autoStavke) {
-    const t = s.tjedan ?? 0;
-    const dk = iso(s.datum);
-    if (!poTjednu.has(t)) poTjednu.set(t, new Map());
-    const dani = poTjednu.get(t)!;
-    if (!dani.has(dk)) dani.set(dk, []);
-    dani.get(dk)!.push(s);
-  }
-  const tjedni = [...poTjednu.entries()].sort((a, b) => a[0] - b[0]);
-
-  const brObavljeno = autoStavke.filter((s) => s.status === "OBAVLJENO").length;
-  const brPlanirano = autoStavke.filter((s) => s.status === "PLANIRANO").length;
+  const brObavljeno = mojaRuta.filter((s) => s.status === "OBAVLJENO").length;
+  const brPlanirano = mojaRuta.filter((s) => s.status === "PLANIRANO").length;
 
   // ── MOJA RUČNA RUTA: opcionalni filtar po danu, grupiranje po datumu ──
   const filterDatum = sp.datum || "";
@@ -177,7 +159,7 @@ export default async function RutaPage({
                 Prodajna ruta
               </h1>
               <div className="mt-1 text-[13px] text-stone-500">
-                Zajednički auto plan (ABC kadenca) + tvoja ručna ruta po danu (putnik: {user.ime}).
+                Ručna ruta po danu — odaberi datum i lokale koje obilaziš (putnik: {user.ime}).
               </div>
             </div>
 
@@ -190,18 +172,17 @@ export default async function RutaPage({
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-4">
-          <Kartica naslov="Auto u planu" vrijednost={String(autoStavke.length)} />
-          <Kartica naslov="Planirano (auto)" vrijednost={String(brPlanirano)} />
-          <Kartica naslov="Obavljeno (auto)" vrijednost={String(brObavljeno)} />
+        <div className="grid gap-3 md:grid-cols-3">
           <Kartica naslov="Moja ručna ruta" vrijednost={String(mojaRuta.length)} />
+          <Kartica naslov="Planirano" vrijednost={String(brPlanirano)} />
+          <Kartica naslov="Obavljeno" vrijednost={String(brObavljeno)} />
         </div>
 
         {/* ── MOJA RUČNA RUTA (po putniku, po danu) ── */}
         <div className="border-2 border-orange-300 bg-gradient-to-b from-white to-amber-50 p-4">
           <h2 className="text-[20px] font-semibold text-stone-800">Moja ručna ruta</h2>
           <p className="mt-1 text-[13px] text-stone-500">
-            Odaberi datum i lokale koje taj dan obilaziš. Vodi se samo za tebe i ne dira zajednički auto plan.
+            Odaberi datum i lokale koje taj dan obilaziš. Ruta se vodi samo za tebe.
           </p>
 
           {/* Forma: složi rutu za datum */}
@@ -288,84 +269,6 @@ export default async function RutaPage({
             )}
           </div>
         </div>
-
-        {/* ── ZAJEDNIČKI AUTO PLAN ── */}
-        <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
-          <h2 className="text-[20px] font-semibold text-stone-800">Zajednički auto plan (ABC kadenca)</h2>
-          <p className="mb-3 mt-1 text-[12px] text-stone-500">
-            A=mjesečno, B=svaka 2, C=svaka 3 mjeseca, D=povremeno. Plan je zajednički za sve putnike.
-          </p>
-          <form action={generirajPlan} className="flex flex-wrap items-end gap-3">
-            <div>
-              <label className="mb-1 block text-[13px] font-semibold text-stone-700">Početni datum plana</label>
-              <input name="pocetniDatum" type="date" defaultValue={danas} className={polje} />
-            </div>
-            <button type="submit" className="border border-orange-300 bg-gradient-to-b from-orange-100 to-amber-100 px-4 py-2 text-[13px] font-semibold text-orange-950 hover:brightness-105">
-              Generiraj plan
-            </button>
-            <span className="text-[12px] text-stone-500">
-              Generira plan za sve aktivne kupce s kategorijom. Zamjenjuje postojeći neobavljeni AUTO plan (ručni i obavljeni/preskočeni ostaju).
-            </span>
-          </form>
-        </div>
-
-        {sp.gen ? (
-          Number(sp.plan) > 0 ? (
-            <div className="border border-green-300 bg-green-50 px-4 py-3 text-[14px] font-semibold text-green-800">
-              Generiran plan: {sp.plan} stavki za {sp.kupci} kupaca.
-            </div>
-          ) : (
-            <div className="border border-amber-300 bg-amber-50 px-4 py-3 text-[14px] font-semibold text-amber-800">
-              Nema aktivnih kupaca s kategorijom — plan nije generiran.
-            </div>
-          )
-        ) : null}
-
-        {tjedni.length === 0 ? (
-          <div className="border border-orange-200 bg-white px-4 py-6 text-center text-[14px] text-stone-500">
-            Auto plan još nije generiran. Odaberi početni datum i klikni "Generiraj plan".
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {tjedni.map(([tjedan, dani]) => (
-              <div key={tjedan} className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
-                <h2 className="mb-3 border-b border-orange-200 pb-2 text-[18px] font-semibold text-stone-800">
-                  Tjedan {tjedan}
-                </h2>
-
-                <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-                  {[...dani.entries()]
-                    .sort((a, b) => a[0].localeCompare(b[0]))
-                    .map(([dk, items]) => (
-                      <div key={dk} className="border border-orange-200 bg-white p-3">
-                        <div className="mb-2 text-[13px] font-semibold text-stone-700">
-                          {danUTjednu(items[0].datum)} — {formatDate(items[0].datum)}
-                        </div>
-
-                        <div className="space-y-2">
-                          {items.map((s) => (
-                            <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 border border-orange-100 bg-orange-50/40 px-2 py-2">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <KatBadge kat={s.kupac.kategorija} />
-                                  <StatusBadge status={s.status} />
-                                </div>
-                                <Link href={`/putnik/kupci/${s.kupac.id}`} className="mt-1 block truncate text-[14px] font-semibold text-stone-800 hover:underline">
-                                  {s.kupac.nazivLokala}
-                                </Link>
-                                <div className="text-[12px] text-stone-500">{s.kupac.grad || "-"}</div>
-                              </div>
-                              <StatusGumbi id={s.id} status={s.status} />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </main>
   );
