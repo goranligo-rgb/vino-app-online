@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireLevel12User } from "@/lib/putnik-auth";
+import { sPotvrdom, sigurniPovratak } from "../spremljeno";
 
 // Zajednicki parser: putnik + datum + napomena su jednom po unosu (batch),
 // a artikl/kolicina/(jedinica) dolaze kao paralelni nizovi (jedan par po redu).
@@ -50,6 +52,7 @@ export async function zaduziVino(formData: FormData) {
   });
 
   revalidatePath("/putnik/zaduzenje");
+  redirect(sPotvrdom(sigurniPovratak(formData.get("povratak"), "/putnik/zaduzenje")));
 }
 
 // Faza 8 - zaduzenje promo materijala putniku (ULAZ), analogno zaduziVino. Kolicina Int, bez jedinice.
@@ -71,6 +74,7 @@ export async function zaduziPromo(formData: FormData) {
 
   revalidatePath("/putnik/zaduzenje");
   revalidatePath("/putnik/promo");
+  redirect(sPotvrdom(sigurniPovratak(formData.get("povratak"), "/putnik/zaduzenje")));
 }
 
 // Faza 9 - POVRAT vina iz vozila u skladiste (IZLAZ iz zalihe putnika). Smiju samo L1/2.
@@ -94,6 +98,7 @@ export async function vratiVino(formData: FormData) {
 
   revalidatePath("/putnik/zaduzenje");
   revalidatePath("/putnik/vozilo");
+  redirect(sPotvrdom(sigurniPovratak(formData.get("povratak"), "/putnik/zaduzenje")));
 }
 
 // Faza 9 - POVRAT promo materijala iz vozila u skladiste, analogno vratiVino (kolicina Int).
@@ -116,4 +121,5 @@ export async function vratiPromo(formData: FormData) {
   revalidatePath("/putnik/zaduzenje");
   revalidatePath("/putnik/vozilo");
   revalidatePath("/putnik/promo");
+  redirect(sPotvrdom(sigurniPovratak(formData.get("povratak"), "/putnik/zaduzenje")));
 }

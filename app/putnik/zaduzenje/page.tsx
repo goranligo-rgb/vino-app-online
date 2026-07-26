@@ -37,6 +37,12 @@ export default async function ZaduzenjePage({
   const danas = new Date().toISOString().slice(0, 10);
   const filterPutnik = sp.putnik || "";
 
+  // Kamo se vratiti nakon spremanja (uz zelenu potvrdu) — isti pogled, isti filteri.
+  const upitPovratka = new URLSearchParams();
+  if (sp.putnik) upitPovratka.set("putnik", sp.putnik);
+  if (sp.datum) upitPovratka.set("datum", sp.datum);
+  const povratak = `/putnik/zaduzenje${upitPovratka.toString() ? `?${upitPovratka}` : ""}`;
+
   // Uvjet za posjet (putnikIme za prodaju/isporuku; datum samo za isporuku)
   const posjetProdaja: { putnikIme?: string } = {};
   if (filterPutnik) posjetProdaja.putnikIme = filterPutnik;
@@ -290,6 +296,7 @@ export default async function ZaduzenjePage({
               opis="ULAZ u zalihu putnika (punjenje za prodaju/gratis). Odaberi putnika jednom, dodaj više vina, spremi sve."
               gumb="Zaduži sve"
               artiklPlaceholder="Vino"
+              povratak={povratak}
             />
             <ZaduzenjeForm
               action={zaduziPromo}
@@ -301,6 +308,7 @@ export default async function ZaduzenjePage({
               opis="ULAZ u promo zalihu (čaše, pokloni, reklamni materijal). Skida se na terenu kroz otpis po lokalu."
               gumb="Zaduži sve"
               artiklPlaceholder="Promo artikl"
+              povratak={povratak}
             />
           </div>
         ) : null}
@@ -333,6 +341,7 @@ export default async function ZaduzenjePage({
               opis="IZLAZ iz zalihe putnika: putnik vrati neprodano vino, L1/2 ga primi natrag. Smanjuje „Ostalo u autu”."
               gumb="Vrati sve"
               artiklPlaceholder="Vino"
+              povratak={povratak}
               accent="red"
             />
             <ZaduzenjeForm
@@ -345,6 +354,7 @@ export default async function ZaduzenjePage({
               opis="IZLAZ iz promo zalihe putnika: vraćeni neprodani promo materijal se vraća u skladište."
               gumb="Vrati sve"
               artiklPlaceholder="Promo artikl"
+              povratak={povratak}
               accent="red"
             />
           </div>
@@ -474,6 +484,7 @@ export default async function ZaduzenjePage({
                             <form action={oznaciIsporuceno} className="inline">
                               <input type="hidden" name="id" value={r.id} />
                               <input type="hidden" name="tip" value={r.kind === "vino" ? "stavka" : "promo"} />
+                              <input type="hidden" name="povratak" value={povratak} />
                               <button type="submit" className="border border-green-300 bg-green-50 px-3 py-1 text-[11px] font-semibold text-green-800 hover:brightness-105">
                                 Isporučeno
                               </button>

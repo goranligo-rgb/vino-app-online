@@ -1159,6 +1159,11 @@ model PutnikPosjet {
   zeliWineParty     Boolean @default(false)
   ponovnoObici      Boolean @default(false)
 
+  // Zasto je putnik dosao (redovni obilazak, reklamacija, dogovor...) - slobodan
+  // tekst na VRHU posjet forme. Odvojeno od `biljeska` (sadrzaj/ishod posjeta,
+  // dno forme) i od `problemi` (napomene s terena).
+  razlogPosjeta String?
+
   dogovoreno     String?
   biljeska       String?
   sljedeciKorak  String?

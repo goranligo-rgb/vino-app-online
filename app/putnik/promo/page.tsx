@@ -27,6 +27,8 @@ export default async function PromoPage({
   const jeL12 = user?.role === "ADMIN" || user?.role === "PODRUM";
 
   const danas = new Date().toISOString().slice(0, 10);
+  // Kamo se vratiti nakon spremanja (uz zelenu potvrdu) — isti pogled/filtar lokala.
+  const povratak = `/putnik/promo${sp.kupac ? `?kupac=${encodeURIComponent(sp.kupac)}` : ""}`;
 
   const [artikli, ulazi, otpisi, kupci, vina, promoPovrati] = await Promise.all([
     prisma.putnikPromoArtikl.findMany({ orderBy: [{ aktivan: "desc" }, { naziv: "asc" }] }),
@@ -178,6 +180,7 @@ export default async function PromoPage({
             <div className="text-[13px] text-stone-500">Nema aktivnih artikala za otpis.</div>
           ) : (
             <form action={otpisiPromo} className="grid gap-3 md:grid-cols-5">
+              <input type="hidden" name="povratak" value={povratak} />
               <select name="kupacId" defaultValue={sp.kupac || ""} required className={ulazInput}>
                 <option value="">Odaberi lokal…</option>
                 {kupci.map((k) => (
@@ -208,6 +211,7 @@ export default async function PromoPage({
             <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
               <h2 className="mb-3 text-[18px] font-semibold text-stone-800">Katalog artikala (L1/L2)</h2>
               <form action={dodajArtikl} className="mb-3 flex gap-2">
+                <input type="hidden" name="povratak" value={povratak} />
                 <input name="naziv" placeholder="npr. čaša ABC, pregača, upaljač" required className={ulazInput} />
                 <button
                   type="submit"
@@ -221,6 +225,7 @@ export default async function PromoPage({
                   <div key={a.id} className="flex items-center justify-between border border-orange-100 bg-white px-3 py-2 text-[14px]">
                     <span className={a.aktivan ? "text-stone-800" : "text-stone-400 line-through"}>{a.naziv}</span>
                     <form action={toggleArtikl}>
+                      <input type="hidden" name="povratak" value={povratak} />
                       <input type="hidden" name="id" value={a.id} />
                       <input type="hidden" name="aktivan" value={a.aktivan ? "false" : "true"} />
                       <button type="submit" className="border border-orange-200 bg-white px-2 py-1 text-[11px] font-semibold text-stone-600 hover:bg-orange-50">
@@ -235,6 +240,7 @@ export default async function PromoPage({
             <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4 lg:col-span-2">
               <h2 className="mb-3 text-[18px] font-semibold text-stone-800">Katalog vina (L1/L2)</h2>
               <form action={dodajVino} className="mb-3 flex flex-wrap gap-2">
+                <input type="hidden" name="povratak" value={povratak} />
                 <input name="naziv" placeholder="npr. Graševina 2023, Frankovka..." required className={`${ulazInput} min-w-[200px] flex-1`} />
                 <select name="zadanaJedinica" defaultValue="kom" className={`${ulazInput} w-24 shrink-0`}>
                   <option value="kom">kom</option>
@@ -255,6 +261,7 @@ export default async function PromoPage({
                       <span className="text-[12px] text-stone-400">({v.zadanaJedinica || "kom"})</span>
                     </span>
                     <form action={toggleVino}>
+                      <input type="hidden" name="povratak" value={povratak} />
                       <input type="hidden" name="id" value={v.id} />
                       <input type="hidden" name="aktivan" value={v.aktivan ? "false" : "true"} />
                       <button type="submit" className="border border-orange-200 bg-white px-2 py-1 text-[11px] font-semibold text-stone-600 hover:bg-orange-50">

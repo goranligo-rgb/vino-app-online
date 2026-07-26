@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireLevel12User, requirePutnikUser } from "@/lib/putnik-auth";
+import { sPotvrdom, sigurniPovratak } from "../spremljeno";
 
 const DOZVOLJENI = ["PRIPREMITI", "PRIPREMLJENO", "ISPORUCENO"];
 
@@ -30,6 +32,7 @@ export async function oznaciPripremu(formData: FormData) {
 
   revalidatePath("/putnik/priprema");
   revalidatePath("/putnik/zaduzenje");
+  redirect(sPotvrdom(sigurniPovratak(formData.get("povratak"), "/putnik/priprema")));
 }
 
 // Faza 7 - potvrda isporuke na terenu. Smiju SVE razine (putnik predaje lokalu),
@@ -55,4 +58,5 @@ export async function oznaciIsporuceno(formData: FormData) {
 
   revalidatePath("/putnik/zaduzenje");
   revalidatePath("/putnik/priprema");
+  redirect(sPotvrdom(sigurniPovratak(formData.get("povratak"), "/putnik/zaduzenje")));
 }

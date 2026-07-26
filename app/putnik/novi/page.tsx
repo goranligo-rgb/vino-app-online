@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { sPotvrdom } from "../spremljeno";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,7 @@ async function createKupac(formData: FormData) {
         },
     });
 
-    redirect("/putnik");
+    redirect(sPotvrdom("/putnik"));
 }
 
 function Field({

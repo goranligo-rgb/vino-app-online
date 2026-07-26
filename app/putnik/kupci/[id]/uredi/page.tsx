@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePutnikUser } from "@/lib/putnik-auth";
+import { sPotvrdom } from "../../../spremljeno";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +64,7 @@ async function spremiKupca(formData: FormData) {
 
   revalidatePath("/putnik");
   revalidatePath(`/putnik/kupci/${id}`);
-  redirect(`/putnik/kupci/${id}`);
+  redirect(sPotvrdom(`/putnik/kupci/${id}`));
 }
 
 function Field({

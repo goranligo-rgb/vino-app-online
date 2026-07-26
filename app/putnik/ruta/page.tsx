@@ -65,12 +65,24 @@ function Kartica({ naslov, vrijednost }: { naslov: string; vrijednost: string })
 }
 
 // Gumbi za status + (samo ručno) Ukloni. Reuse oznaciStatus za oboje.
-function StatusGumbi({ id, status, rucno }: { id: string; status: string; rucno?: boolean }) {
+function StatusGumbi({
+  id,
+  status,
+  rucno,
+  povratak,
+}: {
+  id: string;
+  status: string;
+  rucno?: boolean;
+  // Putanja s odabranim datumom — nakon promjene statusa ostajemo na istom danu.
+  povratak: string;
+}) {
   return (
     <div className="flex shrink-0 flex-wrap gap-1">
       {status !== "OBAVLJENO" ? (
         <form action={oznaciStatus}>
           <input type="hidden" name="id" value={id} />
+          <input type="hidden" name="povratak" value={povratak} />
           <input type="hidden" name="status" value="OBAVLJENO" />
           <button type="submit" className="border border-green-300 bg-green-50 px-2 py-1 text-[11px] font-semibold text-green-800 hover:brightness-105">
             Obavljeno
@@ -80,6 +92,7 @@ function StatusGumbi({ id, status, rucno }: { id: string; status: string; rucno?
       {status === "PLANIRANO" ? (
         <form action={oznaciStatus}>
           <input type="hidden" name="id" value={id} />
+          <input type="hidden" name="povratak" value={povratak} />
           <input type="hidden" name="status" value="PRESKOCENO" />
           <button type="submit" className="border border-stone-300 bg-white px-2 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-50">
             Preskoči
@@ -89,6 +102,7 @@ function StatusGumbi({ id, status, rucno }: { id: string; status: string; rucno?
       {status !== "PLANIRANO" ? (
         <form action={oznaciStatus}>
           <input type="hidden" name="id" value={id} />
+          <input type="hidden" name="povratak" value={povratak} />
           <input type="hidden" name="status" value="PLANIRANO" />
           <button type="submit" className="border border-orange-200 bg-white px-2 py-1 text-[11px] font-semibold text-stone-600 hover:bg-orange-50">
             Vrati
@@ -136,6 +150,8 @@ export default async function RutaPage({
 
   // ── MOJA RUČNA RUTA: opcionalni filtar po danu, grupiranje po datumu ──
   const filterDatum = sp.datum || "";
+  // Kamo se vratiti nakon promjene statusa (uz zelenu potvrdu) — isti dan.
+  const povratak = `/putnik/ruta${filterDatum ? `?datum=${filterDatum}` : ""}`;
   const mojiPrikaz = filterDatum ? mojaRuta.filter((s) => iso(s.datum) === filterDatum) : mojaRuta;
   const mojiPoDanu = new Map<string, typeof mojaRuta>();
   for (const s of mojiPrikaz) {
@@ -259,7 +275,7 @@ export default async function RutaPage({
                             </Link>
                             <div className="text-[12px] text-stone-500">{s.kupac.grad || "-"}</div>
                           </div>
-                          <StatusGumbi id={s.id} status={s.status} rucno />
+                          <StatusGumbi id={s.id} status={s.status} rucno povratak={povratak} />
                         </div>
                       ))}
                     </div>

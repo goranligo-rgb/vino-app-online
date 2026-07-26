@@ -30,7 +30,20 @@ function Kartica({ naslov, vrijednost, podnaslov }: { naslov: string; vrijednost
 }
 
 // Gumbi za pomicanje statusa (samo L1/2). Status NE dira zalihu.
-function StatusGumbi({ id, tip, status, jeL12 }: { id: string; tip: "stavka" | "promo"; status: string; jeL12: boolean }) {
+function StatusGumbi({
+  id,
+  tip,
+  status,
+  jeL12,
+  povratak,
+}: {
+  id: string;
+  tip: "stavka" | "promo";
+  status: string;
+  jeL12: boolean;
+  // Putanja s trenutnim filterima — nakon promjene statusa vracamo se tocno ovdje.
+  povratak: string;
+}) {
   if (!jeL12) return <StatusBadge status={status} />;
 
   const Gumb = ({ noviStatus, label, boja }: { noviStatus: string; label: string; boja: string }) => (
@@ -38,6 +51,7 @@ function StatusGumbi({ id, tip, status, jeL12 }: { id: string; tip: "stavka" | "
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="tip" value={tip} />
       <input type="hidden" name="status" value={noviStatus} />
+      <input type="hidden" name="povratak" value={povratak} />
       <button type="submit" className={`border px-2 py-1 text-[11px] font-semibold ${boja}`}>
         {label}
       </button>
@@ -76,6 +90,13 @@ export default async function PripremaPage({
   // Čim L1/2 označi "Pripremljeno", stavka nestane s aktivnog reda; vidljiva je u
   // arhivi (checkbox "Prikaži i pripremljeno/isporučeno").
   const prikaziArhivu = sp.sve === "1";
+
+  // Kamo se vratiti nakon promjene statusa (uz zelenu potvrdu) — isti pogled/filteri.
+  const upitPovratka = new URLSearchParams();
+  if (sp.putnik) upitPovratka.set("putnik", sp.putnik);
+  if (sp.datum) upitPovratka.set("datum", sp.datum);
+  if (sp.sve) upitPovratka.set("sve", sp.sve);
+  const povratak = `/putnik/priprema${upitPovratka.toString() ? `?${upitPovratka}` : ""}`;
   const statusi = prikaziArhivu
     ? ["PRIPREMITI", "PRIPREMLJENO", "ISPORUCENO"]
     : ["PRIPREMITI"];
@@ -277,7 +298,7 @@ export default async function PripremaPage({
                           <span className="mr-2 text-[11px] uppercase tracking-wide text-stone-400">{r.kind === "vino" ? "vino" : "promo"}</span>
                           <strong>{r.naziv}</strong> — {r.kolicina}{r.jedinica ? ` ${r.jedinica}` : ""}
                         </span>
-                        <StatusGumbi id={r.id} tip={r.kind === "vino" ? "stavka" : "promo"} status={r.status} jeL12={jeL12} />
+                        <StatusGumbi id={r.id} tip={r.kind === "vino" ? "stavka" : "promo"} status={r.status} jeL12={jeL12} povratak={povratak} />
                       </div>
                     ))}
                   </div>

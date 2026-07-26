@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireAdminUser } from "@/lib/putnik-auth";
+import { sPotvrdom } from "../../spremljeno";
 
 /**
  * Soft (de)aktivacija lokala/kupca. SAMO Level 1 (ADMIN).
@@ -29,5 +30,5 @@ export async function postaviAktivanKupca(formData: FormData) {
 
   revalidatePath("/putnik");
   revalidatePath(`/putnik/kupci/${id}`);
-  redirect(`/putnik/kupci/${id}`);
+  redirect(sPotvrdom(`/putnik/kupci/${id}`));
 }

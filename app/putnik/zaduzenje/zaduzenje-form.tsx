@@ -27,6 +27,7 @@ export default function ZaduzenjeForm({
   gumb,
   artiklPlaceholder,
   accent = "orange",
+  povratak,
 }: {
   action: (formData: FormData) => void | Promise<void>;
   putnici: Putnik[];
@@ -38,6 +39,9 @@ export default function ZaduzenjeForm({
   gumb: string;
   artiklPlaceholder: string;
   accent?: "orange" | "red";
+  // Putanja s trenutnim filterima — akcija se nakon spremanja vrati tocno ovdje
+  // (uz zelenu potvrdu), da se filtar putnika/datuma ne izgubi.
+  povratak: string;
 }) {
   const [redovi, setRedovi] = useState<Red[]>(() => [noviRed()]);
 
@@ -70,6 +74,7 @@ export default function ZaduzenjeForm({
 
   return (
     <form action={action} className={`border bg-gradient-to-b p-4 ${okvir}`}>
+      <input type="hidden" name="povratak" value={povratak} />
       <h2 className="mb-1 text-[18px] font-semibold text-stone-800">{naslov}</h2>
       <p className="mb-3 text-[12px] text-stone-500">{opis}</p>
 

@@ -1,8 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireLevel12User, requirePutnikUser } from "@/lib/putnik-auth";
+import { sPotvrdom, sigurniPovratak } from "../spremljeno";
+
+// Zelena potvrda + povratak na isti pogled (promo stranica pamti ?kupac filtar).
+function natragNaPromo(formData: FormData): never {
+  redirect(sPotvrdom(sigurniPovratak(formData.get("povratak"), "/putnik/promo")));
+}
 
 function text(formData: FormData, name: string) {
   const value = String(formData.get(name) || "").trim();
@@ -38,6 +45,7 @@ export async function dodajArtikl(formData: FormData) {
   });
 
   revalidatePath("/putnik/promo");
+  natragNaPromo(formData);
 }
 
 export async function toggleArtikl(formData: FormData) {
@@ -53,6 +61,7 @@ export async function toggleArtikl(formData: FormData) {
   });
 
   revalidatePath("/putnik/promo");
+  natragNaPromo(formData);
 }
 
 // --- KATALOG VINA (samo L1/L2) ---
@@ -71,6 +80,7 @@ export async function dodajVino(formData: FormData) {
   });
 
   revalidatePath("/putnik/promo");
+  natragNaPromo(formData);
 }
 
 export async function toggleVino(formData: FormData) {
@@ -86,6 +96,7 @@ export async function toggleVino(formData: FormData) {
   });
 
   revalidatePath("/putnik/promo");
+  natragNaPromo(formData);
 }
 
 // NAPOMENA (Faza 8): ulaz promo zalihe preseljen u /putnik/zaduzenje kao zaduziPromo
@@ -121,4 +132,5 @@ export async function otpisiPromo(formData: FormData) {
 
   revalidatePath("/putnik/promo");
   revalidatePath(`/putnik/kupci/${kupacId}`);
+  natragNaPromo(formData);
 }

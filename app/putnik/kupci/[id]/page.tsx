@@ -563,6 +563,11 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                       {formatDate(p.datum)}
                       {p.putnikIme ? <span className="ml-2 text-[12px] font-normal text-stone-400">({p.putnikIme})</span> : null}
                     </div>
+                    {p.razlogPosjeta ? (
+                      <div className="mt-0.5 text-[13px] text-stone-600">
+                        <span className="font-semibold text-stone-500">Razlog:</span> {p.razlogPosjeta}
+                      </div>
+                    ) : null}
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       {prodano.length ? <Chip boja="green">🛒 Prodano {prodano.length}</Chip> : null}
                       {sviPokloni.length ? <Chip boja="amber">🎁 Poklon {sviPokloni.length}</Chip> : null}
@@ -579,6 +584,17 @@ export default async function KupacDetaljiPage({ params }: PageProps) {
                 </summary>
 
                 <div className="space-y-3 border-t border-orange-100 p-3">
+                  {p.razlogPosjeta ? (
+                    <div className="border border-orange-200 bg-white px-3 py-2">
+                      <div className="text-[11px] uppercase tracking-[0.14em] text-orange-800/70">
+                        Razlog posjeta
+                      </div>
+                      <div className="mt-0.5 text-[14px] whitespace-pre-wrap text-stone-800">
+                        {p.razlogPosjeta}
+                      </div>
+                    </div>
+                  ) : null}
+
                   <div className="grid gap-2 sm:grid-cols-3">
                     <SkupinaLista naslov="Prodano" boja="green" items={prodano} />
                     <SkupinaLista naslov="Poklon / gratis" boja="amber" items={sviPokloni} />

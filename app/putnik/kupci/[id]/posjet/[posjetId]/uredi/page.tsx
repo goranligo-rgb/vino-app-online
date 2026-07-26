@@ -80,6 +80,7 @@ export default async function UrediPosjetPage({ params }: { params: PageParams }
   const initial: InitialPosjet = {
     id: posjet.id,
     datum: posjet.datum,
+    razlogPosjeta: posjet.razlogPosjeta,
     ukupanDug: posjet.ukupanDug,
     dospjeliDug: posjet.dospjeliDug,
     biljeska: posjet.biljeska,

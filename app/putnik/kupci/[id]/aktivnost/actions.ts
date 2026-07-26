@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requirePutnikUser } from "@/lib/putnik-auth";
+import { sPotvrdom } from "../../../spremljeno";
 
 function text(formData: FormData, name: string) {
   const value = String(formData.get(name) || "").trim();
@@ -54,7 +55,7 @@ export async function spremiAktivnost(formData: FormData) {
 
   revalidatePath("/putnik");
   revalidatePath(`/putnik/kupci/${kupacId}`);
-  redirect(`/putnik/kupci/${kupacId}`);
+  redirect(sPotvrdom(`/putnik/kupci/${kupacId}`));
 }
 
 // Izmjena postojeće aktivnosti — prepiše stari zapis (bez povijesti).
@@ -73,5 +74,5 @@ export async function azurirajAktivnost(formData: FormData) {
 
   revalidatePath("/putnik");
   revalidatePath(`/putnik/kupci/${kupacId}`);
-  redirect(`/putnik/kupci/${kupacId}`);
+  redirect(sPotvrdom(`/putnik/kupci/${kupacId}`));
 }

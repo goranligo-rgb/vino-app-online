@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requirePutnikUser } from "@/lib/putnik-auth";
+import { sPotvrdom, sigurniPovratak } from "../spremljeno";
 
 // NAPOMENA: auto-generiranje plana po ABC kadenci je uklonjeno (nije se
 // koristilo, samo je zbunjivalo). Ruta se sada vodi ISKLJUČIVO ručno preko
@@ -26,6 +27,7 @@ export async function oznaciStatus(formData: FormData) {
   });
 
   revalidatePath("/putnik/ruta");
+  redirect(sPotvrdom(sigurniPovratak(formData.get("povratak"), "/putnik/ruta")));
 }
 
 // Ručni unos rute: putnik za odabrani datum označi koje lokale obilazi.
@@ -83,7 +85,7 @@ export async function dodajRucnuRutu(formData: FormData) {
   }
 
   revalidatePath("/putnik/ruta");
-  redirect(`/putnik/ruta?datum=${datumRaw}`);
+  redirect(sPotvrdom(`/putnik/ruta?datum=${datumRaw}`));
 }
 
 // Micanje retka iz MOJE ručne rute (samo vlastiti ručni redak: putnikIme + tjedan null).

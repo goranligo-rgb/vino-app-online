@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requirePutnikUser } from "@/lib/putnik-auth";
 import { formatHrDate } from "@/lib/datum";
+import { sPotvrdom } from "../../../spremljeno";
 
 function text(formData: FormData, name: string) {
   const value = String(formData.get(name) || "").trim();
@@ -115,6 +116,8 @@ function posjetSkalar(formData: FormData) {
   // kontrolira) — nisu ovdje pa ih ni create ni update ne prepisuje; postojeći
   // podaci u bazi ostaju netaknuti.
   return {
+    // Razlog posjeta (vrh forme) je odvojen od biljeske (dno forme, ishod).
+    razlogPosjeta: text(formData, "razlogPosjeta"),
     biljeska: text(formData, "biljeska"),
 
     mjesto: text(formData, "mjesto"),
@@ -231,7 +234,7 @@ export async function spremiPosjet(formData: FormData) {
   revalidatePath("/putnik");
   revalidatePath("/putnik/promo");
   revalidatePath(`/putnik/kupci/${kupacId}`);
-  redirect(`/putnik/kupci/${kupacId}`);
+  redirect(sPotvrdom(`/putnik/kupci/${kupacId}`));
 }
 
 /**
@@ -286,5 +289,5 @@ export async function azurirajPosjet(formData: FormData) {
   revalidatePath("/putnik/priprema");
   revalidatePath("/putnik/zaduzenje");
   revalidatePath(`/putnik/kupci/${kupacId}`);
-  redirect(`/putnik/kupci/${kupacId}`);
+  redirect(sPotvrdom(`/putnik/kupci/${kupacId}`));
 }

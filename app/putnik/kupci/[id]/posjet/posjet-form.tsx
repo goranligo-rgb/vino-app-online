@@ -49,6 +49,7 @@ type InitialOtpis = {
 export type InitialPosjet = {
   id: string;
   datum: string | Date;
+  razlogPosjeta: string | null;
   ukupanDug: number | null; // zadržano u tipu (ne prikazuje se više na formi), da uredi-stranica ne puca
   dospjeliDug: number | null;
   biljeska: string | null;
@@ -246,6 +247,7 @@ export default function PosjetForm({
   initial?: InitialPosjet;
 }) {
   const jeUredi = Boolean(initial);
+  const [razlog, setRazlog] = useState(initial?.razlogPosjeta ?? "");
   const [stavke, setStavke] = useState<Stavka[]>(() => stavkeIzInitial(initial));
   const [pokloni, setPokloni] = useState<Poklon[]>(() => pokloniIzInitial(initial));
 
@@ -349,6 +351,39 @@ export default function PosjetForm({
     <form action={action} className="space-y-4">
       <input type="hidden" name="kupacId" value={kupacId} />
       {initial ? <input type="hidden" name="posjetId" value={initial.id} /> : null}
+
+      {/* Razlog posjeta je PRVO sto putnik vidi — zasto je uopce dosao.
+          Sadrzaj posjeta je u sredini, zabiljeske (ishod) na dnu. */}
+      <div className="border-2 border-orange-300 bg-gradient-to-b from-white to-orange-50 p-4">
+        <h2 className="mb-1 text-[18px] font-semibold text-stone-800">
+          Razlog posjeta
+        </h2>
+        <p className="mb-2 text-[12px] text-stone-500">
+          Zašto si došao u ovaj lokal. Slobodan upis — prijedlozi ispod su samo prečac.
+        </p>
+
+        <textarea
+          name="razlogPosjeta"
+          rows={2}
+          value={razlog}
+          onChange={(e) => setRazlog(e.target.value)}
+          placeholder="npr. redovni obilazak, reklamacija, dogovor…"
+          className="w-full resize-y border border-orange-200 bg-white px-3 py-3 text-[15px] outline-none focus:border-orange-400"
+        />
+
+        <div className="mt-2 flex flex-wrap gap-2">
+          {["Redovni obilazak", "Reklamacija", "Dogovor", "Isporuka", "Novi lokal"].map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setRazlog(p)}
+              className="border border-orange-300 bg-white px-3 py-2 text-[13px] font-semibold text-orange-900 hover:bg-orange-50"
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
         <h2 className="mb-4 text-[18px] font-semibold text-stone-800">

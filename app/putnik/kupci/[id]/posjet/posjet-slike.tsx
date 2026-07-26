@@ -133,7 +133,11 @@ function Grupa({
         setPoruka(data?.error || "Greska kod spremanja slike.");
         return;
       }
-      window.location.reload();
+      // Osvjezi s ?spremljeno= da se prikaze ista zelena potvrda kao kod
+      // ostalih spremanja (SpremljenoToast u app/putnik/layout.tsx).
+      const url = new URL(window.location.href);
+      url.searchParams.set("spremljeno", String(Date.now()));
+      window.location.replace(url.toString());
     } catch (err) {
       setPoruka(err instanceof Error ? err.message : "Greska kod spremanja slike.");
     } finally {
