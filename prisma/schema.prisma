@@ -25,6 +25,8 @@ model User {
   zadaciIzvrseni Zadatak[]     @relation("ZadatakIzvrsio")
   zadaciZadani   Zadatak[]     @relation("ZadatakZadao")
   tankKomande    TankKomanda[]
+  radnePrijave       RadnaPrijava[] @relation("RadnaPrijavaKorisnik")
+  radnePrijaveUredio RadnaPrijava[] @relation("RadnaPrijavaUredio")
 }
 
 model Tank {
@@ -1631,4 +1633,39 @@ model PutnikPlanObilaska {
   @@index([kupacId])
   @@index([datum])
   @@index([putnikIme])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EVIDENCIJA RADNOG VREMENA (Faza 1)
+// Jedan redak = jedan dolazak/odlazak. Vise redaka po danu je dopusteno
+// (izlazak i povratak), pa se dnevni zbroj racuna zbrajanjem redaka.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model RadnaPrijava {
+  id       String    @id @default(cuid())
+  userId   String
+  datum    DateTime  @db.Date // dan na koji se zapis odnosi (Europe/Zagreb)
+  dolazakU DateTime
+  odlazakU DateTime? // NULL = korisnik je jos prijavljen
+  napomena String?
+
+  // Tko je i kad rucno ispravio zapis (npr. zaboravljena odjava). Projekt vodi
+  // autorstvo kolonama na retku (kao Zadatak.izvrsio/zadao), ne kroz ActivityLog.
+  uredioId String?
+  uredenoU DateTime?
+
+  createdAt DateTime @default(now())
+
+  user   User  @relation("RadnaPrijavaKorisnik", fields: [userId], references: [id])
+  uredio User? @relation("RadnaPrijavaUredio", fields: [uredioId], references: [id])
+
+  @@index([userId, datum])
+  @@index([datum])
+}
+
+// Drzavni praznici (puni se sada, koristi ih Faza 2 za godisnje odmore).
+model Praznik {
+  id    String   @id @default(cuid())
+  datum DateTime @unique @db.Date
+  naziv String
 }

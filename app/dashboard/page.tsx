@@ -156,6 +156,13 @@ export default async function DashboardPage() {
             />
           )}
 
+          {/* Prisutnost je za SVE prijavljene role — svatko bilježi svoj dolazak/odlazak. */}
+          <DashboardCard
+            href="/dashboard/prisutnost"
+            title="Prisutnost"
+            description="Prijava i odjava s posla, ploča prisutnosti i evidencija radnog vremena"
+          />
+
           {canSeeMainDashboard && (
             <>
               <DashboardCard
