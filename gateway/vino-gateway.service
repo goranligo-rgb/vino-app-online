@@ -1,0 +1,33 @@
+[Unit]
+Description=Vino gateway - Dixell XR75CX (Modbus RTU) -> Supabase
+Documentation=file:/home/vinarija/gateway/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Ako korisnik na Pi-ju nije "vinarija", promijeni User/Group i sve putanje ispod.
+User=vinarija
+Group=vinarija
+# Pristup /dev/ttyUSB* (alternativa: usermod -aG dialout vinarija)
+SupplementaryGroups=dialout
+WorkingDirectory=/home/vinarija/gateway
+EnvironmentFile=/home/vinarija/gateway/.env
+ExecStart=/home/vinarija/gateway/venv/bin/python /home/vinarija/gateway/gateway.py
+
+Restart=always
+RestartSec=10
+# Ako pukne 5 puta u 5 minuta, systemd ipak odustane - ovime ne odustaje.
+StartLimitIntervalSec=0
+
+# Log ide i u ~/gateway/gateway.log (rotacija) i u journal.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vino-gateway
+
+# Malo higijene
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,3 @@
+# Datoteke koje idu na Raspberry Pi moraju ostati s LF krajevima redaka.
+# S CRLF-om systemd unit i .env znaju povuci "\r" u vrijednosti (npr. SUPABASE_URL).
+gateway/** text eol=lf
