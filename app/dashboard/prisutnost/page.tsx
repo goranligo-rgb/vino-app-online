@@ -10,7 +10,7 @@ import {
   satiHHMM,
   formatDan,
 } from "@/lib/prisutnost";
-import PrijavaGumb from "./prijava-gumb";
+import PrisutnostGumb from "@/components/PrisutnostGumb";
 
 export const dynamic = "force-dynamic";
 
@@ -157,7 +157,7 @@ export default async function PrisutnostPage() {
         )}
 
         <div style={{ background: "#fff", border: "1px solid #cfcfcf", padding: 16 }}>
-          <PrijavaGumb
+          <PrisutnostGumb
             prijavljen={Boolean(mojOtvoreni)}
             odKad={mojOtvoreni ? satMinutaHr(mojOtvoreni.dolazakU) : undefined}
           />

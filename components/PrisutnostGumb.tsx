@@ -2,22 +2,31 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { prijaviSe, odjaviSe, type Rezultat } from "./actions";
+import { prijaviSe, odjaviSe, type Rezultat } from "@/app/dashboard/prisutnost/actions";
 
 /**
- * Veliki gumb PRIJAVA / ODJAVA — jedan klik + potvrda.
- * Vrijeme upisuje server (never klijent), pa je gumb samo okidač.
+ * Gumb PRIJAVA / ODJAVA — jedina logika prijave na posao u aplikaciji.
+ * Koristi se na dva mjesta (vrh /dashboard i /dashboard/prisutnost), pa je
+ * namjerno JEDNA komponenta: potvrda, poziv server akcije i poruke ne smiju
+ * postojati u dvije verzije koje se raziđu.
+ *
+ * Vrijeme uvijek upisuje server (akcija), klijent je samo okidač.
  */
-export default function PrijavaGumb({
+export default function PrisutnostGumb({
   prijavljen,
   odKad,
+  tamnaPodloga = false,
 }: {
   prijavljen: boolean;
   odKad?: string;
+  /** true na tamnom dashboardu — mijenja samo boju pomoćnog teksta. */
+  tamnaPodloga?: boolean;
 }) {
   const router = useRouter();
   const [radi, start] = useTransition();
   const [poruka, setPoruka] = useState<Rezultat | null>(null);
+
+  const mutedBoja = tamnaPodloga ? "rgba(255,255,255,0.72)" : "#4b5158";
 
   function klik() {
     const pitanje = prijavljen
@@ -33,7 +42,11 @@ export default function PrijavaGumb({
   }
 
   return (
-    <div style={{ display: "grid", gap: 10 }}>
+    <div style={{ display: "grid", gap: 8, width: "100%" }}>
+      {prijavljen && odKad && (
+        <div style={{ fontSize: 13, color: mutedBoja }}>Na poslu od {odKad}</div>
+      )}
+
       <button
         type="button"
         onClick={klik}
@@ -41,7 +54,7 @@ export default function PrijavaGumb({
         style={{
           width: "100%",
           minHeight: 96,
-          fontSize: 28,
+          fontSize: 26,
           fontWeight: 800,
           letterSpacing: "0.06em",
           color: "#fff",
@@ -50,14 +63,15 @@ export default function PrijavaGumb({
           cursor: radi ? "wait" : "pointer",
           padding: "18px 12px",
           touchAction: "manipulation",
+          fontFamily: "inherit",
         }}
       >
-        {radi ? "SPREMAM…" : prijavljen ? "ODJAVA" : "PRIJAVA"}
+        {radi ? "SPREMAM…" : prijavljen ? "ODJAVA" : "PRIJAVA NA POSAO"}
       </button>
 
-      <div style={{ fontSize: 13, color: "#4b5158" }}>
+      <div style={{ fontSize: 12.5, color: mutedBoja }}>
         {prijavljen
-          ? `Prijavljeni ste od ${odKad}. Klik bilježi odlazak.`
+          ? "Klik bilježi odlazak s vremenom servera."
           : "Klik bilježi dolazak s vremenom servera."}
       </div>
 

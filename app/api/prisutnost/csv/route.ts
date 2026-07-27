@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/putnik-auth";
+import { formatHrDateTime } from "@/lib/datum";
 import {
   rasponMjeseca,
   mjesecHr,
@@ -12,6 +13,9 @@ import {
   formatDan,
   csvPolje,
 } from "@/lib/prisutnost";
+
+/** Poslodavac u zaglavlju izvoza (knjigovodstvo traži da stoji na listi). */
+const POSLODAVAC = "Ligo grupa";
 
 /**
  * Izvoz evidencije radnog vremena za knjigovodstvo (jedan mjesec).
@@ -57,7 +61,13 @@ export async function GET(request: Request) {
 
   const praznikPoDanu = new Map(praznici.map((p) => [danIzBaze(p.datum), p.naziv]));
 
+  // Zaglavlje za knjigovodstvo: poslodavac, razdoblje i trenutak izvoza.
   const redci: string[] = [
+    [POSLODAVAC, "Evidencija radnog vremena"].map(csvPolje).join(";"),
+    ["Mjesec", mjesec].map(csvPolje).join(";"),
+    ["Izvezeno", formatHrDateTime(new Date())].map(csvPolje).join(";"),
+    ["Izvezao", user.ime].map(csvPolje).join(";"),
+    "",
     ["Korisnik", "Datum", "Dolazak", "Odlazak", "Sati (h:mm)", "Sati (decimalno)", "Praznik", "Napomena", "Ispravio"]
       .map(csvPolje)
       .join(";"),
@@ -94,7 +104,7 @@ export async function GET(request: Request) {
   }
 
   const csv = "﻿" + redci.join("\r\n") + "\r\n";
-  const naziv = `prisutnost-${mjesec}${korisnikId ? "-filtrirano" : ""}.csv`;
+  const naziv = `ligo-grupa-prisutnost-${mjesec}${korisnikId ? "-filtrirano" : ""}.csv`;
 
   return new NextResponse(csv, {
     headers: {

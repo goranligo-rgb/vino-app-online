@@ -4,6 +4,9 @@ import { redirect } from "next/navigation";
 import LogoutButton from "@/components/LogoutButton";
 import SignatureAnimation from "@/components/SignatureAnimation";
 import DashboardTopActions from "@/components/DashboardTopActions";
+import PrisutnostGumb from "@/components/PrisutnostGumb";
+import { prisma } from "@/lib/prisma";
+import { satMinutaHr } from "@/lib/prisutnost";
 
 type AuthUser = {
   id: string;
@@ -96,6 +99,14 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
+  // Prisutnost je za sve role: gumb na vrhu mijenja stanje prema otvorenom zapisu.
+  // Zapis se trazi po korisniku iz sesije (nikad iz forme/parametra).
+  const otvorenaPrijava = await prisma.radnaPrijava.findFirst({
+    where: { userId: user.id, odlazakU: null },
+    orderBy: { dolazakU: "desc" },
+    select: { dolazakU: true },
+  });
+
   return (
     <main
       className="relative min-h-screen p-8 pb-28"
@@ -120,6 +131,23 @@ export default async function DashboardPage() {
             <DashboardTopActions />
             <LogoutButton />
           </div>
+        </div>
+
+        {/* Prijava/odjava s posla — na samom vrhu, prije svih kartica, za sve role. */}
+        <div
+          className="mb-8"
+          style={{
+            background: "#14131c",
+            border: "2px solid #5b6b88",
+            boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
+            padding: 16,
+          }}
+        >
+          <PrisutnostGumb
+            prijavljen={Boolean(otvorenaPrijava)}
+            odKad={otvorenaPrijava ? satMinutaHr(otvorenaPrijava.dolazakU) : undefined}
+            tamnaPodloga
+          />
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

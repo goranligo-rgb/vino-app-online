@@ -36,6 +36,7 @@ export async function prijaviSe(): Promise<Rezultat> {
       data: { userId: user.id, datum: danUBazu(danas), dolazakU: new Date() },
     });
     revalidatePath("/dashboard/prisutnost");
+    revalidatePath("/dashboard");   // gumb prisutnosti na vrhu dashboarda
     return {
       ok: true,
       upozorenje: `Prijava zabilježena, ali zapis od ${danOtvorenog} nema odjavu — javite administratoru da ga ispravi.`,
@@ -46,6 +47,7 @@ export async function prijaviSe(): Promise<Rezultat> {
     data: { userId: user.id, datum: danUBazu(danas), dolazakU: new Date() },
   });
   revalidatePath("/dashboard/prisutnost");
+  revalidatePath("/dashboard");   // gumb prisutnosti na vrhu dashboarda
   return { ok: true, poruka: "Prijava zabilježena." };
 }
 
@@ -73,6 +75,7 @@ export async function odjaviSe(): Promise<Rezultat> {
     data: { odlazakU: sad },
   });
   revalidatePath("/dashboard/prisutnost");
+  revalidatePath("/dashboard");   // gumb prisutnosti na vrhu dashboarda
 
   const danOtvorenog = danIzBaze(otvoren.datum);
   return {
@@ -130,6 +133,7 @@ export async function urediZapis(input: {
 
   revalidatePath("/dashboard/prisutnost/evidencija");
   revalidatePath("/dashboard/prisutnost");
+  revalidatePath("/dashboard");   // gumb prisutnosti na vrhu dashboarda
   return { ok: true, poruka: "Zapis ispravljen." };
 }
 
@@ -176,5 +180,6 @@ export async function dodajZapis(input: {
   });
 
   revalidatePath("/dashboard/prisutnost/evidencija");
+  revalidatePath("/dashboard/prisutnost");
   return { ok: true, poruka: "Zapis dodan." };
 }
