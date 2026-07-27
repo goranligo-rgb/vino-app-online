@@ -362,9 +362,27 @@ export default async function TankIzvjestajPage({
     orderBy: { zadanoAt: "desc" },
   });
 
+  // Uz zadatke ovog tanka idu i filtracije iz DRUGIH tankova koje su vino
+  // dovele U ovaj tank — zadatak stoji na izvornom tanku, pa bi dolazak vina
+  // inače nedostajao u izvještaju ciljnog tanka.
   const izvrseniZadaci = await prisma.zadatak.findMany({
-    where: { tankId: id, status: { in: ["IZVRSEN", "OTKAZAN"] } },
+    where: {
+      status: { in: ["IZVRSEN", "OTKAZAN"] },
+      OR: [
+        { tankId: id },
+        { tankStavke: { some: { ciljTankId: id } } },
+      ],
+    },
     include: {
+      tank: {
+        select: { id: true, broj: true },
+      },
+      tankStavke: {
+        orderBy: { redoslijed: "asc" },
+        include: {
+          ciljTank: { select: { id: true, broj: true } },
+        },
+      },
       preparat: {
         select: {
           id: true,
@@ -891,6 +909,10 @@ export default async function TankIzvjestajPage({
               {izvrseniZadaci.map((z) => {
                 const imaStavke = z.stavke && z.stavke.length > 0;
 
+                // Filtracija koja je vino dovela u ovaj tank iz drugog tanka.
+                const dolazakIzDrugogTanka = z.tankId !== id;
+                const mojUlaz = z.tankStavke?.find((s) => s.ciljTankId === id);
+
                 return (
                   <div key={z.id} style={recordStyle}>
                     <div style={recordHeaderStyle}>
@@ -906,6 +928,16 @@ export default async function TankIzvjestajPage({
                       <Row label="Vrsta" value={z.vrsta ?? "—"} />
                       <Row label="Tip zadatka" value={tipZadatkaLabel(z)} />
                       <Row label="Sažetak" value={sazetakZadatka(z)} />
+                      {dolazakIzDrugogTanka && (
+                        <Row
+                          label="Dolazak vina"
+                          value={`Iz tanka ${z.tank?.broj ?? "?"}${
+                            mojUlaz
+                              ? ` — ${formatBroj(Number(mojUlaz.kolicina))} L`
+                              : ""
+                          }`}
+                        />
+                      )}
                       <Row
                         label="Zadao"
                         value={prikaziKorisnika(z.zadaoKorisnik)}

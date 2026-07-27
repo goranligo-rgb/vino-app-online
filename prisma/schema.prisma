@@ -28,45 +28,47 @@ model User {
 }
 
 model Tank {
-  id                 String           @id @default(uuid())
-  broj               Int              @unique
-  kapacitet          Float
-  kolicinaVinaUTanku Float?           @default(0)
-  tip                String?
-  opis               String?
-  createdAt          DateTime         @default(now())
-  sorta              String?
-  nazivVina          String?
-  godiste            Int?
+  id                   String                @id @default(uuid())
+  broj                 Int                   @unique
+  kapacitet            Float
+  kolicinaVinaUTanku   Float?                @default(0)
+  tip                  String?
+  opis                 String?
+  createdAt            DateTime              @default(now())
+  sorta                String?
+  nazivVina            String?
+  godiste              Int?
   // --- Nadzor temperature (Faza A): sve nullable, aditivno na postojeci Tank ---
-  modbusAdresa       Int?             @unique
-  grana              String?
-  zadanaTemp         Decimal?         @db.Decimal(4, 1)
-  alarmMinus         Decimal?         @default(2.0) @db.Decimal(3, 1)
-  alarmPlus          Decimal?         @default(2.0) @db.Decimal(3, 1)
-  additions          Addition[]
-  blendIzvori        BlendIzvor[]     @relation("CiljniBlendTank")
-  kaoIzvorBlenda     BlendIzvor[]     @relation("IzvorBlendTank")
-  documents          Document[]
-  izlaziVina         IzlazVina[]
-  measurements       Measurement[]
-  targetMixings      Mixing[]         @relation("TargetTankMixings")
-  mixingSources      MixingSource[]
-  mjerenja           Mjerenje[]
-  pretociKaoCilj     Pretok[]         @relation("CiljniPretoci")
-  pretociKaoIzvor    PretokIzvor[]    @relation("IzvorniPretoci")
-  pretokMjerenja     PretokMjerenje[]
-  pretokSnapshoti    PretokSnapshot[]
-  punjenja           PunjenjeTanka[]
-  radnje             Radnja[]
-  currentContent     TankContent?
-  udjeliSorti        TankSortaUdio[]
-  sourceTransfers    Transfer[]       @relation("SourceTankTransfers")
-  targetTransfers    Transfer[]       @relation("TargetTankTransfers")
-  zadaci             Zadatak[]
-  ocitanjaTemp       OcitanjeTemperature[]
-  tankAlarmi         TankAlarm[]
-  komande            TankKomanda[]
+  modbusAdresa         Int?                  @unique
+  grana                String?
+  zadanaTemp           Decimal?              @db.Decimal(4, 1)
+  alarmMinus           Decimal?              @default(2.0) @db.Decimal(3, 1)
+  alarmPlus            Decimal?              @default(2.0) @db.Decimal(3, 1)
+  additions            Addition[]
+  blendIzvori          BlendIzvor[]          @relation("CiljniBlendTank")
+  kaoIzvorBlenda       BlendIzvor[]          @relation("IzvorBlendTank")
+  documents            Document[]
+  izlaziVina           IzlazVina[]
+  measurements         Measurement[]
+  targetMixings        Mixing[]              @relation("TargetTankMixings")
+  mixingSources        MixingSource[]
+  mjerenja             Mjerenje[]
+  pretociKaoCilj       Pretok[]              @relation("CiljniPretoci")
+  pretociKaoIzvor      PretokIzvor[]         @relation("IzvorniPretoci")
+  pretokMjerenja       PretokMjerenje[]
+  pretokSnapshoti      PretokSnapshot[]
+  punjenja             PunjenjeTanka[]
+  radnje               Radnja[]
+  currentContent       TankContent?
+  udjeliSorti          TankSortaUdio[]
+  sourceTransfers      Transfer[]            @relation("SourceTankTransfers")
+  targetTransfers      Transfer[]            @relation("TargetTankTransfers")
+  zadaci               Zadatak[]             @relation("ZadatakTank")
+  zadaciVezaniCilj     Zadatak[]             @relation("ZadatakVezaniCiljTank")
+  zadatakStavkeKaoCilj ZadatakTankStavka[]
+  ocitanjaTemp         OcitanjeTemperature[]
+  tankAlarmi           TankAlarm[]
+  komande              TankKomanda[]
 }
 
 // Ocitanje temperature tanka (telemetrija sa sonde / Modbus ploce).
@@ -455,7 +457,7 @@ model Mjerenje {
 }
 
 model Zadatak {
-  id                 String          @id @default(uuid())
+  id                 String              @id @default(uuid())
   tankId             String
   zadaoKorisnikId    String
   izvrsioKorisnikId  String?
@@ -468,11 +470,11 @@ model Zadatak {
   volumenUTanku      Float?
   izracunataKolicina Float?
   izlaznaJedinicaId  String?
-  status             StatusZadatka   @default(OTVOREN)
-  zadanoAt           DateTime        @default(now())
+  status             StatusZadatka       @default(OTVOREN)
+  zadanoAt           DateTime            @default(now())
   izvrsenoAt         DateTime?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
   tipZadatka         String?
   vezanaVrsta        VrstaZadatka?
   vezaniBrojDana     Int?
@@ -483,14 +485,40 @@ model Zadatak {
   tipKorekcije       KorekcijaTip?
   trenutnaVrijednost Float?
   zeljenaVrijednost  Float?
+  // --- Filtracija povlaci pretok vina: sve nullable, aditivno ---
+  kolicinaIzlaz      Float?
+  gubitakLitara      Float?
+  snapshotJson       Json?
+  vezaniCiljTankId   String?
   radnjas            Radnja[]
-  izlaznaJedinica    Unit?           @relation("ZadatakIzlaznaJedinica", fields: [izlaznaJedinicaId], references: [id])
-  izvrsioKorisnik    User?           @relation("ZadatakIzvrsio", fields: [izvrsioKorisnikId], references: [id])
-  jedinica           Unit?           @relation("ZadatakJedinica", fields: [jedinicaId], references: [id])
-  preparat           Preparation?    @relation(fields: [preparatId], references: [id])
-  tank               Tank            @relation(fields: [tankId], references: [id])
-  zadaoKorisnik      User            @relation("ZadatakZadao", fields: [zadaoKorisnikId], references: [id])
+  izlaznaJedinica    Unit?               @relation("ZadatakIzlaznaJedinica", fields: [izlaznaJedinicaId], references: [id])
+  izvrsioKorisnik    User?               @relation("ZadatakIzvrsio", fields: [izvrsioKorisnikId], references: [id])
+  jedinica           Unit?               @relation("ZadatakJedinica", fields: [jedinicaId], references: [id])
+  preparat           Preparation?        @relation(fields: [preparatId], references: [id])
+  tank               Tank                @relation("ZadatakTank", fields: [tankId], references: [id])
+  vezaniCiljTank     Tank?               @relation("ZadatakVezaniCiljTank", fields: [vezaniCiljTankId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  zadaoKorisnik      User                @relation("ZadatakZadao", fields: [zadaoKorisnikId], references: [id])
   stavke             ZadatakStavka[]
+  tankStavke         ZadatakTankStavka[]
+
+  @@index([vezaniCiljTankId])
+}
+
+// Stavka filtracije: u koji ciljni tank i koliko litara ulazi.
+// Zadatak "Filtracija" nosi izlaz (Zadatak.kolicinaIzlaz) i 1..n ovakvih ulaza.
+model ZadatakTankStavka {
+  id         String   @id @default(uuid())
+  zadatakId  String
+  ciljTankId String
+  kolicina   Float
+  redoslijed Int      @default(0)
+  createdAt  DateTime @default(now())
+  zadatak    Zadatak  @relation(fields: [zadatakId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  ciljTank   Tank     @relation(fields: [ciljTankId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([zadatakId, ciljTankId])
+  @@index([zadatakId])
+  @@index([ciljTankId])
 }
 
 model ZadatakStavka {

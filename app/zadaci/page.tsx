@@ -1928,26 +1928,46 @@ export default function ZadaciPage() {
                           </>
                         )}
 
-                        <button
-                          type="button"
-                          onClick={() => izvrsiZadatak(zadatak.id)}
-                          disabled={izvrsavanjeId === zadatak.id || zakljucan}
-                          style={{
-                            ...actionButtonStyle,
-                            opacity:
-                              izvrsavanjeId === zadatak.id || zakljucan ? 0.65 : 1,
-                            cursor:
-                              izvrsavanjeId === zadatak.id || zakljucan
-                                ? "not-allowed"
-                                : "pointer",
-                          }}
-                        >
-                          {izvrsavanjeId === zadatak.id
-                            ? "Izvršavam..."
-                            : zadatak.parentZadatakId
-                              ? "Izvrši 2"
-                              : "Izvrši 1"}
-                        </button>
+                        {zadatak.vrsta === "FILTRACIJA" ? (
+                          // Filtracija prenosi vino, pa se ne izvršava jednim
+                          // klikom — ide na vlastiti ekran gdje se upisuju
+                          // stvarne litre i ciljni tankovi.
+                          <button
+                            type="button"
+                            onClick={() =>
+                              router.push(`/zadaci/filtracija/${zadatak.id}`)
+                            }
+                            disabled={zakljucan}
+                            style={{
+                              ...actionButtonStyle,
+                              opacity: zakljucan ? 0.65 : 1,
+                              cursor: zakljucan ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            Izvrši filtraciju…
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => izvrsiZadatak(zadatak.id)}
+                            disabled={izvrsavanjeId === zadatak.id || zakljucan}
+                            style={{
+                              ...actionButtonStyle,
+                              opacity:
+                                izvrsavanjeId === zadatak.id || zakljucan ? 0.65 : 1,
+                              cursor:
+                                izvrsavanjeId === zadatak.id || zakljucan
+                                  ? "not-allowed"
+                                  : "pointer",
+                            }}
+                          >
+                            {izvrsavanjeId === zadatak.id
+                              ? "Izvršavam..."
+                              : zadatak.parentZadatakId
+                                ? "Izvrši 2"
+                                : "Izvrši 1"}
+                          </button>
+                        )}
                       </div>
                     </div>
                   );

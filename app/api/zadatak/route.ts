@@ -183,6 +183,8 @@ export async function PUT(req: Request) {
             jedinica: true,
             izlaznaJedinica: true,
             tank: true,
+            // Samo da se prepozna filtracija koja stvarno prenosi vino.
+            tankStavke: { select: { id: true } },
             stavke: {
               include: {
                 preparat: {
@@ -207,6 +209,21 @@ export async function PUT(req: Request) {
 
         if (zadatak.status === "IZVRSEN") {
           throw new Error("Zadatak je već izvršen.");
+        }
+
+        // Filtracija KOJA PRENOSI VINO (ima upisan izlaz i ciljne tankove) —
+        // ova ruta to ne radi, promijenila bi samo status a količine bi ostale
+        // krive. Izvršava se kroz /api/zadatak/filtracija/izvrsi.
+        //
+        // Stara, "gola" Filtracija bez tih podataka je samo bilješka da je
+        // posao odrađen i dalje radi kao prije — takvih ima u produkciji.
+        if (
+          zadatak.vrsta === "FILTRACIJA" &&
+          (zadatak.kolicinaIzlaz != null || zadatak.tankStavke.length > 0)
+        ) {
+          throw new Error(
+            "Filtracija se izvršava kroz vlastiti ekran jer prenosi vino u druge tankove."
+          );
         }
 
         if (zadatak.zakljucanDo && new Date() < new Date(zadatak.zakljucanDo)) {
@@ -487,6 +504,7 @@ export async function PUT(req: Request) {
         "Zadatak je već izvršen.",
         "Vezani zadatak još nije dostupan za izvršenje.",
         "Preparat nije pronađen.",
+        "Filtracija se izvršava kroz vlastiti ekran jer prenosi vino u druge tankove.",
       ].includes(error.message)
     ) {
       return NextResponse.json({ error: error.message }, { status: 400 });

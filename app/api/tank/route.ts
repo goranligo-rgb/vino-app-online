@@ -193,6 +193,7 @@ export async function DELETE(req: Request) {
       pretociKaoCiljCount,
       pretociKaoIzvorCount,
       targetMixingsCount,
+      filtracijeUTankCount,
     ] = await Promise.all([
       prisma.addition.count({ where: { tankId } }),
       prisma.document.count({ where: { tankId } }),
@@ -208,6 +209,10 @@ export async function DELETE(req: Request) {
       prisma.pretok.count({ where: { ciljTankId: tankId } }),
       prisma.pretokIzvor.count({ where: { tankId } }),
       prisma.mixing.count({ where: { targetTankId: tankId } }),
+      // Filtracije koje u ovaj tank dovode vino. ZadatakTankStavka_ciljTankId_fkey
+      // je ON DELETE RESTRICT, pa bi brisanje inače puklo na P2003 i korisnik bi
+      // dobio generičku poruku. Ovako dobije konkretan broj.
+      prisma.zadatakTankStavka.count({ where: { ciljTankId: tankId } }),
     ]);
 
     const tvrdiBlokatori = [
@@ -222,6 +227,7 @@ export async function DELETE(req: Request) {
       { naziv: "zadaci", count: zadaciCount },
       { naziv: "udjeli sorti", count: udjeliSortiCount },
       { naziv: "mixings kao ciljni tank", count: targetMixingsCount },
+      { naziv: "filtracije u ovaj tank", count: filtracijeUTankCount },
     ].filter((x) => x.count > 0);
 
     if (tvrdiBlokatori.length > 0) {

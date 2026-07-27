@@ -25,15 +25,34 @@ export async function POST(req: Request) {
         select: {
           id: true,
           tankId: true,
+          vrsta: true,
           status: true,
           zakljucanDo: true,
           zadanoAt: true,
           createdAt: true,
+          kolicinaIzlaz: true,
+          _count: { select: { tankStavke: true } },
         },
       });
 
       if (!zadatak) {
         throw new Error("Zadatak nije pronađen.");
+      }
+
+      // Filtracija KOJA PRENOSI VINO (ima upisan izlaz i ciljne tankove) ne
+      // smije se izvršiti ovim putem — ovdje bi se promijenio samo status, a
+      // količine bi ostale krive. Cijeli posao (zaključavanje tankova,
+      // izlaz + svi ulazi) radi /api/zadatak/filtracija/izvrsi.
+      //
+      // Stara, "gola" Filtracija bez tih podataka je samo bilješka da je posao
+      // odrađen i dalje radi kao prije — takvih zadataka ima u produkciji.
+      if (
+        zadatak.vrsta === "FILTRACIJA" &&
+        (zadatak.kolicinaIzlaz != null || zadatak._count.tankStavke > 0)
+      ) {
+        throw new Error(
+          "Filtracija se izvršava kroz vlastiti ekran jer prenosi vino u druge tankove."
+        );
       }
 
       if (zadatak.status === "IZVRSEN") {
@@ -76,6 +95,7 @@ export async function POST(req: Request) {
         "Zadatak nije pronađen.",
         "Zadatak je već izvršen.",
         "Vezani zadatak još nije dostupan za izvršenje.",
+        "Filtracija se izvršava kroz vlastiti ekran jer prenosi vino u druge tankove.",
       ].includes(error.message)
     ) {
       return NextResponse.json({ error: error.message }, { status: 400 });
