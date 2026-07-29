@@ -1,6 +1,12 @@
 export const dynamic = "force-dynamic";
 
+// Ista granica kao u PUT /api/zadatak: Prisma (maxWait 5 s + timeout 20 s =
+// 25 s) mora uvijek isteci prije nego Vercel prekine funkciju, da korisnik
+// dobije nasu poruku umjesto 504 FUNCTION_INVOCATION_TIMEOUT.
+export const maxDuration = 60;
+
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { osigurajRedoslijed } from "@/lib/zadatak-redoslijed";
 
@@ -19,6 +25,9 @@ export async function POST(req: Request) {
     // Sve provjere (postojanje, status, zaključanost, redoslijed) i sam
     // update statusa moraju biti u istoj transakciji kako bi guard imao
     // smisla — inače bi između čitanja i pisanja mogao proći paralelan poziv.
+    // Zadani Prisma timeout od 5 s je premalen na udaljenoj bazi (Supabase
+    // pooler): svaki upit u transakciji nosi mreznu latenciju. Iste granice
+    // kao u PUT /api/zadatak, gdje je zadatak s 5 stavki pao na P2028.
     const rezultat = await prisma.$transaction(async (tx) => {
       const zadatak = await tx.zadatak.findUnique({
         where: { id: String(zadatakId) },
@@ -79,7 +88,7 @@ export async function POST(req: Request) {
           izvrsenoAt: new Date(),
         },
       });
-    });
+    }, { timeout: 20_000, maxWait: 5_000 });
 
     return NextResponse.json({
       success: true,
@@ -108,6 +117,21 @@ export async function POST(req: Request) {
       )
     ) {
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    // P2028 = transakcija je istekla; Postgres je sve vratio unatrag pa je
+    // zadatak i dalje otvoren. Isti obrazac: PUT /api/zadatak, filtracija/izvrsi.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2028"
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Spremanje je predugo trajalo pa je prekinuto. Ništa nije promijenjeno — zadatak je i dalje otvoren, pokušaj ponovno.",
+        },
+        { status: 503 }
+      );
     }
 
     return NextResponse.json(

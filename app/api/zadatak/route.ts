@@ -1,5 +1,15 @@
 export const dynamic = "force-dynamic";
 
+// Izvrsenje zadatka ide u jednoj interaktivnoj transakciji. Vercel prekida
+// funkciju bez obzira na to sto Prisma radi, pa gornja granica funkcije mora
+// biti OSJETNO veca od Prisminog budzeta:
+//   Prisma najgori slucaj = maxWait 5 s + timeout 20 s = 25 s
+//   maxDuration           = 60 s
+// Prisma tako uvijek istekne prva i korisnik dobije nasu poruku umjesto grubog
+// 504 FUNCTION_INVOCATION_TIMEOUT. 60 s je i najveca vrijednost koju dopusta
+// najnizi Vercel plan, pa vrijedi na svakom. Isti obrazac: filtracija/izvrsi.
+export const maxDuration = 60;
+
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
@@ -170,6 +180,19 @@ export async function PUT(req: Request) {
         );
       }
 
+      // Zadani Prisma timeout od 5 s je premalen. Zadatak s vise stavki znaci
+      // desetke uzastopnih upita u transakciji (citanje zadatka s ugnijezdenim
+      // include, provjera redoslijeda, po stavci citanje i skidanje preparata,
+      // radnja po stavci, zavrsni update), a svaki nosi mreznu latenciju do
+      // Supabase poolera. Zadatak s 5 stavki je na produkciji trajao 5847 ms i
+      // pao na P2028 pri commitu.
+      //   timeout 20 s — s rezervom za zadatke s vise stavki, a dovoljno
+      //                  kratko da se brave ne drze predugo.
+      //   maxWait  5 s — cekanje na slobodnu vezu iz poola prije nego
+      //                  transakcija uopce pocne; nije dio timeouta, ali JEST
+      //                  dio trajanja funkcije, pa se drzi nisko.
+      // Opcije namjerno idu uz zatvaranje bloka, bez uvlacenja cijelog tijela,
+      // da diff ostane citljiv.
       const rezultat = await prisma.$transaction(async (tx) => {
         const zadatak = await tx.zadatak.findUnique({
           where: { id: String(id) },
@@ -440,7 +463,7 @@ export async function PUT(req: Request) {
         }
 
         return updated;
-      });
+      }, { timeout: 20_000, maxWait: 5_000 });
 
       return NextResponse.json(rezultat);
     }
@@ -518,6 +541,24 @@ export async function PUT(req: Request) {
         ))
     ) {
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    // P2028 = transakcija je istekla ili je zatvorena prije kraja. Postgres je
+    // tada sve vratio unatrag: skladiste nije skinuto, radnje nisu upisane,
+    // zadatak je i dalje otvoren. Korisniku to treba i reci, da ne pomisli da
+    // je pola proslo — inace dobije "Greška kod ažuriranja zadatka" koja ne
+    // govori nista. Isti obrazac: filtracija/izvrsi.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2028"
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Spremanje je predugo trajalo pa je prekinuto. Ništa nije promijenjeno — zadatak je i dalje otvoren, pokušaj ponovno.",
+        },
+        { status: 503 }
+      );
     }
 
     if (
