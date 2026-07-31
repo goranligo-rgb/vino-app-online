@@ -1,23 +1,19 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { AUTH_COOKIE, provjeriToken } from "@/lib/auth-token";
 
 type Role = "ADMIN" | "PODRUM" | "ENOLOG" | "PREGLED";
 
-function getRole(req: NextRequest): Role | null {
-  const raw = req.cookies.get("auth_user")?.value;
-  if (!raw) return null;
-
-  try {
-    const user = JSON.parse(decodeURIComponent(raw));
-    return user?.role ?? null;
-  } catch {
-    return null;
-  }
+// Rola se cita iz POTPISANOG tokena. Krivotvoren ili nepotpisan kolacic ne
+// prolazi provjeru i tretira se kao "nije prijavljen".
+async function getRole(req: NextRequest): Promise<Role | null> {
+  const user = await provjeriToken(req.cookies.get(AUTH_COOKIE)?.value);
+  return user?.role ?? null;
 }
 
-export function proxy(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
-  const role = getRole(req);
+  const role = await getRole(req);
 
   if (!role) {
     return NextResponse.redirect(new URL("/login", req.url));

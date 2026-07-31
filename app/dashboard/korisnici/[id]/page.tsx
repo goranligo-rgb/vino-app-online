@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { redirect, notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { citajSesiju } from "@/lib/auth-sesija";
 
 type AuthUser = {
   id: string;
@@ -21,17 +21,7 @@ async function spremiKorisnika(formData: FormData) {
 
   // Provjera UNUTAR akcije (ne oslanjaj se samo na middleware/page redirect):
   // uređivanje korisnika i mijenjanje šifre smije samo ADMIN (L1).
-  const cookieStore = await cookies();
-  const raw = cookieStore.get("auth_user")?.value;
-
-  let trenutni: AuthUser | null = null;
-  if (raw) {
-    try {
-      trenutni = JSON.parse(decodeURIComponent(raw));
-    } catch {
-      trenutni = null;
-    }
-  }
+  const trenutni: AuthUser | null = await citajSesiju();
 
   if (!trenutni || trenutni.role !== "ADMIN") {
     redirect("/login");
@@ -83,18 +73,7 @@ function levelLabel(role: string) {
 export default async function UrediKorisnikaPage({ params }: PageProps) {
   const { id } = await params;
 
-  const cookieStore = await cookies();
-  const raw = cookieStore.get("auth_user")?.value;
-
-  if (!raw) redirect("/login");
-
-  let user: AuthUser | null = null;
-
-  try {
-    user = JSON.parse(decodeURIComponent(raw));
-  } catch {
-    redirect("/login");
-  }
+  const user: AuthUser | null = await citajSesiju();
 
   if (!user) redirect("/login");
   if (user.role !== "ADMIN") redirect("/dashboard");

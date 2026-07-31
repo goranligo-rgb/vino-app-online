@@ -2,32 +2,18 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
-
-type AuthUser = {
-  id: string;
-  ime: string;
-  role: "ADMIN" | "ENOLOG" | "PODRUM" | "PREGLED";
-};
+import { citajSesiju } from "@/lib/auth-sesija";
 
 export async function POST(req: Request) {
   try {
-    const cookieStore = await cookies();
-    const raw = cookieStore.get("auth_user")?.value;
+    // Sesija iz potpisanog tokena — neispravan potpis vraca null, tj. 401.
+    const user = await citajSesiju();
 
-    if (!raw) {
+    if (!user) {
       return NextResponse.json({ error: "Nisi prijavljen." }, { status: 401 });
     }
 
-    let user: AuthUser | null = null;
-
-    try {
-      user = JSON.parse(decodeURIComponent(raw));
-    } catch {
-      return NextResponse.json({ error: "Nevažeća prijava." }, { status: 401 });
-    }
-
-    if (!user || user.role !== "ADMIN") {
+    if (user.role !== "ADMIN") {
       return NextResponse.json({ error: "Nemaš pravo pristupa." }, { status: 403 });
     }
 

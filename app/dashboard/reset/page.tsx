@@ -1,7 +1,7 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import AdminResetForm from "./reset-form";
+import { citajSesiju } from "@/lib/auth-sesija";
 
 type AuthUser = {
   id: string;
@@ -10,18 +10,7 @@ type AuthUser = {
 };
 
 export default async function DashboardResetPage() {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get("auth_user")?.value;
-
-  if (!raw) redirect("/login");
-
-  let user: AuthUser | null = null;
-
-  try {
-    user = JSON.parse(decodeURIComponent(raw));
-  } catch {
-    redirect("/login");
-  }
+  const user: AuthUser | null = await citajSesiju();
 
   if (!user || user.role !== "ADMIN") {
     redirect("/dashboard");

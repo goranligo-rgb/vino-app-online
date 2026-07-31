@@ -1,23 +1,12 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { citajSesiju } from "@/lib/auth-sesija";
 
 export default async function HomePage() {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get("auth_user")?.value;
+  const user = await citajSesiju();
 
-  if (!raw) {
+  if (!user) {
     redirect("/login");
   }
 
-  try {
-    const user = JSON.parse(decodeURIComponent(raw));
-
-    if (user) {
-      redirect("/dashboard");
-    }
-  } catch {
-    redirect("/login");
-  }
-
-  redirect("/login");
+  redirect("/dashboard");
 }

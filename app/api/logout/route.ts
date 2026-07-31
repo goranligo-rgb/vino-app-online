@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
+import { AUTH_COOKIE, opcijeKolacica } from "@/lib/auth-token";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
   const res = NextResponse.json({ success: true });
 
-  res.cookies.set("auth_user", "", {
-    path: "/",
+  res.cookies.set(AUTH_COOKIE, "", {
+    ...opcijeKolacica(),
     expires: new Date(0),
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
   });
 
   return res;

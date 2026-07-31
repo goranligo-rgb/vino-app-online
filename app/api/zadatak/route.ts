@@ -13,26 +13,12 @@ export const maxDuration = 60;
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { cookies } from "next/headers";
+import { citajSesiju } from "@/lib/auth-sesija";
+import type { AuthUser } from "@/lib/auth-token";
 import { osigurajRedoslijed } from "@/lib/zadatak-redoslijed";
 
-type AuthUser = {
-  id: string;
-  ime: string;
-  role: "ADMIN" | "ENOLOG" | "PODRUM" | "PREGLED";
-};
-
 async function getAuthUser(): Promise<AuthUser | null> {
-  try {
-    const cookieStore = await cookies();
-    const raw = cookieStore.get("auth_user")?.value;
-
-    if (!raw) return null;
-
-    return JSON.parse(decodeURIComponent(raw));
-  } catch {
-    return null;
-  }
+  return citajSesiju();
 }
 
 function isLevel1(user: AuthUser | null) {

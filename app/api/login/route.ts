@@ -2,9 +2,24 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import {
+  AUTH_COOKIE,
+  imaTajnu,
+  opcijeKolacica,
+  potpisiToken,
+} from "@/lib/auth-token";
 
 export async function POST(req: Request) {
   try {
+    // Bez tajne se sesija ne moze potpisati — bolje jasna poruka nego 500.
+    if (!imaTajnu()) {
+      console.error("LOGIN: AUTH_SECRET nije postavljen.");
+      return NextResponse.json(
+        { error: "Prijava privremeno nije moguća (konfiguracija poslužitelja)." },
+        { status: 503 }
+      );
+    }
+
     const body = await req.json();
     const username = String(body?.username ?? "").trim();
     const password = String(body?.password ?? "");
@@ -59,11 +74,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const authUser = {
+    const token = await potpisiToken({
       id: user.id,
       ime: user.ime,
-      role: user.role,
-    };
+      role: user.role as "ADMIN" | "ENOLOG" | "PODRUM" | "PREGLED",
+    });
 
     const response = NextResponse.json({
       ok: true,
@@ -76,11 +91,9 @@ export async function POST(req: Request) {
       },
     });
 
-    response.cookies.set("auth_user", encodeURIComponent(JSON.stringify(authUser)), {
-      httpOnly: false,
-      path: "/",
-      sameSite: "lax",
-    });
+    // Sesijski kolacic (bez maxAge) — kao i dosad. Token je httpOnly, pa ga
+    // klijentski JS vise ne cita; za prikaz sluzi GET /api/me.
+    response.cookies.set(AUTH_COOKIE, token, opcijeKolacica());
 
     return response;
   } catch (error) {

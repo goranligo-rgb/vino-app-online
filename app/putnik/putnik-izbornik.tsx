@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { citajAuthUserKlijent, jeL12Klijent } from "@/lib/auth-klijent";
+import { dohvatiAuthUserKlijent, jeL12Klijent } from "@/lib/auth-klijent";
 
 type Stavka = {
   href: string;
@@ -35,7 +35,15 @@ export default function PutnikIzbornik() {
   const [jeL12, setJeL12] = useState(false);
 
   useEffect(() => {
-    setJeL12(jeL12Klijent(citajAuthUserKlijent()));
+    let otkazano = false;
+
+    dohvatiAuthUserKlijent().then((user) => {
+      if (!otkazano) setJeL12(jeL12Klijent(user));
+    });
+
+    return () => {
+      otkazano = true;
+    };
   }, []);
 
   // Escape zatvara; dok je otvoren, pozadina se ne skrola (bitno na tabletu).

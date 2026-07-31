@@ -1,12 +1,9 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
+import { citajSesiju } from "@/lib/auth-sesija";
+import type { AuthUser } from "@/lib/auth-token";
 
-export type AuthUser = {
-  id: string;
-  ime: string;
-  role: "ADMIN" | "ENOLOG" | "PODRUM" | "PREGLED";
-};
+export type { AuthUser };
 
 // Sve razine (1-4) smiju u putnik modul, isto kao canSeePutnik na dashboardu.
 const PUTNIK_ROLES = new Set<AuthUser["role"]>([
@@ -16,18 +13,10 @@ const PUTNIK_ROLES = new Set<AuthUser["role"]>([
   "PREGLED",
 ]);
 
+// Sesija dolazi iz potpisanog tokena (lib/auth-token); krivotvoren ili
+// nepotpisan kolacic = nije prijavljen.
 export async function getAuthUser(): Promise<AuthUser | null> {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get("auth_user")?.value;
-  if (!raw) return null;
-
-  try {
-    const user = JSON.parse(decodeURIComponent(raw));
-    if (!user || typeof user.role !== "string") return null;
-    return user as AuthUser;
-  } catch {
-    return null;
-  }
+  return citajSesiju();
 }
 
 /**

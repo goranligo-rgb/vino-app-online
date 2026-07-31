@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { citajSesiju } from "@/lib/auth-sesija";
 import DodajKorisnikaForm from "./dodaj-korisnika-form";
 
 type AuthUser = {
@@ -24,17 +24,7 @@ async function obrisiKorisnika(formData: FormData) {
 
   // Provjera UNUTAR akcije (ne oslanjaj se samo na middleware/page redirect):
   // brisanje korisnika smije samo ADMIN (L1).
-  const cookieStore = await cookies();
-  const raw = cookieStore.get("auth_user")?.value;
-
-  let trenutni: AuthUser | null = null;
-  if (raw) {
-    try {
-      trenutni = JSON.parse(decodeURIComponent(raw));
-    } catch {
-      trenutni = null;
-    }
-  }
+  const trenutni: AuthUser | null = await citajSesiju();
 
   if (!trenutni || trenutni.role !== "ADMIN") {
     redirect("/login");
@@ -54,18 +44,7 @@ async function obrisiKorisnika(formData: FormData) {
 }
 
 export default async function KorisniciPage() {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get("auth_user")?.value;
-
-  if (!raw) redirect("/login");
-
-  let user: AuthUser | null = null;
-
-  try {
-    user = JSON.parse(decodeURIComponent(raw));
-  } catch {
-    redirect("/login");
-  }
+  const user: AuthUser | null = await citajSesiju();
 
   if (!user) redirect("/login");
   if (user.role !== "ADMIN") redirect("/dashboard");

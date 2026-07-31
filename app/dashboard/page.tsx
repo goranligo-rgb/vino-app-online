@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { citajSesiju } from "@/lib/auth-sesija";
 import LogoutButton from "@/components/LogoutButton";
 import SignatureAnimation from "@/components/SignatureAnimation";
 import DashboardTopActions from "@/components/DashboardTopActions";
@@ -61,18 +61,7 @@ function DashboardCard({
 }
 
 export default async function DashboardPage() {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get("auth_user")?.value;
-
-  if (!raw) redirect("/login");
-
-  let user: AuthUser | null = null;
-
-  try {
-    user = JSON.parse(decodeURIComponent(raw));
-  } catch {
-    redirect("/login");
-  }
+  const user: AuthUser | null = await citajSesiju();
 
   if (!user) redirect("/login");
 

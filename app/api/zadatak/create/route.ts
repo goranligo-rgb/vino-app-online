@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { citajSesiju } from "@/lib/auth-sesija";
 
 type StavkaInput = {
   preparatId?: string | null;
@@ -15,14 +15,7 @@ type StavkaInput = {
 };
 
 async function getAuthUser() {
-  try {
-    const cookieStore = await cookies();
-    const raw = cookieStore.get("auth_user")?.value;
-    if (!raw) return null;
-    return JSON.parse(decodeURIComponent(raw));
-  } catch {
-    return null;
-  }
+  return citajSesiju();
 }
 
 function toNumber(value: unknown): number | null {

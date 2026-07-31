@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { citajSesiju } from "@/lib/auth-sesija";
 
 type AuthUser = {
   id: string;
@@ -22,16 +22,7 @@ type ResetOptions = {
 };
 
 async function getCurrentUserFromCookie(): Promise<AuthUser | null> {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get("auth_user")?.value;
-
-  if (!raw) return null;
-
-  try {
-    return JSON.parse(decodeURIComponent(raw));
-  } catch {
-    return null;
-  }
+  return citajSesiju();
 }
 
 export async function POST(req: Request) {

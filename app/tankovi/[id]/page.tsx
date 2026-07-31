@@ -2,7 +2,7 @@ import Link from "next/link";
 import type React from "react";
 import { prisma } from "@/lib/prisma";
 import { notFound, redirect } from "next/navigation";
-import { cookies } from "next/headers";
+import { citajSesiju } from "@/lib/auth-sesija";
 import { unstable_noStore as noStore } from "next/cache";
 import TankSwitcher from "./tank-switcher";
 import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
@@ -531,17 +531,8 @@ export default async function TankPregledPage({
 }) {
   noStore();
 
-  const cookieStore = await cookies();
-  const raw = cookieStore.get("auth_user")?.value;
-
-  if (!raw) redirect("/login");
-
-  try {
-    const user = JSON.parse(decodeURIComponent(raw));
-    if (!user) redirect("/login");
-  } catch {
-    redirect("/login");
-  }
+  const prijavljeni = await citajSesiju();
+  if (!prijavljeni) redirect("/login");
 
   const resolvedParams = await params;
   const id = resolvedParams?.id;

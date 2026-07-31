@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
+import { citajSesiju } from "@/lib/auth-sesija";
 
 type AuthUser = {
   id: string;
@@ -10,24 +10,18 @@ type AuthUser = {
 };
 
 async function getAdminUser() {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get("auth_user")?.value;
+  // Sesija iz potpisanog tokena; nepotpisan/krivotvoren kolacic vraca null.
+  const user: AuthUser | null = await citajSesiju();
 
-  if (!raw) {
+  if (!user) {
     return { error: "Nisi prijavljen.", status: 401 as const, user: null };
   }
 
-  try {
-    const user = JSON.parse(decodeURIComponent(raw)) as AuthUser;
-
-    if (!user || user.role !== "ADMIN") {
-      return { error: "Nemaš pravo.", status: 403 as const, user: null };
-    }
-
-    return { error: null, status: 200 as const, user };
-  } catch {
-    return { error: "Nevažeća prijava.", status: 401 as const, user: null };
+  if (user.role !== "ADMIN") {
+    return { error: "Nemaš pravo.", status: 403 as const, user: null };
   }
+
+  return { error: null, status: 200 as const, user };
 }
 
 function levelToRole(level: string) {

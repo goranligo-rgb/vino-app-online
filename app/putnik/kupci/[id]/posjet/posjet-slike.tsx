@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { dohvatiAuthUserKlijent } from "@/lib/auth-klijent";
 
 export type SlikaPrikaz = {
   id: string;
@@ -17,21 +18,12 @@ type Props = {
   slike: SlikaPrikaz[];
 };
 
-// Trenutni korisnik iz auth_user cookieja (isti izvor kao server; httpOnly:false).
+// Trenutni korisnik sa servera (GET /api/me) — kolacic je potpisani httpOnly
+// token, pa ga document.cookie vise ne vidi.
 // Služi SAMO za skrivanje gumba — pravu provjeru radi server (DELETE ruta).
-function citajKorisnika(): Korisnik {
-  if (typeof document === "undefined") return { ime: null, role: null };
-  try {
-    const raw = document.cookie
-      .split("; ")
-      .find((c) => c.startsWith("auth_user="))
-      ?.slice("auth_user=".length);
-    if (!raw) return { ime: null, role: null };
-    const u = JSON.parse(decodeURIComponent(raw));
-    return { ime: u?.ime ?? null, role: u?.role ?? null };
-  } catch {
-    return { ime: null, role: null };
-  }
+async function citajKorisnika(): Promise<Korisnik> {
+  const u = await dohvatiAuthUserKlijent();
+  return { ime: u?.ime ?? null, role: u?.role ?? null };
 }
 
 // Isti kalendarski dan u zoni Europe/Zagreb (zrcali server formatHrDate).
@@ -228,7 +220,17 @@ function Grupa({
 export default function PosjetSlike({ posjetId, slike }: Props) {
   // Korisnik se čita na klijentu (nakon mounta) — do tada gumb "Obriši" skriven.
   const [korisnik, setKorisnik] = useState<Korisnik>({ ime: null, role: null });
-  useEffect(() => setKorisnik(citajKorisnika()), []);
+  useEffect(() => {
+    let otkazano = false;
+
+    citajKorisnika().then((k) => {
+      if (!otkazano) setKorisnik(k);
+    });
+
+    return () => {
+      otkazano = true;
+    };
+  }, []);
 
   const prije = slike.filter((s) => s.tip === "PRIJE");
   const poslije = slike.filter((s) => s.tip === "POSLIJE");

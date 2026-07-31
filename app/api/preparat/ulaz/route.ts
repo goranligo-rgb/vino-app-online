@@ -2,23 +2,11 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-
-type AuthUser = {
-  id: string;
-  ime: string;
-  role: "ADMIN" | "ENOLOG" | "PODRUM" | "PREGLED";
-};
+import { citajSesiju } from "@/lib/auth-sesija";
+import type { AuthUser } from "@/lib/auth-token";
 
 async function getAuthUser(): Promise<AuthUser | null> {
-  try {
-    const cookieStore = await cookies();
-    const raw = cookieStore.get("auth_user")?.value;
-    if (!raw) return null;
-    return JSON.parse(decodeURIComponent(raw));
-  } catch {
-    return null;
-  }
+  return citajSesiju();
 }
 
 // Unos ulaza zalihe na skladište: Level 1 (ADMIN) + Level 2 (PODRUM).

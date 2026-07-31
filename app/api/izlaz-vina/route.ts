@@ -1,8 +1,8 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { citajSesiju } from "@/lib/auth-sesija";
 
 type AuthUser = {
   id: string;
@@ -15,14 +15,7 @@ type AuthUser = {
 const PRAZNO_PRAG = 0.0001;
 
 async function getAuthUser(): Promise<AuthUser | null> {
-  try {
-    const cookieStore = await cookies();
-    const raw = cookieStore.get("auth_user")?.value;
-    if (!raw) return null;
-    return JSON.parse(decodeURIComponent(raw));
-  } catch {
-    return null;
-  }
+  return citajSesiju();
 }
 
 function broj(value: unknown): number | null {

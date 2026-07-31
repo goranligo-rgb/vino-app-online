@@ -5,7 +5,7 @@ import NatragHome from "@/components/NatragHome";
 import { useEffect, useMemo, useState } from "react";
 import { otvoriDanasnjiPosjet } from "./kupci/[id]/posjet/actions";
 import PutnikIzbornik from "./putnik-izbornik";
-import { citajAuthUserKlijent } from "@/lib/auth-klijent";
+import { dohvatiAuthUserKlijent } from "@/lib/auth-klijent";
 
 type Kupac = {
   id: string;
@@ -78,13 +78,19 @@ export default function PutnikPage() {
   const [prikaziNeaktivne, setPrikaziNeaktivne] = useState(false);
   const [jeAdmin, setJeAdmin] = useState(false);
 
-  // Uloga iz auth_user cookieja. Citanje ide preko citajAuthUserKlijent jer je
-  // cookie dvostruko kodiran (login kodira sam + NextResponse.cookies.set opet),
-  // pa jedan decodeURIComponent nije dovoljan — raniji inline parse je uvijek
-  // pucao i checkbox se nikad nije prikazivao ni adminu.
+  // Uloga se pita server (GET /api/me) — auth_user je potpisani httpOnly token
+  // pa ga klijentski JS vise ne moze citati.
   // Sluzi SAMO za prikaz; pravu zastitu radi API (ne-admin ne dobije neaktivne).
   useEffect(() => {
-    setJeAdmin(citajAuthUserKlijent()?.role === "ADMIN");
+    let otkazano = false;
+
+    dohvatiAuthUserKlijent().then((user) => {
+      if (!otkazano) setJeAdmin(user?.role === "ADMIN");
+    });
+
+    return () => {
+      otkazano = true;
+    };
   }, []);
 
   useEffect(() => {
