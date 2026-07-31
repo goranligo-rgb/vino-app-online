@@ -46,6 +46,8 @@ model Tank {
   zadanaTemp           Decimal?              @db.Decimal(4, 1)
   alarmMinus           Decimal?              @default(2.0) @db.Decimal(3, 1)
   alarmPlus            Decimal?              @default(2.0) @db.Decimal(3, 1)
+  // Hy = diferencijal hladjenja na Dixellu (0,3-3,0 K). Faza B.
+  hy                   Decimal?              @db.Decimal(3, 1)
   additions            Addition[]
   blendIzvori          BlendIzvor[]          @relation("CiljniBlendTank")
   kaoIzvorBlenda       BlendIzvor[]          @relation("IzvorBlendTank")
@@ -107,7 +109,7 @@ model TankAlarm {
 model TankKomanda {
   id            String    @id @default(cuid())
   tankId        String
-  tip           String // "ZADANA_TEMP" | "ALARM_MINUS" | "ALARM_PLUS" | "HLADJENJE_ON" | "HLADJENJE_OFF"
+  tip           String // "ZADANA_TEMP" | "ALARM_MINUS" | "ALARM_PLUS" | "HY" | "HLADJENJE_ON" | "HLADJENJE_OFF"
   vrijednost    Decimal?  @db.Decimal(4, 1) // null za ON/OFF
   status        String    @default("NA_CEKANJU") // "NA_CEKANJU" | "PRIMIJENJENO" | "NEUSPJELO"
   trazioUserId  String

@@ -1,20 +1,37 @@
 #!/usr/bin/env python3
 """
-VINO GATEWAY - Faza A (samo citanje)
+VINO GATEWAY - Faza A (citanje) + Faza B (izvrsavanje komandi)
 
 Cita Dixell XR75CX kontrolere preko Modbus RTU (2 grane / 2 USB-RS485 adaptera)
 i puni Supabase tablice modula Hladjenje:
 
   OcitanjeTemperature  - jedno ocitanje po tanku po ciklusu
   TankAlarm            - PREVISOKA_TEMP / GRESKA_SONDE / NEMA_VEZE (otvaranje i zatvaranje)
-  TankKomanda          - NE dira se (Faza B)
+  TankKomanda          - komande NA_CEKANJU se izvrsavaju (vidi "Komande" nize)
 
 Ciklus (zadano 120 s):
-  1. GET Tank (modbusAdresa != null) preko Supabase REST-a
-  2. Grana A i grana B se citaju paralelno (po jedna dretva i jedan serijski port),
-     unutar grane tankovi redom (RS485 je dijeljena sabirnica - ne smije paralelno)
+  1. GET Tank (modbusAdresa != null) + GET TankKomanda (status = NA_CEKANJU)
+  2. Grana A i grana B se obraduju paralelno (po jedna dretva i jedan serijski port),
+     unutar grane tankovi redom (RS485 je dijeljena sabirnica - ne smije paralelno);
+     prvo se procitaju svi tankovi grane, zatim se izvrse komande za tu granu
   3. POST svih ocitanja odjednom
   4. Usporedba stanja s aktivnim alarmima -> POST novih / PATCH razrijesenih
+  5. PATCH ishoda komandi (PRIMIJENJENO / NEUSPJELO / napomena)
+
+Komande (Faza B):
+  - Izvrsavaju se HLADJENJE_ON, HLADJENJE_OFF, ZADANA_TEMP i HY.
+  - ALARM_MINUS i ALARM_PLUS se NE diraju: to su pragovi aplikacije, ne parametri
+    kontrolera. Ostaju NA_CEKANJU i gateway ih preskace bez traga.
+  - Adrese registara (REG_ONOFF, REG_SETPOINT, REG_HY) dolaze iz .env. Dok je
+    registar za neki tip prazan, komanda tog tipa OSTAJE NA_CEKANJU i dobije
+    napomenu "ceka discovery" - nista se ne pise po kontroleru napamet.
+  - Sigurnosna ograda: komanda starija od KOMANDA_MAX_MINUTA (30) se NE izvrsava
+    nego ide u NEUSPJELO. Zaboravljena komanda ne smije opaliti sat vremena
+    kasnije - ni onda kad se registri konfiguriraju naknadno.
+  - Nakon upisa se stanje cita natrag s kontrolera kao potvrda:
+    slaze se -> PRIMIJENJENO + primijenjenoU, ne slaze se ili nema odgovora ->
+    novi pokusaj sljedeci ciklus, najvise KOMANDA_MAX_POKUSAJA (3) puta, pa NEUSPJELO.
+  - KOMANDE_OMOGUCENE=false u .env potpuno gasi izvrsavanje (kill switch).
 
 Vazno o "OFFLINE": kad kontroler ne odgovori NE pise se red u OcitanjeTemperature
 (kolona temperatura je NOT NULL, a izmisljena temperatura bi bila laz). Aplikacija
@@ -43,7 +60,7 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 try:
@@ -102,6 +119,18 @@ def env_float(kljuc: str, zadano: float) -> float:
         return zadano
 
 
+def env_bool(kljuc: str, zadano: bool) -> bool:
+    tekst = env_str(kljuc).lower()
+    if not tekst:
+        return zadano
+    if tekst in ("1", "true", "da", "yes", "on"):
+        return True
+    if tekst in ("0", "false", "ne", "no", "off"):
+        return False
+    log.warning("Neispravan %s=%r, koristim %s", kljuc, tekst, zadano)
+    return zadano
+
+
 def env_reg(kljuc: str) -> int | None:
     """Adresa registra ili None ako nije konfigurirana (prazno u .env)."""
     tekst = env_str(kljuc)
@@ -143,9 +172,27 @@ class Konfig:
         self.djelitelj_temp = env_float("DJELITELJ_TEMP", 10.0)
 
         # NIJE potvrdeno - popuni tek kad discover_registers.py potvrdi adrese.
-        # Dok je prazno: zadana temp se uzima iz baze (Tank.zadanaTemp).
+        # Dok je prazno: zadana temp se uzima iz baze (Tank.zadanaTemp), a komande
+        # ZADANA_TEMP ostaju NA_CEKANJU s napomenom "ceka discovery".
         self.reg_setpoint = env_reg("REG_SETPOINT")
         self.djelitelj_setpoint = env_float("DJELITELJ_SETPOINT", 10.0)
+
+        # --- Komande (Faza B) ---
+        # Kill switch: false = gateway samo cita, komande se ni ne dohvacaju.
+        self.komande_omogucene = env_bool("KOMANDE_OMOGUCENE", True)
+
+        # Diferencijal hladjenja (Hy) i standby (device on/off). Obje adrese su
+        # NEPOTVRDENE - dok su prazne, ti tipovi komandi cekaju discovery.
+        self.reg_hy = env_reg("REG_HY")
+        self.djelitelj_hy = env_float("DJELITELJ_HY", 10.0)
+        self.reg_onoff = env_reg("REG_ONOFF")
+        self.onoff_vrijednost_on = env_int("ONOFF_VRIJEDNOST_ON", 1)
+        self.onoff_vrijednost_off = env_int("ONOFF_VRIJEDNOST_OFF", 0)
+
+        # Sigurnosna ograda i ponavljanje.
+        self.komanda_max_minuta = env_int("KOMANDA_MAX_MINUTA", 30)
+        self.komanda_max_pokusaja = env_int("KOMANDA_MAX_POKUSAJA", 3)
+        self.modbus_funkcija_pisanje = env_int("MODBUS_FUNKCIJA_PISANJE", 6)
 
         # Registar statusa releja/alarma + brojevi bitova (0 = najnizi bit).
         # Dok je prazno: hladjenjeAktivno = (temperatura > zadana), greska sonde
@@ -171,6 +218,12 @@ class Konfig:
             raise SystemExit("GRESKA: SUPABASE_URL i SUPABASE_SERVICE_KEY moraju biti u .env")
         if self.modbus_funkcija not in (3, 4):
             raise SystemExit("GRESKA: MODBUS_FUNKCIJA mora biti 3 ili 4")
+        if self.modbus_funkcija_pisanje not in (6, 16):
+            raise SystemExit("GRESKA: MODBUS_FUNKCIJA_PISANJE mora biti 6 ili 16")
+        if self.komanda_max_minuta <= 0:
+            raise SystemExit("GRESKA: KOMANDA_MAX_MINUTA mora biti veci od 0")
+        if self.komanda_max_pokusaja <= 0:
+            raise SystemExit("GRESKA: KOMANDA_MAX_POKUSAJA mora biti veci od 0")
 
     def port_za_granu(self, grana: str | None, modbus_adresa: int) -> str:
         g = (grana or "").strip().upper()
@@ -238,6 +291,24 @@ def cuid() -> str:
 def sada_utc_iso() -> str:
     """TIMESTAMP(3) bez vremenske zone; Prisma cita kao UTC pa i mi pisemo UTC."""
     return datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="milliseconds")
+
+
+def parsiraj_vrijeme(tekst: Any) -> datetime | None:
+    """
+    Vrijeme iz PostgREST-a u aware UTC datetime.
+
+    Kolona je TIMESTAMP(3) bez zone i u nju se pise UTC, pa se vrijednost bez
+    oznake zone tumaci kao UTC. Vraca None ako se ne da procitati - pozivatelj
+    tada mora biti oprezan (tretira komandu kao prestaru).
+    """
+    if not isinstance(tekst, str) or not tekst:
+        return None
+    t = tekst.strip().replace("Z", "+00:00")
+    try:
+        d = datetime.fromisoformat(t)
+    except ValueError:
+        return None
+    return d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d.astimezone(timezone.utc)
 
 
 # ------------------------------------------------------------------- Supabase
@@ -317,6 +388,34 @@ class Supabase:
         self._zahtjev("PATCH", f"TankAlarm?id=eq.{alarm_id}",
                       {"aktivan": False, "razrijesenU": sada_utc_iso()})
 
+    # --- komande (Faza B) ---
+
+    def dohvati_komande(self) -> list[dict]:
+        """Sve komande koje cekaju izvrsenje, najstarija prva."""
+        stupci = "id,tankId,tip,vrijednost,trazenoU,greska"
+        return self._zahtjev(
+            "GET",
+            f"TankKomanda?select={stupci}&status=eq.NA_CEKANJU&order=trazenoU.asc",
+        ) or []
+
+    def komanda_primijenjena(self, komanda_id: str) -> None:
+        self._zahtjev("PATCH", f"TankKomanda?id=eq.{komanda_id}", {
+            "status": "PRIMIJENJENO",
+            "primijenjenoU": sada_utc_iso(),
+            "greska": None,
+        })
+
+    def komanda_neuspjela(self, komanda_id: str, greska: str) -> None:
+        self._zahtjev("PATCH", f"TankKomanda?id=eq.{komanda_id}", {
+            "status": "NEUSPJELO",
+            "greska": greska[:500],
+        })
+
+    def komanda_napomena(self, komanda_id: str, napomena: str) -> None:
+        """Komanda ostaje NA_CEKANJU, samo dobiva objasnjenje zasto jos ceka."""
+        self._zahtjev("PATCH", f"TankKomanda?id=eq.{komanda_id}",
+                      {"greska": napomena[:500]})
+
 
 # --------------------------------------------------------------------- Modbus
 
@@ -329,27 +428,38 @@ class SondaGreska(Exception):
 
 
 _KW_LOCK = threading.Lock()
-_KW_UREDAJA: str | None = None  # pymodbus je mijenjao ime: unit -> slave -> device_id
+# pymodbus je kroz verzije mijenjao ime argumenta: unit -> slave -> device_id.
+# Pamti se po funkciji (citanje i pisanje su odvojene) da pogodak kod citanja ne
+# bude krivo pripisan pisanju i obrnuto.
+_KW_UREDAJA: dict[str, str] = {}
+
+
+def _ime_fn(fn) -> str:
+    return getattr(fn, "__name__", str(fn))
 
 
 def _kw_uredaja(fn) -> str | None:
-    global _KW_UREDAJA
+    ime = _ime_fn(fn)
     with _KW_LOCK:
-        if _KW_UREDAJA:
-            return _KW_UREDAJA
+        if ime in _KW_UREDAJA:
+            return _KW_UREDAJA[ime]
         try:
             parametri = inspect.signature(fn).parameters
         except (TypeError, ValueError):
             parametri = {}
         for kw in ("device_id", "slave", "unit"):
             if kw in parametri:
-                _KW_UREDAJA = kw
+                _KW_UREDAJA[ime] = kw
                 return kw
     return None
 
 
+def _zapamti_kw(fn, kw: str) -> None:
+    with _KW_LOCK:
+        _KW_UREDAJA[_ime_fn(fn)] = kw
+
+
 def citaj_registre(client, k: Konfig, adresa: int, broj: int, uredaj: int):
-    global _KW_UREDAJA
     fn = client.read_holding_registers if k.modbus_funkcija == 3 else client.read_input_registers
     kw = _kw_uredaja(fn)
     if kw:
@@ -362,10 +472,56 @@ def citaj_registre(client, k: Konfig, adresa: int, broj: int, uredaj: int):
         except TypeError as e:
             zadnja = e
             continue
-        with _KW_LOCK:
-            _KW_UREDAJA = kandidat
+        _zapamti_kw(fn, kandidat)
         return odgovor
     raise RuntimeError(f"Ne mogu pozvati pymodbus citanje: {zadnja}")
+
+
+def upisi_registar(client, k: Konfig, adresa_reg: int, vrijednost: int, uredaj: int) -> None:
+    """
+    Upis jednog registra (FC6, po potrebi FC16) s ponavljanjem.
+    Baca OfflineGreska ako kontroler ne potvrdi upis.
+    """
+    sirovo = int(vrijednost) & 0xFFFF  # dvojni komplement za negativne temperature
+
+    if k.modbus_funkcija_pisanje == 16:
+        fn = client.write_registers
+        argumenti: dict = {"address": adresa_reg, "values": [sirovo]}
+    else:
+        fn = client.write_register
+        argumenti = {"address": adresa_reg, "value": sirovo}
+
+    kw = _kw_uredaja(fn)
+    zadnja: Exception | str = "nepoznato"
+
+    for pokusaj in range(1, k.modbus_pokusaja + 1):
+        try:
+            if kw:
+                odgovor = fn(**argumenti, **{kw: uredaj})
+            else:
+                # Potpis nije citljiv - probaj redom pa zapamti sto radi.
+                odgovor = None
+                for kandidat in ("device_id", "slave", "unit"):
+                    try:
+                        odgovor = fn(**argumenti, **{kandidat: uredaj})
+                    except TypeError as e:
+                        zadnja = e
+                        continue
+                    _zapamti_kw(fn, kandidat)
+                    kw = kandidat
+                    break
+            if odgovor is None:
+                zadnja = "nema odgovora"
+            elif hasattr(odgovor, "isError") and odgovor.isError():
+                zadnja = str(odgovor)
+            else:
+                return
+        except Exception as e:
+            zadnja = e
+        if pokusaj < k.modbus_pokusaja:
+            time.sleep(0.1)
+
+    raise OfflineGreska(f"upis reg 0x{adresa_reg:04X}={sirovo} adresa {uredaj}: {zadnja}")
 
 
 def u_predznak(v: int) -> int:
@@ -429,11 +585,144 @@ def procitaj_tank(client, k: Konfig, uredaj: int) -> dict:
     return {"temperatura": temperatura, "setpoint": setpoint, "hladjenje": hladjenje}
 
 
-def procitaj_granu(port: str, tankovi: list[dict], k: Konfig) -> dict[str, dict]:
-    """Jedna dretva = jedan serijski port = jedna RS485 sabirnica (tankovi redom)."""
+# ------------------------------------------------------------------- komande
+
+# Tipovi koje gateway uopce pokusava izvrsiti. ALARM_MINUS / ALARM_PLUS namjerno
+# nisu ovdje: to su pragovi upozorenja u aplikaciji, a ne parametri kontrolera.
+KOMANDE_ZA_IZVRSITI = {"HLADJENJE_ON", "HLADJENJE_OFF", "ZADANA_TEMP", "HY"}
+
+NAPOMENA_DISCOVERY = "čeka discovery registra"
+
+
+class Plan:
+    """Sto tocno treba upisati u kontroler za jednu komandu."""
+
+    def __init__(self, registar: int, sirovo: int, opis: str) -> None:
+        self.registar = registar
+        self.sirovo = sirovo
+        self.opis = opis
+
+
+def isplaniraj(k: Konfig, tip: str, vrijednost: Any) -> tuple[Plan | None, str | None]:
+    """
+    Vraca (plan, razlog_cekanja).
+
+    plan = None + razlog  -> nema se sto izvrsiti (registar nije konfiguriran ili
+    vrijednost ne valja); komanda ostaje NA_CEKANJU s tom napomenom.
+    """
+    if tip in ("HLADJENJE_ON", "HLADJENJE_OFF"):
+        if k.reg_onoff is None:
+            return None, f"{NAPOMENA_DISCOVERY} REG_ONOFF"
+        ukljuci = tip == "HLADJENJE_ON"
+        sirovo = k.onoff_vrijednost_on if ukljuci else k.onoff_vrijednost_off
+        return Plan(k.reg_onoff, sirovo, "ON" if ukljuci else "OFF"), None
+
+    broj = u_broj(vrijednost)
+    if broj is None:
+        return None, "komanda nema vrijednost"
+
+    if tip == "ZADANA_TEMP":
+        if k.reg_setpoint is None:
+            return None, f"{NAPOMENA_DISCOVERY} REG_SETPOINT"
+        return Plan(k.reg_setpoint, round(broj * k.djelitelj_setpoint), f"{broj:.1f} C"), None
+
+    if tip == "HY":
+        if k.reg_hy is None:
+            return None, f"{NAPOMENA_DISCOVERY} REG_HY"
+        return Plan(k.reg_hy, round(broj * k.djelitelj_hy), f"{broj:.1f} K"), None
+
+    return None, f"tip {tip} se ne izvrsava"
+
+
+def izvrsi_komandu(client, k: Konfig, uredaj: int, plan: Plan) -> None:
+    """
+    Upise vrijednost i procita je natrag kao potvrdu.
+    Baca OfflineGreska ako upis ne prode ili se ocitano ne slaze sa zadanim.
+    """
+    upisi_registar(client, k, plan.registar, plan.sirovo, uredaj)
+    time.sleep(0.1)  # kontroleru treba trenutak da preuzme novu vrijednost
+
+    ocitano = procitaj_registar(client, k, plan.registar, uredaj) & 0xFFFF
+    ocekivano = int(plan.sirovo) & 0xFFFF
+    if ocitano != ocekivano:
+        raise OfflineGreska(
+            f"kontroler nije prihvatio: upisano {ocekivano}, procitano {ocitano}"
+        )
+
+
+def obradi_komande_grane(client, k: Konfig, tankovi: list[dict],
+                         komande_po_tanku: dict[str, list[dict]]) -> list[dict]:
+    """
+    Izvrsi komande tankova ove grane. Radi u istoj dretvi kao i citanje jer je
+    RS485 dijeljena sabirnica - dva paralelna upita se sudaraju.
+
+    Vraca listu ishoda: {"komanda": <red>, "ishod": "PRIMIJENJENO"|"NEUSPJELO"|"CEKA",
+                         "poruka": str, "tankBroj": Any}
+    """
+    ishodi: list[dict] = []
+    granica = datetime.now(timezone.utc) - timedelta(minutes=k.komanda_max_minuta)
+
+    for t in tankovi:
+        popis = komande_po_tanku.get(t["id"]) or []
+        if not popis:
+            continue
+        uredaj = int(t["modbusAdresa"])
+        broj = t.get("broj")
+
+        for kom in popis:
+            tip = str(kom.get("tip") or "")
+            plan, razlog = isplaniraj(k, tip, kom.get("vrijednost"))
+
+            # 1) Nemamo cime izvrsiti -> komanda ceka (NE gasi se po starosti;
+            #    kad se registri konfiguriraju, ogradu 30 min svejedno prolazi tek
+            #    ako je jos svjeza, pa zaboravljena komanda nikad ne opali naknadno).
+            if plan is None:
+                ishodi.append({"komanda": kom, "ishod": "CEKA",
+                               "poruka": razlog or "ceka", "tankBroj": broj})
+                continue
+
+            # 2) Sigurnosna ograda: stara komanda se ne izvrsava.
+            trazeno = parsiraj_vrijeme(kom.get("trazenoU"))
+            if trazeno is None or trazeno < granica:
+                poruka = (
+                    f"Komanda starija od {k.komanda_max_minuta} min - nije izvrsena."
+                    if trazeno is not None
+                    else "Neispravno vrijeme zahtjeva - komanda nije izvrsena."
+                )
+                ishodi.append({"komanda": kom, "ishod": "NEUSPJELO",
+                               "poruka": poruka, "tankBroj": broj})
+                log.warning("KOMANDA tank %s %s: %s", broj, tip, poruka)
+                continue
+
+            # 3) Izvrsi + procitaj natrag kao potvrdu.
+            try:
+                izvrsi_komandu(client, k, uredaj, plan)
+                ishodi.append({"komanda": kom, "ishod": "PRIMIJENJENO",
+                               "poruka": plan.opis, "tankBroj": broj})
+                log.info("KOMANDA tank %s %s -> %s: PRIMIJENJENO (reg 0x%04X=%s)",
+                         broj, tip, plan.opis, plan.registar, plan.sirovo)
+            except Exception as e:
+                ishodi.append({"komanda": kom, "ishod": "GRESKA",
+                               "poruka": str(e), "tankBroj": broj})
+                log.warning("KOMANDA tank %s %s -> %s: NEUSPJELO (%s)",
+                            broj, tip, plan.opis, e)
+
+            if k.pauza_izmedu_tankova > 0:
+                time.sleep(k.pauza_izmedu_tankova)
+
+    return ishodi
+
+
+def obradi_granu(port: str, tankovi: list[dict], k: Konfig,
+                 komande_po_tanku: dict[str, list[dict]] | None = None
+                 ) -> tuple[dict[str, dict], list[dict]]:
+    """
+    Jedna dretva = jedan serijski port = jedna RS485 sabirnica (tankovi redom).
+    Prvo procita sve tankove grane, zatim izvrsi komande za tu istu granu.
+    """
     rezultat: dict[str, dict] = {}
     if not tankovi:
-        return rezultat
+        return rezultat, []
 
     client = ModbusSerialClient(
         port=port,
@@ -452,8 +741,16 @@ def procitaj_granu(port: str, tankovi: list[dict], k: Konfig) -> dict[str, dict]
         log.error("Port %s nedostupan - %s tankova ide u OFFLINE", port, len(tankovi))
         for t in tankovi:
             rezultat[t["id"]] = {"stanje": "OFFLINE", "poruka": f"port {port} nedostupan"}
-        return rezultat
+        # Komande ove grane se ovaj ciklus ni ne pokusavaju - broje se kao neuspjeh.
+        ishodi_porta = [
+            {"komanda": kom, "ishod": "GRESKA", "tankBroj": t.get("broj"),
+             "poruka": f"port {port} nedostupan"}
+            for t in tankovi
+            for kom in ((komande_po_tanku or {}).get(t["id"]) or [])
+        ]
+        return rezultat, ishodi_porta
 
+    ishodi: list[dict] = []
     try:
         for t in tankovi:
             uredaj = int(t["modbusAdresa"])
@@ -472,12 +769,19 @@ def procitaj_granu(port: str, tankovi: list[dict], k: Konfig) -> dict[str, dict]
                 log.exception("Tank %s (adr %s): neocekivana greska", t["broj"], uredaj)
             if k.pauza_izmedu_tankova > 0:
                 time.sleep(k.pauza_izmedu_tankova)
+
+        # Komande tek nakon sto je cijela grana procitana - isti port, ista dretva.
+        if komande_po_tanku:
+            try:
+                ishodi = obradi_komande_grane(client, k, tankovi, komande_po_tanku)
+            except Exception:
+                log.exception("Obrada komandi na portu %s je pukla", port)
     finally:
         try:
             client.close()
         except Exception:
             pass
-    return rezultat
+    return rezultat, ishodi
 
 
 # ------------------------------------------------------------ alarmna logika
@@ -497,10 +801,12 @@ def u_broj(x: Any) -> float | None:
 
 
 class Gateway:
-    def __init__(self, k: Konfig, bez_upisa: bool = False) -> None:
+    def __init__(self, k: Konfig, bez_upisa: bool = False, bez_komandi: bool = False) -> None:
         self.k = k
         self.db = Supabase(k, bez_upisa=bez_upisa)
+        self.bez_komandi = bez_komandi
         self.neuspjeha: dict[str, int] = {}   # tankId -> uzastopnih neuspjelih ciklusa
+        self.pokusaji_komandi: dict[str, int] = {}  # komandaId -> neuspjelih pokusaja
         self.tankovi_cache: list[dict] = []
         self.stop = threading.Event()
 
@@ -529,19 +835,127 @@ class Gateway:
             log.warning("Nijedan tank nema modbusAdresu - nema sto citati")
             return
 
+        komande_po_tanku = self.dohvati_komande_po_tanku()
+
         rezultati: dict[str, dict] = {}
+        ishodi: list[dict] = []
         with ThreadPoolExecutor(max_workers=len(po_portu), thread_name_prefix="grana") as izvrsitelj:
-            poslovi = {port: izvrsitelj.submit(procitaj_granu, port, lst, self.k)
+            poslovi = {port: izvrsitelj.submit(obradi_granu, port, lst, self.k, komande_po_tanku)
                        for port, lst in po_portu.items()}
             for port, posao in poslovi.items():
                 try:
-                    rezultati.update(posao.result())
+                    ocitanja_grane, ishodi_grane = posao.result()
+                    rezultati.update(ocitanja_grane)
+                    ishodi.extend(ishodi_grane)
                 except Exception:
                     log.exception("Grana %s je pukla u cijelosti", port)
                     for t in po_portu[port]:
                         rezultati[t["id"]] = {"stanje": "OFFLINE", "poruka": "greska grane"}
+                        for kom in komande_po_tanku.get(t["id"], []):
+                            ishodi.append({"komanda": kom, "ishod": "GRESKA",
+                                           "tankBroj": t.get("broj"), "poruka": "greska grane"})
 
         self.obradi(tankovi, rezultati)
+
+        try:
+            self.zapisi_ishode_komandi(ishodi)
+        except Exception as e:
+            log.error("Zapis ishoda komandi nije uspio: %s", e)
+
+    # --- komande --------------------------------------------------------------
+
+    def dohvati_komande_po_tanku(self) -> dict[str, list[dict]]:
+        """Komande NA_CEKANJU grupirane po tanku. Nepodrzani tipovi se odbacuju."""
+        if not self.k.komande_omogucene:
+            return {}
+        # --bez-upisa je proba: ako se ne smije pisati u bazu, ne smije se pisati
+        # ni po kontrolerima. Isto vrijedi za izricit --bez-komandi.
+        if self.db.bez_upisa or self.bez_komandi:
+            log.info("Komande se ovaj put ne izvrsavaju (proba bez upisa).")
+            return {}
+        try:
+            sve = self.db.dohvati_komande()
+        except Exception as e:
+            log.error("Ne mogu dohvatiti komande: %s", e)
+            return {}
+
+        po_tanku: dict[str, list[dict]] = {}
+        preskoceno = 0
+        for kom in sve:
+            if str(kom.get("tip")) not in KOMANDE_ZA_IZVRSITI:
+                preskoceno += 1  # ALARM_MINUS / ALARM_PLUS i sve nepoznato
+                continue
+            po_tanku.setdefault(kom["tankId"], []).append(kom)
+
+        if po_tanku or preskoceno:
+            log.info("Komande na cekanju: %s za izvrsiti, %s preskoceno (nisu za kontroler)",
+                     sum(len(v) for v in po_tanku.values()), preskoceno)
+        return po_tanku
+
+    def zapisi_ishode_komandi(self, ishodi: list[dict]) -> None:
+        """
+        Primijeni ishode na bazu i vodi brojac pokusaja.
+
+        PRIMIJENJENO -> odmah upisano.
+        CEKA         -> ostaje NA_CEKANJU, upise se napomena (samo ako se promijenila).
+        NEUSPJELO    -> odmah NEUSPJELO (sigurnosna ograda, nema smisla ponavljati).
+        GRESKA       -> jos jedan pokusaj sljedeci ciklus; nakon KOMANDA_MAX_POKUSAJA
+                        prelazi u NEUSPJELO.
+        """
+        if not ishodi:
+            self.pokusaji_komandi.clear()
+            return
+
+        vidjeni: set[str] = set()
+        primijenjeno = neuspjelo = ceka = 0
+
+        for red in ishodi:
+            kom = red["komanda"]
+            kid = kom["id"]
+            vidjeni.add(kid)
+            tip = kom.get("tip")
+            broj = red.get("tankBroj")
+            ishod = red["ishod"]
+
+            if ishod == "PRIMIJENJENO":
+                self.db.komanda_primijenjena(kid)
+                self.pokusaji_komandi.pop(kid, None)
+                primijenjeno += 1
+
+            elif ishod == "CEKA":
+                napomena = red["poruka"]
+                if (kom.get("greska") or "") != napomena:
+                    self.db.komanda_napomena(kid, napomena)
+                    log.info("KOMANDA tank %s %s: %s", broj, tip, napomena)
+                ceka += 1
+
+            elif ishod == "NEUSPJELO":
+                self.db.komanda_neuspjela(kid, red["poruka"])
+                self.pokusaji_komandi.pop(kid, None)
+                neuspjelo += 1
+
+            else:  # GRESKA - kontroler nije odgovorio ili nije prihvatio
+                pokusaj = self.pokusaji_komandi.get(kid, 0) + 1
+                self.pokusaji_komandi[kid] = pokusaj
+                if pokusaj >= self.k.komanda_max_pokusaja:
+                    poruka = f"Neuspjelo nakon {pokusaj} pokusaja: {red['poruka']}"
+                    self.db.komanda_neuspjela(kid, poruka)
+                    self.pokusaji_komandi.pop(kid, None)
+                    neuspjelo += 1
+                    log.error("KOMANDA tank %s %s: %s", broj, tip, poruka)
+                else:
+                    log.warning("KOMANDA tank %s %s: pokusaj %s/%s neuspio (%s)",
+                                broj, tip, pokusaj, self.k.komanda_max_pokusaja, red["poruka"])
+
+        # Komande koje su u meduvremenu nestale iz reda (rucno promijenjene,
+        # obrisane) ne smiju zauvijek drzati brojac.
+        for kid in list(self.pokusaji_komandi):
+            if kid not in vidjeni:
+                del self.pokusaji_komandi[kid]
+
+        if primijenjeno or neuspjelo or ceka:
+            log.info("Komande: primijenjeno %s, neuspjelo %s, ceka %s",
+                     primijenjeno, neuspjelo, ceka)
 
     # --- upis ocitanja + alarmi ----------------------------------------------
 
@@ -676,7 +1090,18 @@ class Gateway:
                  self.k.reg_temp,
                  f"0x{self.k.reg_setpoint:04X}" if self.k.reg_setpoint is not None else "iz baze (Tank.zadanaTemp)",
                  f"0x{self.k.reg_status:04X}" if self.k.reg_status is not None else "nema (hladjenje se procjenjuje)")
-        log.info("Komande (TankKomanda) se NE izvrsavaju - to je Faza B.")
+
+        if self.k.komande_omogucene:
+            log.info(
+                "Komande: ON/OFF=%s, setpoint=%s, Hy=%s | ograda %s min, najvise %s pokusaja",
+                f"0x{self.k.reg_onoff:04X}" if self.k.reg_onoff is not None else "CEKA DISCOVERY",
+                f"0x{self.k.reg_setpoint:04X}" if self.k.reg_setpoint is not None else "CEKA DISCOVERY",
+                f"0x{self.k.reg_hy:04X}" if self.k.reg_hy is not None else "CEKA DISCOVERY",
+                self.k.komanda_max_minuta, self.k.komanda_max_pokusaja,
+            )
+            log.info("ALARM_MINUS i ALARM_PLUS se ne salju kontroleru (pragovi aplikacije).")
+        else:
+            log.info("Komande su ISKLJUCENE (KOMANDE_OMOGUCENE=false) - gateway samo cita.")
 
         while not self.stop.is_set():
             pocetak = time.monotonic()
@@ -696,18 +1121,21 @@ class Gateway:
 
 
 def main() -> None:
-    jednom = "--jednom" in sys.argv          # odradi jedan ciklus pa izadi
-    bez_upisa = "--bez-upisa" in sys.argv    # nista ne pisi u bazu (prvi test)
+    jednom = "--jednom" in sys.argv            # odradi jedan ciklus pa izadi
+    bez_upisa = "--bez-upisa" in sys.argv      # nista ne pisi u bazu (prvi test)
+    bez_komandi = "--bez-komandi" in sys.argv  # citaj i pisi u bazu, ali ne diraj kontrolere
 
     ucitaj_env(os.path.join(BAZA_DIR, ".env"))
     k = Konfig()
     postavi_logiranje(k)
     k.provjeri()
 
-    gw = Gateway(k, bez_upisa=bez_upisa)
+    gw = Gateway(k, bez_upisa=bez_upisa, bez_komandi=bez_komandi)
 
     if jednom:
-        log.info("JEDAN CIKLUS%s", " (BEZ UPISA)" if bez_upisa else "")
+        log.info("JEDAN CIKLUS%s%s",
+                 " (BEZ UPISA)" if bez_upisa else "",
+                 " (BEZ KOMANDI)" if bez_komandi else "")
         gw.ciklus()
         return
 

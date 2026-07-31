@@ -2,9 +2,13 @@
 """
 DISCOVERY - pomocna skripta za mapiranje registara Dixell XR75CX.
 
-Potvrdeno je samo 0x0100 = sonda P1 (vrijednost /10). Set point i statusni registar
-(relej hladjenja, greska sonde) nisu javno dokumentirani, pa se traze usporedbom
-s onim sto pise na displeju kontrolera.
+SAMO CITA. Ova skripta NIKAD ne pise po kontroleru - svaka promjena parametra
+radi se rukom na samom kontroleru, a skripta samo gleda koji se registar pomakao.
+Tako se ne moze nista slucajno pokvariti na tanku s vinom.
+
+Potvrdeno je samo 0x0100 = sonda P1 (vrijednost /10). Set point (SEt), diferencijal
+(Hy) i standby (onF) nisu javno dokumentirani, pa se traze usporedbom s onim sto
+pise na displeju kontrolera.
 
 Primjeri:
 
@@ -20,9 +24,19 @@ Primjeri:
   # 4) prati jedan registar uzivo (ukljuci/iskljuci hladjenje na kontroleru i gledaj sto se mijenja)
   python discover_registers.py --port /dev/ttyUSB0 --adresa 1 --prati 0x0180 --prati 0x0181
 
+  # 5) tko ima bas ovu vrijednost (npr. na displeju pise SEt = 14,0)
+  python discover_registers.py --port /dev/ttyUSB0 --adresa 1 --preset --trazi 14.0
+
+  # 6) RAZLIKA - najsigurniji put do SEt / Hy / onF registra:
+  #    snimi stanje, rukom promijeni parametar na kontroleru, pritisni Enter
+  python discover_registers.py --port /dev/ttyUSB0 --adresa 1 --preset --razlika
+
 Trazi se:
-  - SET POINT: registar cija je vrijednost/10 jednaka SEt-u na kontroleru
-    (promijeni SEt na kontroleru za 1 C i vidi koji se registar pomakne za 10)
+  - SET POINT (SEt): registar cija je vrijednost/10 jednaka SEt-u na kontroleru
+    (promijeni SEt za 1 C i --razlika ce pokazati pomak od 10)
+  - DIFERENCIJAL (Hy): isto, ali promijeni Hy za 0,1 -> pomak od 1
+  - STANDBY (onF): promijeni kontroler iz rada u standby -> --razlika pokazuje
+    registar/bit koji se prebacio; to je kandidat za REG_ONOFF
   - STATUS: registar koji se mijenja tocno kad relej hladjenja upadne/ispadne
     (obicno bitovna maska - gledaj stupac BIN)
 """
@@ -119,6 +133,98 @@ def skeniraj_adrese(client, args) -> None:
     print(f"\nZivih kontrolera: {len(nadeno)} -> {nadeno}")
 
 
+def procitaj_raspon(client, args, prozori: list[tuple[int, int]]) -> dict[int, int]:
+    """Snimi vrijednosti svih registara iz zadanih prozora (samo uspjesne)."""
+    snimka: dict[int, int] = {}
+    for od, do in prozori:
+        for reg in range(od, do):
+            vrijednost, _ = jedan(client, args.fc, reg, args.adresa)
+            if vrijednost is not None:
+                snimka[reg] = vrijednost
+            time.sleep(args.pauza)
+    return snimka
+
+
+def prozori_iz_argumenata(args) -> list[tuple[int, int]]:
+    return list(PRESET_PROZORI) if args.preset else [(args.od, args.do)]
+
+
+def trazi_vrijednost(client, args, prozori: list[tuple[int, int]]) -> None:
+    """
+    Nadi registre koji drze zadanu vrijednost.
+
+    Usporeduje i sirovo i /10, jer Dixell temperature drzi u desetinkama:
+    ako na displeju pise SEt 14,0, registar sadrzi 140.
+    """
+    trazeno = args.trazi
+    sirovo_trazeno = int(round(trazeno * 10))
+    print(f"\nTrazim vrijednost {trazeno} (sirovo {sirovo_trazeno} ili {int(trazeno)}) "
+          f"na adresi {args.adresa}...\n")
+
+    pogodaka = 0
+    for od, do in prozori:
+        for reg in range(od, do):
+            vrijednost, _ = jedan(client, args.fc, reg, args.adresa)
+            if vrijednost is not None:
+                p = predznak(vrijednost)
+                if p == sirovo_trazeno or p == int(trazeno):
+                    kako = "/10" if p == sirovo_trazeno else "sirovo"
+                    print(f"  POGODAK  0x{reg:04X} ({reg:5d})  = {p:6d}  [{kako}]")
+                    pogodaka += 1
+            time.sleep(args.pauza)
+
+    print(f"\nPogodaka: {pogodaka}")
+    if pogodaka > 1:
+        print("Vise kandidata - promijeni parametar na kontroleru i ponovi s --razlika "
+              "da vidis koji se stvarno pomakao.")
+
+
+def razlika(client, args, prozori: list[tuple[int, int]]) -> None:
+    """
+    Snimi -> ti rucno promijenis parametar na kontroleru -> snimi ponovo -> ispisi razliku.
+    Najsigurniji nacin da se nade SEt, Hy ili onF: nista se ne pise po kontroleru.
+    """
+    ukupno = sum(do - od for od, do in prozori)
+    print(f"\nSnimam {ukupno} registara na adresi {args.adresa} (prije promjene)...")
+    prije = procitaj_raspon(client, args, prozori)
+    print(f"Snimljeno {len(prije)} registara koji odgovaraju.\n")
+
+    print("SADA RUCNO promijeni parametar NA KONTROLERU (npr. SEt za 1 C, Hy za 0,1,")
+    print("ili prebaci uredaj u standby), pa se vrati ovdje.")
+    try:
+        input("Kad je promjena gotova, pritisni Enter... ")
+    except (EOFError, KeyboardInterrupt):
+        print("\nPrekinuto.")
+        return
+
+    print(f"\nSnimam ponovo...")
+    poslije = procitaj_raspon(client, args, prozori)
+
+    promjene = []
+    for reg, stara in prije.items():
+        nova = poslije.get(reg)
+        if nova is not None and nova != stara:
+            promjene.append((reg, stara, nova))
+
+    if not promjene:
+        print("\nNijedan registar se nije promijenio. Je li promjena stvarno spremljena "
+              "na kontroleru (kod Dixella treba potvrditi izlazak iz izbornika)?")
+        return
+
+    print(f"\n=== PROMIJENJENO: {len(promjene)} registara ===")
+    print(f"{'HEX':>7} {'DEC':>6} {'PRIJE':>8} {'POSLIJE':>8} {'RAZLIKA':>8}  BIN prije -> poslije")
+    for reg, stara, nova in promjene:
+        ps, pn = predznak(stara), predznak(nova)
+        print(f"0x{reg:04X} {reg:6d} {ps:8d} {pn:8d} {pn - ps:8d}  "
+              f"{stara:016b} -> {nova:016b}")
+
+    print("\nTumacenje:")
+    print("  razlika 10 nakon promjene SEt za 1 C   -> to je REG_SETPOINT (djelitelj 10)")
+    print("  razlika 1 nakon promjene Hy za 0,1     -> to je REG_HY (djelitelj 10)")
+    print("  0 <-> 1 nakon ulaska u standby         -> kandidat za REG_ONOFF")
+    print("  promjena jednog bita u maski           -> to je REG_STATUS + broj tog bita")
+
+
 def ispisi_raspon(client, args, od: int, do: int) -> None:
     print(f"\n=== 0x{od:04X} - 0x{do - 1:04X} (adresa {args.adresa}, FC{args.fc}) ===")
     print(f"{'HEX':>7} {'DEC':>6} {'SIROVO':>7} {'PREDZ':>7} {'/10':>8}  {'BIN':>19}  GRESKA")
@@ -154,6 +260,93 @@ def prati(client, args) -> None:
         print("\nKraj.")
 
 
+def upisi(client, args) -> None:
+    """
+    KONTROLIRANI UPIS u jedan registar jednog kontrolera - za provjeru kandidata
+    nadenog citanjem (npr. "je li 0x0201 stvarno Hy?").
+
+    Namjerno neugodno za koristenje:
+      - trazi i --upisi i --test-tank i --potvrdi-upis,
+      - trazi da rucno utipkas DA,
+      - pise tocno jedan registar, jednom, pa procita natrag,
+      - --test-tank mora biti isti broj kao --adresa (da se ne omakne tudi tank).
+
+    KORISTI SAMO NA PRAZNOM TEST TANKU. Krivi registar na tanku s vinom moze
+    promijeniti rezim hladjenja.
+    """
+    if args.test_tank != args.adresa:
+        sys.exit(f"ODBIJENO: --test-tank ({args.test_tank}) i --adresa ({args.adresa}) "
+                 f"moraju biti isti broj. To je namjerna prepreka.")
+    if not args.potvrdi_upis:
+        sys.exit("ODBIJENO: nedostaje --potvrdi-upis. Upis se ne radi slucajno.")
+
+    reg = args.upisi
+    vrijednost = args.vrijednost
+    if vrijednost is None:
+        sys.exit("ODBIJENO: uz --upisi treba i --vrijednost (sirovi broj koji ide u registar).")
+
+    prije, greska = jedan(client, args.fc, reg, args.adresa)
+    if prije is None:
+        sys.exit(f"ODBIJENO: registar 0x{reg:04X} se ne moze ni procitati ({greska}). "
+                 f"Ne pisem u nesto sto ne vidim.")
+
+    print("\n" + "=" * 68)
+    print(f"  UPIS U KONTROLER - adresa {args.adresa} (TEST TANK {args.test_tank})")
+    print(f"  registar 0x{reg:04X} ({reg})")
+    print(f"  trenutna vrijednost: {prije}  (predznaceno {predznak(prije)}, /10 = {predznak(prije)/10})")
+    print(f"  upisujem:            {vrijednost}")
+    print("=" * 68)
+    try:
+        odgovor = input("Utipkaj DA za upis (bilo sto drugo prekida): ")
+    except (EOFError, KeyboardInterrupt):
+        print("\nPrekinuto.")
+        return
+    if odgovor.strip() != "DA":
+        print("Prekinuto - nista nije upisano.")
+        return
+
+    fn = client.write_register
+    kw = None
+    try:
+        parametri = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        parametri = {}
+    for kandidat in ("device_id", "slave", "unit"):
+        if kandidat in parametri:
+            kw = kandidat
+            break
+
+    try:
+        if kw:
+            rezultat = fn(address=reg, value=int(vrijednost) & 0xFFFF, **{kw: args.adresa})
+        else:
+            rezultat = None
+            for kandidat in ("device_id", "slave", "unit"):
+                try:
+                    rezultat = fn(address=reg, value=int(vrijednost) & 0xFFFF,
+                                  **{kandidat: args.adresa})
+                    break
+                except TypeError:
+                    continue
+    except Exception as e:
+        sys.exit(f"UPIS PUKAO: {e}")
+
+    if rezultat is None or (hasattr(rezultat, "isError") and rezultat.isError()):
+        print(f"Kontroler je ODBIO upis: {rezultat}")
+        return
+
+    time.sleep(0.2)
+    poslije, greska = jedan(client, args.fc, reg, args.adresa)
+    print(f"\nProcitano natrag: {poslije} (greska: {greska})")
+    if poslije == (int(vrijednost) & 0xFFFF):
+        print("POTVRDENO - registar je prihvatio vrijednost.")
+        print("Provjeri jos i sto pise na displeju kontrolera prije nego upises adresu u .env.")
+    else:
+        print(f"NE SLAZE SE - upisano {vrijednost}, procitano {poslije}. "
+              f"Vjerojatno to nije taj registar (ili je samo za citanje).")
+    print(f"\nNe zaboravi vratiti staru vrijednost: --upisi 0x{reg:04X} --vrijednost {prije}")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="Discovery Modbus registara za Dixell XR75CX")
     p.add_argument("--port", default="/dev/ttyUSB0")
@@ -174,14 +367,35 @@ def main() -> None:
     p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--pauza", type=float, default=0.05, help="pauza izmedu upita")
     p.add_argument("--samo-uspjesne", action="store_true", help="ne ispisuj registre koji vrate gresku")
+    p.add_argument("--trazi", type=float, default=None,
+                   help="nadi registre s ovom vrijednoscu (npr. --trazi 14.0 za SEt 14 C)")
+    p.add_argument("--razlika", action="store_true",
+                   help="snimi -> rucno promijeni parametar na kontroleru -> snimi -> ispisi sto se pomaklo")
+
+    # --- upis (opasno, zato u zasebnoj skupini i s tri kljuca) ---
+    upis = p.add_argument_group("UPIS - samo na praznom test tanku")
+    upis.add_argument("--upisi", type=lambda x: int(x, 0), default=None,
+                      help="registar u koji se pise (npr. 0x0201)")
+    upis.add_argument("--vrijednost", type=int, default=None,
+                      help="sirova vrijednost koja se upisuje (npr. 5 za Hy 0,5)")
+    upis.add_argument("--test-tank", type=int, default=None,
+                      help="broj test tanka; mora biti jednak --adresa")
+    upis.add_argument("--potvrdi-upis", action="store_true",
+                      help="izricita potvrda da se smije pisati po kontroleru")
     args = p.parse_args()
 
     client = spoji(args)
     try:
-        if args.skeniraj_adrese:
+        if args.upisi is not None:
+            upisi(client, args)
+        elif args.skeniraj_adrese:
             skeniraj_adrese(client, args)
         elif args.prati:
             prati(client, args)
+        elif args.razlika:
+            razlika(client, args, prozori_iz_argumenata(args))
+        elif args.trazi is not None:
+            trazi_vrijednost(client, args, prozori_iz_argumenata(args))
         elif args.preset:
             for od, do in PRESET_PROZORI:
                 ispisi_raspon(client, args, od, do)

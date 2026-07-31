@@ -12,6 +12,7 @@ import {
 import {
   smijeUpravljati as smijeUpravljatiRole,
   OPIS_TIPA,
+  JEDINICA_TIPA,
   type KomandaTip,
 } from "@/lib/tank-komanda";
 import TankKontrole, { type TankTile, type KomandaStanje } from "./tank-kontrole";
@@ -44,6 +45,7 @@ export default async function HladjenjeDashboard() {
       zadanaTemp: true,
       alarmMinus: true,
       alarmPlus: true,
+      hy: true,
     },
   });
   const ids = tankovi.map((t) => t.id);
@@ -115,6 +117,7 @@ export default async function HladjenjeDashboard() {
       zadanaTemp: uBroj(t.zadanaTemp),
       alarmMinus: uBroj(t.alarmMinus),
       alarmPlus: uBroj(t.alarmPlus),
+      hy: uBroj(t.hy),
       hladjenjeAktivno: o ? o.hladjenjeAktivno : null,
       mjerenoU: o ? o.mjerenoU.toISOString() : null,
       imaAktivanAlarm: alarmSet.has(t.id),
@@ -230,7 +233,9 @@ export default async function HladjenjeDashboard() {
                         <td style={tdStyle}>{OPIS_TIPA[k.tip as KomandaTip] ?? k.tip}</td>
                         <td style={tdStyle}>
                           {jeVrijednost
-                            ? `${staro != null ? formatTemp(staro) : "—"} → ${formatTemp(novo)} °C`
+                            ? `${staro != null ? formatTemp(staro) : "—"} → ${formatTemp(novo)} ${
+                                JEDINICA_TIPA[k.tip as KomandaTip] ?? "°C"
+                              }`
                             : k.tip === "HLADJENJE_ON"
                               ? "→ ON"
                               : "→ OFF"}

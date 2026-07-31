@@ -13,7 +13,8 @@ import {
 export type KomandaRezultat = { ok: boolean; error?: string };
 
 // Kreira TankKomanda (NA_CEKANJU) i odmah upise zeljenu vrijednost na Tank
-// (da UI prikaze novo stanje). FAZA A: nista se ne salje hardveru.
+// (da UI prikaze novo stanje). Gateway na Pi-ju preuzima komande sa statusom
+// NA_CEKANJU i salje ih kontroleru (Faza B) - vidi gateway/gateway.py.
 // Provjera prava je OVDJE (server), ne samo skrivanjem gumba u UI.
 export async function posaljiKomandu(input: {
   tankId: string;
@@ -64,5 +65,6 @@ export async function posaljiKomandu(input: {
   }
 
   revalidatePath("/dashboard/hladjenje");
+  revalidatePath(`/tankovi/${tankId}`); // Hy se mijenja i s kartice Hladjenje na monitoru
   return { ok: true };
 }

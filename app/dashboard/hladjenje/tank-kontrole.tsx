@@ -9,9 +9,11 @@ import {
 } from "@/lib/temperatura";
 import {
   KORAK,
+  KORAK_ZA,
   LIMITI,
   stegni,
   OPIS_TIPA,
+  JEDINICA_TIPA,
   type KomandaTip,
 } from "@/lib/tank-komanda";
 import { posaljiKomandu } from "./actions";
@@ -27,6 +29,7 @@ export type TankTile = {
   zadanaTemp: number | null;
   alarmMinus: number | null;
   alarmPlus: number | null;
+  hy: number | null;
   hladjenjeAktivno: boolean | null;
   mjerenoU: string | null;
   imaAktivanAlarm: boolean;
@@ -71,12 +74,14 @@ function Stepper({
   max,
   onChange,
   disabled,
+  korak = KORAK,
 }: {
   vrijednost: number;
   min: number;
   max: number;
   onChange: (v: number) => void;
   disabled: boolean;
+  korak?: number;
 }) {
   const btn: React.CSSProperties = {
     minWidth: 40,
@@ -96,7 +101,7 @@ function Stepper({
         type="button"
         style={btn}
         disabled={disabled || vrijednost <= min}
-        onClick={() => onChange(Math.max(min, Math.round((vrijednost - KORAK) * 10) / 10))}
+        onClick={() => onChange(Math.max(min, Math.round((vrijednost - korak) * 10) / 10))}
         aria-label="Smanji"
       >
         −
@@ -108,7 +113,7 @@ function Stepper({
         type="button"
         style={btn}
         disabled={disabled || vrijednost >= max}
-        onClick={() => onChange(Math.min(max, Math.round((vrijednost + KORAK) * 10) / 10))}
+        onClick={() => onChange(Math.min(max, Math.round((vrijednost + korak) * 10) / 10))}
         aria-label="Povećaj"
       >
         +
@@ -127,6 +132,7 @@ export default function TankKontrole({
   const [zadana, setZadana] = useState<number>(tank.zadanaTemp ?? 12);
   const [aMinus, setAMinus] = useState<number>(tank.alarmMinus ?? 2);
   const [aPlus, setAPlus] = useState<number>(tank.alarmPlus ?? 2);
+  const [hy, setHy] = useState<number>(tank.hy ?? 2);
   const [poruka, setPoruka] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -141,7 +147,7 @@ export default function TankKontrole({
     if (tip === "HLADJENJE_ON" || tip === "HLADJENJE_OFF") {
       poruka = `Tank ${tank.broj}: ${tip === "HLADJENJE_ON" ? "uključi" : "isključi"} hlađenje?`;
     } else {
-      poruka = `Tank ${tank.broj}: ${OPIS_TIPA[tip]} ${fmt(stara)} → ${fmt(vrijednost)} °C?`;
+      poruka = `Tank ${tank.broj}: ${OPIS_TIPA[tip]} ${fmt(stara)} → ${fmt(vrijednost)} ${JEDINICA_TIPA[tip]}?`;
     }
     if (!window.confirm(poruka)) return;
     setPoruka(null);
@@ -154,6 +160,7 @@ export default function TankKontrole({
   const promijenjenaZadana = zadana !== (tank.zadanaTemp ?? 12);
   const promijenjenMinus = aMinus !== (tank.alarmMinus ?? 2);
   const promijenjenPlus = aPlus !== (tank.alarmPlus ?? 2);
+  const promijenjenHy = hy !== (tank.hy ?? 2);
 
   const spremiBtn = (aktivan: boolean): React.CSSProperties => ({
     minHeight: 40,
@@ -284,6 +291,35 @@ export default function TankKontrole({
           </div>
         ) : (
           <div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(tank.zadanaTemp)} °C</div>
+        )}
+      </div>
+
+      {/* Diferencijal (Hy) — koliko temperatura mora prijeci zadanu da hladjenje krene */}
+      <div style={rowStyle}>
+        <div style={rowLabelStyle}>
+          Diferencijal (Hy) <StatusBadge komanda={tank.komande.HY ?? null} />
+        </div>
+        {smijeUpravljati ? (
+          <div style={rowKontroleStyle}>
+            <Stepper
+              vrijednost={hy}
+              min={LIMITI.HY.min}
+              max={LIMITI.HY.max}
+              korak={KORAK_ZA.HY}
+              onChange={setHy}
+              disabled={pending}
+            />
+            <button
+              type="button"
+              style={spremiBtn(promijenjenHy)}
+              disabled={!promijenjenHy || pending}
+              onClick={() => posalji("HY", stegni("HY", hy), tank.hy)}
+            >
+              Spremi
+            </button>
+          </div>
+        ) : (
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(tank.hy)} K</div>
         )}
       </div>
 

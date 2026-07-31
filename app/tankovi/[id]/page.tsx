@@ -10,6 +10,8 @@ import TankRoleActions from "./tank-role-actions";
 import TankRoleSastavModal from "./tank-role-sastav-modal";
 import TankRoleDokumentiUpload from "./tank-role-dokumenti-upload";
 import HladjenjeGraf from "./hladjenje-graf";
+import HladjenjeHy, { type HyKomandaStanje } from "./hladjenje-hy";
+import { smijeUpravljati as smijeUpravljatiRole } from "@/lib/tank-komanda";
 import {
   izracunajStatus,
   stilZaStatus,
@@ -586,8 +588,8 @@ export default async function TankPregledPage({
 
   if (!tank) return notFound();
 
-  // Nadzor temperature: zadnje ocitanje + aktivni alarmi (Faza A, samo prikaz).
-  const [zadnjeOcitanje, aktivniAlarmi] = await Promise.all([
+  // Nadzor temperature: zadnje ocitanje + aktivni alarmi + zadnja Hy komanda.
+  const [zadnjeOcitanje, aktivniAlarmi, zadnjaHyKomanda] = await Promise.all([
     prisma.ocitanjeTemperature.findFirst({
       where: { tankId: id },
       orderBy: { mjerenoU: "desc" },
@@ -596,7 +598,17 @@ export default async function TankPregledPage({
       where: { tankId: id, aktivan: true },
       orderBy: { nastaoU: "desc" },
     }),
+    prisma.tankKomanda.findFirst({
+      where: { tankId: id, tip: "HY" },
+      orderBy: { trazenoU: "desc" },
+      select: { status: true, greska: true },
+    }),
   ]);
+
+  const smijeHladjenje = smijeUpravljatiRole(prijavljeni.role);
+  const hyStanje: HyKomandaStanje = zadnjaHyKomanda
+    ? { status: zadnjaHyKomanda.status, greska: zadnjaHyKomanda.greska }
+    : null;
 
   const tempStatus = izracunajStatus({
     mjerenoU: zadnjeOcitanje?.mjerenoU ?? null,
@@ -1030,6 +1042,14 @@ const izvrseniZadaci = tankJePrazan
             />
           </div>
 
+          <HladjenjeHy
+            tankId={tank.id}
+            tankBroj={tank.broj}
+            hy={uBroj(tank.hy)}
+            smijeUpravljati={smijeHladjenje}
+            zadnjaKomanda={hyStanje}
+          />
+
           {aktivniAlarmi.length > 0 ? (
             <div
               style={{
@@ -1057,7 +1077,11 @@ const izvrseniZadaci = tankJePrazan
           <HladjenjeGraf tankId={tank.id} zadanaPocetna={uBroj(tank.zadanaTemp)} />
 
           <div style={{ fontSize: 11, color: "#999" }}>
-            Samo prikaz — upravljanje temperaturom je zasebna faza.
+            Zadana temperatura i pragovi alarma mijenjaju se na{" "}
+            <Link href="/dashboard/hladjenje" style={{ color: "#1f6f8b" }}>
+              dashboardu hlađenja
+            </Link>
+            .
           </div>
         </div>
       </Card>
