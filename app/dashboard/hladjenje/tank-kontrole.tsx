@@ -12,6 +12,7 @@ import {
   KORAK_ZA,
   LIMITI,
   stegni,
+  SOFT_OFF_TEMP,
   OPIS_TIPA,
   JEDINICA_TIPA,
   type KomandaTip,
@@ -27,6 +28,10 @@ export type TankTile = {
   nazivVina: string | null;
   zadnjaTemp: number | null;
   zadanaTemp: number | null;
+  // Soft-OFF: zadanaTemp = SOFT_OFF_TEMP znaci "hladjenje iskljuceno", a
+  // zadnjaZadanaTemp je vrijednost koja se vraca kad se opet ukljuci.
+  zadnjaZadanaTemp: number | null;
+  hladjenjeIskljuceno: boolean;
   alarmMinus: number | null;
   alarmPlus: number | null;
   hy: number | null;
@@ -129,7 +134,12 @@ export default function TankKontrole({
   tank: TankTile;
   smijeUpravljati: boolean;
 }) {
-  const [zadana, setZadana] = useState<number>(tank.zadanaTemp ?? 12);
+  const iskljuceno = tank.hladjenjeIskljuceno;
+  // Dok je hladjenje iskljuceno, zadanaTemp je 20,0 (oznaka iskljucenja) - stepper
+  // zato radi sa zapamcenom vrijednoscu, onom koja se vraca kod ukljucivanja.
+  const zadanaZaPrikaz = iskljuceno ? tank.zadnjaZadanaTemp : tank.zadanaTemp;
+
+  const [zadana, setZadana] = useState<number>(zadanaZaPrikaz ?? 12);
   const [aMinus, setAMinus] = useState<number>(tank.alarmMinus ?? 2);
   const [aPlus, setAPlus] = useState<number>(tank.alarmPlus ?? 2);
   const [hy, setHy] = useState<number>(tank.hy ?? 2);
@@ -139,15 +149,26 @@ export default function TankKontrole({
   const status = izracunajStatus({
     mjerenoU: tank.mjerenoU,
     imaAktivanAlarm: tank.imaAktivanAlarm,
+    hladjenjeIskljuceno: iskljuceno,
   });
   const stil = stilZaStatus(status);
 
   function posalji(tip: KomandaTip, vrijednost: number | null, stara: number | null) {
     let poruka: string;
-    if (tip === "HLADJENJE_ON" || tip === "HLADJENJE_OFF") {
-      poruka = `Tank ${tank.broj}: ${tip === "HLADJENJE_ON" ? "uključi" : "isključi"} hlađenje?`;
+    if (tip === "HLADJENJE_ON") {
+      poruka =
+        `Tank ${tank.broj}: uključi hlađenje` +
+        (tank.zadnjaZadanaTemp != null ? ` (zadana natrag na ${fmt(tank.zadnjaZadanaTemp)} °C)` : "") +
+        "?";
+    } else if (tip === "HLADJENJE_OFF") {
+      poruka =
+        `Tank ${tank.broj}: isključi hlađenje? Zadana se diže na ${fmt(SOFT_OFF_TEMP)} °C, ` +
+        `a ${fmt(tank.zadanaTemp)} °C se pamti za ponovno uključivanje.`;
     } else {
       poruka = `Tank ${tank.broj}: ${OPIS_TIPA[tip]} ${fmt(stara)} → ${fmt(vrijednost)} ${JEDINICA_TIPA[tip]}?`;
+      if (tip === "ZADANA_TEMP" && iskljuceno) {
+        poruka += " Hlađenje je isključeno - spremanjem zadane se ponovno uključuje.";
+      }
     }
     if (!window.confirm(poruka)) return;
     setPoruka(null);
@@ -157,7 +178,7 @@ export default function TankKontrole({
     });
   }
 
-  const promijenjenaZadana = zadana !== (tank.zadanaTemp ?? 12);
+  const promijenjenaZadana = zadana !== (zadanaZaPrikaz ?? 12);
   const promijenjenMinus = aMinus !== (tank.alarmMinus ?? 2);
   const promijenjenPlus = aPlus !== (tank.alarmPlus ?? 2);
   const promijenjenHy = hy !== (tank.hy ?? 2);
@@ -256,7 +277,11 @@ export default function TankKontrole({
           {fmt(tank.zadnjaTemp)}
         </span>
         <span style={{ fontSize: 16, color: "#555" }}>°C</span>
-        {tank.hladjenjeAktivno ? (
+        {iskljuceno ? (
+          <span style={{ marginLeft: "auto", fontSize: 13, color: "#3d5566", fontWeight: 700 }}>
+            hlađenje isključeno
+          </span>
+        ) : tank.hladjenjeAktivno ? (
           <span style={{ marginLeft: "auto", fontSize: 13, color: "#1f6f8b", fontWeight: 700 }}>
             ❄ hladi
           </span>
@@ -269,7 +294,8 @@ export default function TankKontrole({
       {/* Zadana temperatura */}
       <div style={rowStyle}>
         <div style={rowLabelStyle}>
-          Zadana <StatusBadge komanda={tank.komande.ZADANA_TEMP ?? null} />
+          {iskljuceno ? "Zadana (zapamćena)" : "Zadana"}{" "}
+          <StatusBadge komanda={tank.komande.ZADANA_TEMP ?? null} />
         </div>
         {smijeUpravljati ? (
           <div style={rowKontroleStyle}>
@@ -284,14 +310,22 @@ export default function TankKontrole({
               type="button"
               style={spremiBtn(promijenjenaZadana)}
               disabled={!promijenjenaZadana || pending}
-              onClick={() => posalji("ZADANA_TEMP", stegni("ZADANA_TEMP", zadana), tank.zadanaTemp)}
+              onClick={() => posalji("ZADANA_TEMP", stegni("ZADANA_TEMP", zadana), zadanaZaPrikaz)}
             >
               Spremi
             </button>
           </div>
         ) : (
-          <div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(tank.zadanaTemp)} °C</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(zadanaZaPrikaz)} °C</div>
         )}
+        {iskljuceno ? (
+          <div style={{ fontSize: 11, color: "#3d5566" }}>
+            Hlađenje je isključeno (na kontroleru stoji {fmt(SOFT_OFF_TEMP)} °C).{" "}
+            {tank.zadnjaZadanaTemp != null
+              ? "Ova vrijednost se vraća pritiskom na UKLJUČI."
+              : "Nema zapamćene vrijednosti — upiši zadanu i hlađenje se uključuje s njom."}
+          </div>
+        ) : null}
       </div>
 
       {/* Diferencijal (Hy) — koliko temperatura mora prijeci zadanu da hladjenje krene */}
@@ -380,7 +414,7 @@ export default function TankKontrole({
         </div>
       </div>
 
-      {/* Hlađenje ON/OFF */}
+      {/* Hlađenje ON/OFF (soft-OFF preko zadane temperature) */}
       <div style={rowStyle}>
         <div style={rowLabelStyle}>
           Hlađenje <StatusBadge komanda={tank.komande.HLADJENJE_ON ?? tank.komande.HLADJENJE_OFF ?? null} />
@@ -399,12 +433,12 @@ export default function TankKontrole({
                 fontSize: 14,
                 cursor: pending ? "not-allowed" : "pointer",
                 border: "1px solid #1f6f8b",
-                background: tank.hladjenjeAktivno ? "#1f6f8b" : "#ffffff",
-                color: tank.hladjenjeAktivno ? "#ffffff" : "#1f6f8b",
+                background: iskljuceno ? "#ffffff" : "#1f6f8b",
+                color: iskljuceno ? "#1f6f8b" : "#ffffff",
                 touchAction: "manipulation",
               }}
             >
-              ON
+              UKLJUČI
             </button>
             <button
               type="button"
@@ -418,17 +452,17 @@ export default function TankKontrole({
                 fontSize: 14,
                 cursor: pending ? "not-allowed" : "pointer",
                 border: "1px solid #999",
-                background: tank.hladjenjeAktivno === false ? "#666" : "#ffffff",
-                color: tank.hladjenjeAktivno === false ? "#ffffff" : "#666",
+                background: iskljuceno ? "#666" : "#ffffff",
+                color: iskljuceno ? "#ffffff" : "#666",
                 touchAction: "manipulation",
               }}
             >
-              OFF
+              ISKLJUČI
             </button>
           </div>
         ) : (
           <div style={{ fontSize: 15, fontWeight: 700 }}>
-            {tank.hladjenjeAktivno == null ? "—" : tank.hladjenjeAktivno ? "ON" : "OFF"}
+            {iskljuceno ? "ISKLJUČENO" : "UKLJUČENO"}
           </div>
         )}
       </div>

@@ -13,14 +13,36 @@ Cita Dixell XR75CX kontrolere preko Modbus RTU i puni tablice modula Hladjenje
 
 ## Sto tocno radi u jednom ciklusu
 
-1. `GET /rest/v1/Tank?modbusAdresa=not.is.null` - popis tankova, grana, zadana temp, pragovi.
-   Uz to `GET /rest/v1/TankKomanda?status=eq.NA_CEKANJU` - komande koje cekaju.
-2. Grana A (`/dev/ttyUSB0`) i grana B (`/dev/ttyUSB1`) obraduju se **paralelno** (dvije dretve),
+1. `GET /rest/v1/Tank?modbusAdresa=not.is.null&nadzorHladjenja=is.true` - popis tankova,
+   grana, zadana temp, pragovi. Uz to `GET /rest/v1/TankKomanda?status=eq.NA_CEKANJU`.
+2. Grana A (`PORT_A`) i grana B (`PORT_B`) obraduju se **paralelno** (dvije dretve),
    a unutar grane tank po tank (RS485 je dijeljena sabirnica). Prvo se procita
    cijela grana, pa se **na istoj dretvi** izvrse komande za tankove te grane.
 3. `POST /rest/v1/OcitanjeTemperature` - sva ocitanja ciklusa u jednom zahtjevu.
 4. Usporedba stanja s aktivnim alarmima -> otvaranje novih / zatvaranje razrijesenih.
 5. `PATCH /rest/v1/TankKomanda` - ishodi komandi.
+
+## Tankovi, grane i portovi
+
+- **Grana A = tankovi 1-20, grana B = tankovi 21-44** (`Tank.grana`). Grana odreduje na
+  koju RS485 sabirnicu ide upit; kriva grana = tank se proziva na krivoj zici i javlja
+  "nema veze".
+- **Portovi su "obrnuti"**: grana A je fizicki na `/dev/ttyUSB1`, grana B na `/dev/ttyUSB0`.
+  Zato u `.env` stoji `PORT_A=/dev/ttyUSB1` i `PORT_B=/dev/ttyUSB0`. Redoslijed
+  `/dev/ttyUSB*` dodjeljuje Linux po redu prepoznavanja pri bootu, pa nakon svakog
+  prespajanja adaptera provjeri `ls -l /dev/serial/by-id/` (stabilna imena po serijskom
+  broju - mogu se upisati i izravno u `PORT_A`/`PORT_B`).
+- **`Tank.nadzorHladjenja`** je prekidac "gateway proziva ovaj tank". Tank se cita samo
+  ako ima `modbusAdresa` **i** `nadzorHladjenja = true`. Tankovi 41-44 fizicki postoje,
+  ali nemaju kontroler hladjenja, pa im je `nadzorHladjenja = false` - adresa im ostaje
+  zapisana (po konvenciji = broj tanka) da se vidi da je iskljucenje namjerno, a ne
+  zaboravljen unos. Kad dobiju kontroler:
+
+  ```sql
+  UPDATE "Tank" SET "nadzorHladjenja" = true WHERE "broj" = 42;
+  ```
+
+  Isti uvjet koristi i `/dashboard/hladjenje`, da Pi i ekran gledaju isti popis.
 
 ## Alarmi
 
@@ -32,6 +54,16 @@ Cita Dixell XR75CX kontrolere preko Modbus RTU i puni tablice modula Hladjenje
 
 Dok je tank offline, alarmi `PREVISOKA_TEMP` i `GRESKA_SONDE` se **ne diraju** - bez podataka
 se ne zna jesu li rijeseni.
+
+## Heartbeat - kad stane cijeli gateway
+
+Alarm `NEMA_VEZE` otvara gateway, pa ako gateway ne radi, nitko ga nece ni otvoriti.
+Zato aplikacija (`/dashboard/hladjenje`) sama gleda vrijeme **najsvjezijeg ocitanja bilo
+kojeg tanka**: ako je starije od 15 min (`HEARTBEAT_PRAG_MIN`), na vrh ekrana ide veliko
+crveno upozorenje "GATEWAY NE JAVLJA - podaci nisu svjezi!". Podatke ispod tada treba
+citati kao zadnje poznato stanje, a ne kao trenutno.
+
+Prva provjera na Pi-ju: `sudo systemctl status vino-gateway` i `journalctl -u vino-gateway -n 100`.
 
 ## Zasto se kod "nema veze" ne pise red u OcitanjeTemperature
 
@@ -47,10 +79,40 @@ red u `TankKomanda` sa statusom `NA_CEKANJU`. Gateway ga preuzima u sljedecem ci
 
 | Tip komande | Registar | Salje se kontroleru? |
 |---|---|---|
-| `HLADJENJE_ON` / `HLADJENJE_OFF` | `REG_ONOFF` | da (kad je registar poznat) |
-| `ZADANA_TEMP` | `REG_SETPOINT` | da (kad je registar poznat) |
-| `HY` (diferencijal 0,3-3,0 K) | `REG_HY` | da (kad je registar poznat) |
+| `HLADJENJE_ON` / `HLADJENJE_OFF` | `REG_SETPOINT` (soft-OFF, vidi nize) | da |
+| `ZADANA_TEMP` | `REG_SETPOINT` (0x042D) | da |
+| `HY` (diferencijal 0,3-3,0 K) | `REG_HY` (0x0408, pakiran u gornji bajt) | da |
 | `ALARM_MINUS` / `ALARM_PLUS` | - | **ne** - to su pragovi upozorenja u aplikaciji, ne parametri kontrolera |
+
+### Soft-OFF: kako se hladjenje gasi bez ON/OFF registra
+
+Kontroler **nema izlozen Modbus registar za ON/OFF**. (Registar `0x0420` nije prekidac
+nego **Modbus adresa samog kontrolera** - upis u njega je prepisao adrese vise kontrolera
+odjednom i srusio granu. Vidi "Zabranjeni registri" nize.) Hladjenje se zato gasi
+podizanjem set pointa:
+
+| Korak | Tko | Sto se dogodi |
+|---|---|---|
+| ISKLJUCI | aplikacija | `Tank.zadnjaZadanaTemp = zadanaTemp`, `Tank.zadanaTemp = SOFT_OFF_TEMP` (20,0 C), nastane komanda `HLADJENJE_OFF` |
+| | gateway | upise `SEt = 20,0` u `REG_SETPOINT` i procita natrag |
+| UKLJUCI | aplikacija | `Tank.zadanaTemp = zadnjaZadanaTemp`, `zadnjaZadanaTemp = NULL`, nastane komanda `HLADJENJE_ON` |
+| | gateway | upise tu zadanu u `REG_SETPOINT` |
+
+Pamcenje je namjerno u aplikaciji (u istoj transakciji s komandom), a ne u gatewayu:
+gateway ostaje obican izvrsitelj pa ponovni pokusaj upisa ne moze pregaziti zapamcenu
+vrijednost. Tank sa `zadanaTemp = 20,0` aplikacija prikazuje kao **hladjenje iskljuceno**
+i gateway za njega **ne otvara `PREVISOKA_TEMP`** (ocitanja se i dalje pisu).
+
+> `SOFT_OFF_TEMP` u `.env` i `SOFT_OFF_TEMP` u `lib/tank-komanda.ts` moraju biti isti broj.
+> Gornja granica zadane u aplikaciji je zato 19,5 C - 20,0 znaci "iskljuceno".
+> Provjeri i da parametar `US` (najveci dozvoljeni set point) na kontroleru dopusta 20,0 C;
+> ako ne dopusta, kontroler nece prihvatiti upis i komanda ce zavrsiti kao `NEUSPJELO`.
+
+### Hy je pakiran u gornji bajt
+
+`REG_HY` (0x0408) ne drzi vrijednost izravno: `registar = (Hy * 10) << 8`.
+Izmjereno na kontroleru: Hy 2,0 -> 5120, 1,5 -> 3840, 0,5 -> 1280. Pomak je
+`HY_POMAK_BITOVA` (8); `0` znaci "bez pakiranja".
 
 Tijek jedne komande:
 
@@ -74,12 +136,37 @@ python ~/gateway/gateway.py --jednom --bez-upisa     # nista se ne pise ni u baz
 
 ## Registri - sto je potvrdeno, a sto nije
 
-- **Potvrdeno:** `0x0100` (dec 256) = sonda P1, vrijednost `/10` (procitano 153 = 15,3 C).
-- **Nije potvrdeno:** set point (`SEt`), diferencijal (`Hy`), standby (`onF`) i statusni
-  registar (relej hladjenja, greska sonde). Dixell ne objavljuje mapu registara za
-  XR-CX seriju javno.
+Potvrdeno na zivom kontroleru (test tank 2, discovery 16.08.2026.):
 
-Dok `REG_SETPOINT` / `REG_HY` / `REG_ONOFF` / `REG_STATUS` u `.env` stoje prazni:
+| Registar | Adresa | Vrijednost |
+|---|---|---|
+| Sonda P1 (temperatura) | `0x0100` | `/10` (153 = 15,3 C) |
+| Set point (`SEt`) | `0x042D` | `/10`, isti registar za citanje i upis |
+| Diferencijal (`Hy`) | `0x0408` | **pakiran:** `(Hy * 10) << 8` (2,0 -> 5120) |
+
+- **Ne postoji:** ON/OFF preko Modbusa. Gasi se soft-OFF-om preko set pointa.
+- **Nije potvrdeno:** statusni registar (relej hladjenja, greska sonde). Dixell ne
+  objavljuje mapu registara za XR-CX seriju javno.
+
+### Zabranjeni registri - `0x0420`
+
+`0x0420` je **Modbus adresa samog kontrolera**. Upis u njega je kod discoveryja prepisao
+adrese vise kontrolera odjednom: svi su zavrsili na istoj adresi, prestali se razlikovati
+na sabirnici i cijela grana je pala. Popravak je rucni, na svakom kontroleru posebno.
+
+Zato se registri s popisa `REGISTRI_ZABRANJENI` **ne diraju ni za citanje ni za upis**:
+
+| Gdje | Sto radi |
+|---|---|
+| `procitaj_registar()` / `upisi_registar()` | odbijaju adresu bez ijednog poslanog okvira |
+| `Konfig.provjeri()` | servis se ne pokrece ako je takva adresa u `REG_TEMP` / `REG_SETPOINT` / `REG_HY` / `REG_STATUS` |
+| `discover_registers.py`, funkcija `jedan()` | preskace je i pri skeniranju raspona |
+| `discover_registers.py --upisi` | odbija upis bez obzira na sve zastavice i rucnu potvrdu |
+
+Prazna vrijednost `REGISTRI_ZABRANJENI=` u `.env` **ne prazni** popis nego vraca zadani
+`0x0420` - sigurnosna lista se ne smije izgubiti zabunom.
+
+Dok `REG_SETPOINT` / `REG_HY` / `REG_STATUS` u `.env` stoje prazni:
 
 - `zadanaTemperatura` se uzima iz baze (`Tank.zadanaTemp`) - isto sto aplikacija vec prikazuje,
 - `hladjenjeAktivno` se **procjenjuje** kao `temperatura > zadana`,
@@ -180,27 +267,47 @@ scp gateway/gateway.py gateway/discover_registers.py gateway/.env.example \
     vinarija@raspberrypi.local:~/gateway/
 ```
 
+**Prvo migracije na bazi, pa tek onda gateway** - novi kod trazi kolonu
+`Tank.nadzorHladjenja` i bez nje `GET Tank` vraca gresku (gateway bi radio s zadnjim
+zapamcenim popisom tankova i o tome pisao upozorenje svaki ciklus).
+
 Na Pi-ju:
 
 ```bash
 # 1) nove postavke u .env (stari .env se NE gazi - dodaju se samo novi kljucevi)
 nano ~/gateway/.env
-#    dodaj: KOMANDE_OMOGUCENE, KOMANDA_MAX_MINUTA, KOMANDA_MAX_POKUSAJA,
-#           MODBUS_FUNKCIJA_PISANJE, REG_HY, DJELITELJ_HY,
-#           REG_ONOFF, ONOFF_VRIJEDNOST_ON, ONOFF_VRIJEDNOST_OFF
-#    (usporedi s .env.example; registre ostavi prazne dok ih ne potvrdis)
+#    dodaj/ispravi: REG_SETPOINT=0x042D, REG_HY=0x0408, HY_POMAK_BITOVA=8,
+#                   SOFT_OFF_TEMP=20.0, REGISTRI_ZABRANJENI=0x0420
+#    PORTOVI: PORT_A=/dev/ttyUSB1, PORT_B=/dev/ttyUSB0  (grane su fizicki obrnute!)
+#    obrisi (vise se ne citaju): REG_ONOFF, ONOFF_VRIJEDNOST_ON, ONOFF_VRIJEDNOST_OFF
+#    (usporedi s .env.example)
 
-# 2) proba bez diranja kontrolera
+# 2) sintaksa (na Windowsu se ne moze provjeriti - Python je samo ovdje)
 source ~/gateway/venv/bin/activate
+python -m py_compile ~/gateway/gateway.py ~/gateway/discover_registers.py
+
+# 3) provjeri da su portovi tamo gdje mislis da jesu
+ls -l /dev/serial/by-id/
+
+# 4) proba bez diranja kontrolera (cita i pise u bazu, komande ne salje)
 python ~/gateway/gateway.py --jednom --bez-komandi
 
-# 3) restart servisa
+# 5) restart servisa
 sudo systemctl restart vino-gateway
 journalctl -u vino-gateway -f
 ```
 
-U logu na startu mora pisati redak `Komande: ON/OFF=..., setpoint=..., Hy=...`.
-Dok registri nisu poznati, tamo stoji `CEKA DISCOVERY` - to je ocekivano.
+Nakon probe u koraku 4 u logu mora pisati **40 ocitanja** (44 tanka minus 4 bez
+kontrolera). Grana A je popravljena 16.08.2026. (bile su krive Modbus adrese na
+kontrolerima), pa se ocekuje da svih 40 odgovori - ako ih odgovori samo ~20, provjeri
+jesu li `PORT_A`/`PORT_B` zamijenjeni (grana A je na `/dev/ttyUSB1`).
+Ako pojedini tank javlja "nema odgovora" a susjedi rade, prvo provjeri je li mu `grana`
+tocna: A = 1-20, B = 21-44.
+
+U logu na startu mora pisati redak `Komande: setpoint=0x042D, Hy=0x0408 (pomak 8 bita)`,
+odmah iznad njega `Zabranjeni registri (nikad se ne diraju): 0x0420`, a ispod
+`ON/OFF hladjenja ide preko set pointa (soft-OFF na 20.0 C)`.
+Ako uz neki registar pise `CEKA DISCOVERY`, adresa nije upisana u `.env`.
 
 ## Odrzavanje
 
@@ -215,7 +322,8 @@ grep KOMANDA ~/gateway/gateway.log     # samo komande (tank, tip, ishod)
 
 ## Sto jos nije rijeseno
 
-- Adrese `REG_SETPOINT`, `REG_HY`, `REG_ONOFF` i `REG_STATUS` cekaju discovery na
-  test tanku. Do tada komande tih tipova stoje `NA_CEKANJU`.
+- `REG_STATUS` (relej hladjenja, bit greske sonde) ceka discovery. Do tada se
+  `hladjenjeAktivno` procjenjuje kao `temperatura > zadana`, a za tank u soft-OFF-u
+  se pise `false`.
 - `ALARM_MINUS` / `ALARM_PLUS` se ne salju kontroleru (i vjerojatno nikad nece -
   to su pragovi upozorenja u aplikaciji).

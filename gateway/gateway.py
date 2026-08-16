@@ -10,8 +10,11 @@ i puni Supabase tablice modula Hladjenje:
   TankKomanda          - komande NA_CEKANJU se izvrsavaju (vidi "Komande" nize)
 
 Ciklus (zadano 120 s):
-  1. GET Tank (modbusAdresa != null) + GET TankKomanda (status = NA_CEKANJU)
-  2. Grana A i grana B se obraduju paralelno (po jedna dretva i jedan serijski port),
+  1. GET Tank (modbusAdresa != null AND nadzorHladjenja) + GET TankKomanda
+     (status = NA_CEKANJU). Tank bez kontrolera hladjenja (41-44) ima
+     nadzorHladjenja = false i gateway ga uopce ne proziva.
+  2. Grana A (tankovi 1-20) i grana B (21-44) se obraduju paralelno (po jedna
+     dretva i jedan serijski port; koji port je koja grana kaze PORT_A/PORT_B),
      unutar grane tankovi redom (RS485 je dijeljena sabirnica - ne smije paralelno);
      prvo se procitaju svi tankovi grane, zatim se izvrse komande za tu granu
   3. POST svih ocitanja odjednom
@@ -22,9 +25,22 @@ Komande (Faza B):
   - Izvrsavaju se HLADJENJE_ON, HLADJENJE_OFF, ZADANA_TEMP i HY.
   - ALARM_MINUS i ALARM_PLUS se NE diraju: to su pragovi aplikacije, ne parametri
     kontrolera. Ostaju NA_CEKANJU i gateway ih preskace bez traga.
-  - Adrese registara (REG_ONOFF, REG_SETPOINT, REG_HY) dolaze iz .env. Dok je
-    registar za neki tip prazan, komanda tog tipa OSTAJE NA_CEKANJU i dobije
-    napomenu "ceka discovery" - nista se ne pise po kontroleru napamet.
+  - Adrese registara (REG_SETPOINT, REG_HY) dolaze iz .env. Dok je registar za neki
+    tip prazan, komanda tog tipa OSTAJE NA_CEKANJU i dobije napomenu
+    "ceka discovery" - nista se ne pise po kontroleru napamet.
+  - Hy (0x0408) je PAKIRAN U GORNJI BAJT: registar = round(Hy * 10) << 8
+    (Hy 2,0 -> 5120, 1,5 -> 3840, 0,5 -> 1280). Pomak je HY_POMAK_BITOVA (8).
+  - ON/OFF hladjenja ide "meko", preko set pointa - kontroler NEMA izlozen Modbus
+    registar za ukljucivanje (vidi "Zabranjeni registri" nize):
+      HLADJENJE_OFF -> gateway upise SEt = SOFT_OFF_TEMP (.env, zadano 20,0 C)
+      HLADJENJE_ON  -> gateway upise SEt = Tank.zadanaTemp
+    Pamcenje stare vrijednosti radi APLIKACIJA, u istoj transakciji u kojoj nastaje
+    komanda: OFF sprema staru zadanu u Tank.zadnjaZadanaTemp i postavlja
+    Tank.zadanaTemp na 20,0 C, ON vraca zapamceno natrag. Gateway je time obican
+    izvrsitelj - ponovni pokusaj upisa ne moze pokvariti zapamcenu vrijednost.
+    Tank sa zadanaTemp = SOFT_OFF_TEMP aplikacija prikazuje kao "hladjenje
+    iskljuceno", a gateway za njega NE otvara alarm PREVISOKA_TEMP.
+
   - Sigurnosna ograda: komanda starija od KOMANDA_MAX_MINUTA (30) se NE izvrsava
     nego ide u NEUSPJELO. Zaboravljena komanda ne smije opaliti sat vremena
     kasnije - ni onda kad se registri konfiguriraju naknadno.
@@ -32,6 +48,15 @@ Komande (Faza B):
     slaze se -> PRIMIJENJENO + primijenjenoU, ne slaze se ili nema odgovora ->
     novi pokusaj sljedeci ciklus, najvise KOMANDA_MAX_POKUSAJA (3) puta, pa NEUSPJELO.
   - KOMANDE_OMOGUCENE=false u .env potpuno gasi izvrsavanje (kill switch).
+
+Zabranjeni registri:
+  0x0420 je MODBUS ADRESA SAMOG KONTROLERA. Upis u njega kod discoveryja je
+  prepisao adrese vise kontrolera odjednom i srusio cijelu granu (svi uredaji
+  zavrse na istoj adresi i vise se ne razlikuju - popravlja se rucno, na svakom
+  kontroleru posebno). Zato se registri s popisa REGISTRI_ZABRANJENI NE diraju
+  ni za citanje ni za upis: procitaj_registar() i upisi_registar() takvu adresu
+  odbijaju bez ijednog poslanog okvira, a Konfig.provjeri() ne da ni pokrenuti
+  servis ako je takva adresa zavrsila u REG_TEMP/REG_SETPOINT/REG_HY/REG_STATUS.
 
 Vazno o "OFFLINE": kad kontroler ne odgovori NE pise se red u OcitanjeTemperature
 (kolona temperatura je NOT NULL, a izmisljena temperatura bi bila laz). Aplikacija
@@ -146,6 +171,26 @@ def env_reg(kljuc: str) -> int | None:
             return None
 
 
+def env_reg_popis(kljuc: str, zadano: str) -> set[int]:
+    """
+    Popis adresa registara odvojen zarezom -> skup brojeva.
+
+    Prazna vrijednost u .env NE prazni popis nego vraca zadani: ovo je sigurnosna
+    lista (registri koji rusi kontroler) i ne smije se izgubiti zabunom.
+    """
+    tekst = env_str(kljuc) or zadano
+    adrese: set[int] = set()
+    for dio in tekst.replace(";", ",").split(","):
+        dio = dio.strip()
+        if not dio:
+            continue
+        try:
+            adrese.add(int(dio, 0))
+        except ValueError:
+            log.warning("Neispravna adresa u %s: %r - ignoriram", kljuc, dio)
+    return adrese
+
+
 class Konfig:
     def __init__(self) -> None:
         self.supabase_url = env_str("SUPABASE_URL").rstrip("/")
@@ -171,9 +216,10 @@ class Konfig:
         self.reg_temp = env_int("REG_TEMP", 0x0100)
         self.djelitelj_temp = env_float("DJELITELJ_TEMP", 10.0)
 
-        # NIJE potvrdeno - popuni tek kad discover_registers.py potvrdi adrese.
-        # Dok je prazno: zadana temp se uzima iz baze (Tank.zadanaTemp), a komande
-        # ZADANA_TEMP ostaju NA_CEKANJU s napomenom "ceka discovery".
+        # POTVRDENO discoveryjem 16.08.2026. (test tank 2): 0x042D = set point (SEt),
+        # djelitelj 10 - upis 100 i 105 pratio je displej kontrolera. Isti registar
+        # sluzi za citanje i za upis. Dok je prazno: zadana temp se uzima iz baze
+        # (Tank.zadanaTemp), a komande ZADANA_TEMP ostaju NA_CEKANJU.
         self.reg_setpoint = env_reg("REG_SETPOINT")
         self.djelitelj_setpoint = env_float("DJELITELJ_SETPOINT", 10.0)
 
@@ -181,13 +227,24 @@ class Konfig:
         # Kill switch: false = gateway samo cita, komande se ni ne dohvacaju.
         self.komande_omogucene = env_bool("KOMANDE_OMOGUCENE", True)
 
-        # Diferencijal hladjenja (Hy) i standby (device on/off). Obje adrese su
-        # NEPOTVRDENE - dok su prazne, ti tipovi komandi cekaju discovery.
+        # Diferencijal hladjenja (Hy). POTVRDENO: 0x0408, ali vrijednost je PAKIRANA
+        # U GORNJI BAJT registra: registar = round(Hy * DJELITELJ_HY) << HY_POMAK_BITOVA.
+        # Izmjereno na kontroleru: Hy 2,0 -> 5120, 1,5 -> 3840, 0,5 -> 1280.
+        # Citanje ide obrnuto: (registar >> HY_POMAK_BITOVA) / DJELITELJ_HY.
         self.reg_hy = env_reg("REG_HY")
         self.djelitelj_hy = env_float("DJELITELJ_HY", 10.0)
-        self.reg_onoff = env_reg("REG_ONOFF")
-        self.onoff_vrijednost_on = env_int("ONOFF_VRIJEDNOST_ON", 1)
-        self.onoff_vrijednost_off = env_int("ONOFF_VRIJEDNOST_OFF", 0)
+        self.hy_pomak_bitova = env_int("HY_POMAK_BITOVA", 8)
+
+        # ON/OFF hladjenja: kontroler NEMA izlozen Modbus registar za ukljucivanje,
+        # pa se gasi "meko" - set point se digne na SOFT_OFF_TEMP, a stara zadana
+        # temperatura se zapamti u Tank.zadnjaZadanaTemp i vrati kod ukljucivanja.
+        self.soft_off_temp = env_float("SOFT_OFF_TEMP", 20.0)
+
+        # Registri koji se NIKAD ne diraju - ni citanje, ni upis. 0x0420 je Modbus
+        # adresa samog kontrolera; upis u njega je kod discoveryja prepisao adrese
+        # vise uredaja i srusio granu. Zastita je ovdje, a ne samo u glavi onoga
+        # tko uredjuje .env.
+        self.registri_zabranjeni = env_reg_popis("REGISTRI_ZABRANJENI", "0x0420")
 
         # Sigurnosna ograda i ponavljanje.
         self.komanda_max_minuta = env_int("KOMANDA_MAX_MINUTA", 30)
@@ -224,6 +281,16 @@ class Konfig:
             raise SystemExit("GRESKA: KOMANDA_MAX_MINUTA mora biti veci od 0")
         if self.komanda_max_pokusaja <= 0:
             raise SystemExit("GRESKA: KOMANDA_MAX_POKUSAJA mora biti veci od 0")
+        if not (0 <= self.hy_pomak_bitova <= 15):
+            raise SystemExit("GRESKA: HY_POMAK_BITOVA mora biti izmedu 0 i 15")
+        if not (self.temp_min_valjana <= self.soft_off_temp <= self.temp_max_valjana):
+            raise SystemExit("GRESKA: SOFT_OFF_TEMP je izvan valjanog raspona temperatura")
+        for ime, reg in (("REG_TEMP", self.reg_temp), ("REG_SETPOINT", self.reg_setpoint),
+                         ("REG_HY", self.reg_hy), ("REG_STATUS", self.reg_status)):
+            if reg is not None and reg in self.registri_zabranjeni:
+                raise SystemExit(
+                    f"GRESKA: {ime}=0x{reg:04X} je na popisu REGISTRI_ZABRANJENI - provjeri .env"
+                )
 
     def port_za_granu(self, grana: str | None, modbus_adresa: int) -> str:
         g = (grana or "").strip().upper()
@@ -231,8 +298,8 @@ class Konfig:
             return self.port_a
         if g == "B":
             return self.port_b
-        # Bez grane u bazi: 1-22 = A, ostalo = B (isto kao seed-temperature.ts).
-        return self.port_a if modbus_adresa <= 22 else self.port_b
+        # Bez grane u bazi: 1-20 = A, 21-44 = B (fizicka podjela u podrumu).
+        return self.port_a if modbus_adresa <= 20 else self.port_b
 
 
 # --------------------------------------------------------------------- logiranje
@@ -363,10 +430,16 @@ class Supabase:
         raise RuntimeError(f"Supabase {metoda} {putanja.split('?')[0]} nije uspjelo: {zadnja_greska}")
 
     def dohvati_tankove(self) -> list[dict]:
+        """
+        Tankovi koje gateway proziva: moraju imati modbusAdresu I nadzorHladjenja.
+        Tank bez kontrolera (41-44) ima nadzorHladjenja = false pa se preskace,
+        a adresa mu ostaje zapisana za dan kad kontroler dobije.
+        """
         stupci = "id,broj,modbusAdresa,grana,zadanaTemp,alarmMinus,alarmPlus"
         return self._zahtjev(
             "GET",
-            f"Tank?select={stupci}&modbusAdresa=not.is.null&order=modbusAdresa.asc",
+            f"Tank?select={stupci}&modbusAdresa=not.is.null&nadzorHladjenja=is.true"
+            f"&order=modbusAdresa.asc",
         ) or []
 
     def dohvati_aktivne_alarme(self) -> list[dict]:
@@ -427,6 +500,13 @@ class SondaGreska(Exception):
     """Kontroler odgovara, ali sonda P1 javlja gresku / nemogucu vrijednost."""
 
 
+class ZabranjenRegistar(Exception):
+    """
+    Dodir (citanje ili upis) registra s popisa REGISTRI_ZABRANJENI - npr. 0x0420,
+    koji je Modbus adresa samog kontrolera. Nikad se ne ponavlja: komanda odmah pada.
+    """
+
+
 _KW_LOCK = threading.Lock()
 # pymodbus je kroz verzije mijenjao ime argumenta: unit -> slave -> device_id.
 # Pamti se po funkciji (citanje i pisanje su odvojene) da pogodak kod citanja ne
@@ -480,8 +560,14 @@ def citaj_registre(client, k: Konfig, adresa: int, broj: int, uredaj: int):
 def upisi_registar(client, k: Konfig, adresa_reg: int, vrijednost: int, uredaj: int) -> None:
     """
     Upis jednog registra (FC6, po potrebi FC16) s ponavljanjem.
-    Baca OfflineGreska ako kontroler ne potvrdi upis.
+    Baca OfflineGreska ako kontroler ne potvrdi upis, ZabranjenRegistar ako je
+    adresa na popisu koji se ne smije dirati (0x0420 = adresa kontrolera).
     """
+    if adresa_reg in k.registri_zabranjeni:
+        raise ZabranjenRegistar(
+            f"registar 0x{adresa_reg:04X} je na popisu REGISTRI_ZABRANJENI - upis odbijen"
+        )
+
     sirovo = int(vrijednost) & 0xFFFF  # dvojni komplement za negativne temperature
 
     if k.modbus_funkcija_pisanje == 16:
@@ -529,7 +615,16 @@ def u_predznak(v: int) -> int:
 
 
 def procitaj_registar(client, k: Konfig, adresa_reg: int, uredaj: int) -> int:
-    """Jedan registar s ponavljanjem. Vraca predznacenu vrijednost."""
+    """
+    Jedan registar s ponavljanjem. Vraca predznacenu vrijednost.
+    Zabranjeni registri (0x0420 = Modbus adresa kontrolera) se ne diraju ni za
+    citanje - u produkcijskom kodu taj registar ne postoji.
+    """
+    if adresa_reg in k.registri_zabranjeni:
+        raise ZabranjenRegistar(
+            f"registar 0x{adresa_reg:04X} je na popisu REGISTRI_ZABRANJENI - citanje odbijeno"
+        )
+
     zadnja: Exception | str = "nepoznato"
     for pokusaj in range(1, k.modbus_pokusaja + 1):
         try:
@@ -595,50 +690,110 @@ NAPOMENA_DISCOVERY = "čeka discovery registra"
 
 
 class Plan:
-    """Sto tocno treba upisati u kontroler za jednu komandu."""
+    """
+    Sto tocno treba upisati u kontroler za jednu komandu.
 
-    def __init__(self, registar: int, sirovo: int, opis: str) -> None:
+    registar = None -> po kontroleru se NE pise nista jer je vec na trazenoj
+    vrijednosti; komanda se svejedno zatvara kao PRIMIJENJENO.
+    """
+
+    def __init__(self, registar: int | None, sirovo: int, opis: str) -> None:
         self.registar = registar
         self.sirovo = sirovo
         self.opis = opis
 
 
-def isplaniraj(k: Konfig, tip: str, vrijednost: Any) -> tuple[Plan | None, str | None]:
-    """
-    Vraca (plan, razlog_cekanja).
+def je_soft_off(k: Konfig, temperatura: float | None) -> bool:
+    """Je li zadana temperatura zapravo oznaka "hladjenje iskljuceno"?"""
+    return temperatura is not None and abs(temperatura - k.soft_off_temp) < 0.05
 
-    plan = None + razlog  -> nema se sto izvrsiti (registar nije konfiguriran ili
-    vrijednost ne valja); komanda ostaje NA_CEKANJU s tom napomenom.
+
+def hy_u_registar(k: Konfig, hy: float) -> int:
+    """Hy (K) -> sirova vrijednost registra: desetinke pomaknute u gornji bajt."""
+    return (round(hy * k.djelitelj_hy) << k.hy_pomak_bitova) & 0xFFFF
+
+
+def registar_u_hy(k: Konfig, sirovo: int) -> float:
+    """Obrnuto od hy_u_registar - za citanje i provjeru."""
+    return round(((sirovo & 0xFFFF) >> k.hy_pomak_bitova) / k.djelitelj_hy, 1)
+
+
+def isplaniraj_soft_off(k: Konfig, tip: str, tank: dict,
+                        setpoint_kontrolera: float | None) -> tuple[Plan | None, str, str]:
+    """
+    ON/OFF preko set pointa - kontroler nema registar za ukljucivanje.
+
+      OFF -> SEt = SOFT_OFF_TEMP
+      ON  -> SEt = Tank.zadanaTemp (aplikacija je tu vec vratila zapamcenu vrijednost)
+
+    Gateway namjerno NE pamti i ne vraca staru zadanu temperaturu: to radi
+    aplikacija u istoj transakciji u kojoj nastaje komanda. Ovdje ostaje samo
+    idempotentan upis, pa ponovni pokusaj ne moze nista pokvariti.
+    """
+    if tip == "HLADJENJE_OFF":
+        cilj = k.soft_off_temp
+        opis = f"OFF (SEt {cilj:.1f} C)"
+    else:
+        cilj = u_broj(tank.get("zadanaTemp"))
+        if cilj is None:
+            return None, "tank nema zadanu temperaturu - ne znam s čime uključiti hlađenje", "NEUSPJELO"
+        if je_soft_off(k, cilj):
+            return None, ("zadana temperatura je još na vrijednosti isključenja - "
+                          "upiši željenu zadanu temperaturu"), "NEUSPJELO"
+        opis = f"ON (SEt {cilj:.1f} C)"
+
+    if setpoint_kontrolera is not None and abs(setpoint_kontrolera - cilj) < 0.05:
+        return Plan(None, 0, f"{opis} - kontroler je već na toj vrijednosti"), "", "IZVRSI"
+    return Plan(k.reg_setpoint, round(cilj * k.djelitelj_setpoint), opis), "", "IZVRSI"
+
+
+def isplaniraj(k: Konfig, tip: str, vrijednost: Any, tank: dict,
+               setpoint_kontrolera: float | None = None) -> tuple[Plan | None, str, str]:
+    """
+    Vraca (plan, poruka, ishod), gdje je ishod:
+      "IZVRSI"    - plan je spreman
+      "CEKA"      - nema se cime izvrsiti (registar ceka discovery); komanda ostaje
+                    NA_CEKANJU i dobiva napomenu
+      "NEUSPJELO" - komanda se nikad nece moci izvrsiti ovakva kakva je
     """
     if tip in ("HLADJENJE_ON", "HLADJENJE_OFF"):
-        if k.reg_onoff is None:
-            return None, f"{NAPOMENA_DISCOVERY} REG_ONOFF"
-        ukljuci = tip == "HLADJENJE_ON"
-        sirovo = k.onoff_vrijednost_on if ukljuci else k.onoff_vrijednost_off
-        return Plan(k.reg_onoff, sirovo, "ON" if ukljuci else "OFF"), None
+        if k.reg_setpoint is None:
+            return None, f"{NAPOMENA_DISCOVERY} REG_SETPOINT", "CEKA"
+        return isplaniraj_soft_off(k, tip, tank, setpoint_kontrolera)
 
     broj = u_broj(vrijednost)
     if broj is None:
-        return None, "komanda nema vrijednost"
+        return None, "komanda nema vrijednost", "NEUSPJELO"
 
     if tip == "ZADANA_TEMP":
         if k.reg_setpoint is None:
-            return None, f"{NAPOMENA_DISCOVERY} REG_SETPOINT"
-        return Plan(k.reg_setpoint, round(broj * k.djelitelj_setpoint), f"{broj:.1f} C"), None
+            return None, f"{NAPOMENA_DISCOVERY} REG_SETPOINT", "CEKA"
+        return Plan(k.reg_setpoint, round(broj * k.djelitelj_setpoint),
+                    f"{broj:.1f} C"), "", "IZVRSI"
 
     if tip == "HY":
         if k.reg_hy is None:
-            return None, f"{NAPOMENA_DISCOVERY} REG_HY"
-        return Plan(k.reg_hy, round(broj * k.djelitelj_hy), f"{broj:.1f} K"), None
+            return None, f"{NAPOMENA_DISCOVERY} REG_HY", "CEKA"
+        sirovo = hy_u_registar(k, broj)
+        # Provjera pakiranja: ako se vrijednost ne vrati ista, .env je krivo podesen
+        # i bolje je ne pisati nista nego upisati besmislicu u kontroler.
+        if abs(registar_u_hy(k, sirovo) - broj) > 0.05:
+            return None, (f"Hy {broj:.1f} K ne stane u registar uz HY_POMAK_BITOVA="
+                          f"{k.hy_pomak_bitova} - provjeri .env"), "NEUSPJELO"
+        return Plan(k.reg_hy, sirovo, f"{broj:.1f} K"), "", "IZVRSI"
 
-    return None, f"tip {tip} se ne izvrsava"
+    return None, f"tip {tip} se ne izvrsava", "CEKA"
 
 
 def izvrsi_komandu(client, k: Konfig, uredaj: int, plan: Plan) -> None:
     """
     Upise vrijednost i procita je natrag kao potvrdu.
     Baca OfflineGreska ako upis ne prode ili se ocitano ne slaze sa zadanim.
+    Plan bez registra (npr. "vec je iskljuceno") ne dira kontroler.
     """
+    if plan.registar is None:
+        return
+
     upisi_registar(client, k, plan.registar, plan.sirovo, uredaj)
     time.sleep(0.1)  # kontroleru treba trenutak da preuzme novu vrijednost
 
@@ -651,7 +806,8 @@ def izvrsi_komandu(client, k: Konfig, uredaj: int, plan: Plan) -> None:
 
 
 def obradi_komande_grane(client, k: Konfig, tankovi: list[dict],
-                         komande_po_tanku: dict[str, list[dict]]) -> list[dict]:
+                         komande_po_tanku: dict[str, list[dict]],
+                         ocitanja: dict[str, dict] | None = None) -> list[dict]:
     """
     Izvrsi komande tankova ove grane. Radi u istoj dretvi kao i citanje jer je
     RS485 dijeljena sabirnica - dva paralelna upita se sudaraju.
@@ -661,6 +817,7 @@ def obradi_komande_grane(client, k: Konfig, tankovi: list[dict],
     """
     ishodi: list[dict] = []
     granica = datetime.now(timezone.utc) - timedelta(minutes=k.komanda_max_minuta)
+    ocitanja = ocitanja or {}
 
     for t in tankovi:
         popis = komande_po_tanku.get(t["id"]) or []
@@ -668,17 +825,22 @@ def obradi_komande_grane(client, k: Konfig, tankovi: list[dict],
             continue
         uredaj = int(t["modbusAdresa"])
         broj = t.get("broj")
+        # Set point procitan malocas u istom ciklusu - svjeziji od baze.
+        setpoint = (ocitanja.get(t["id"]) or {}).get("setpoint")
 
         for kom in popis:
             tip = str(kom.get("tip") or "")
-            plan, razlog = isplaniraj(k, tip, kom.get("vrijednost"))
+            plan, poruka, ishod = isplaniraj(k, tip, kom.get("vrijednost"), t, setpoint)
 
-            # 1) Nemamo cime izvrsiti -> komanda ceka (NE gasi se po starosti;
-            #    kad se registri konfiguriraju, ogradu 30 min svejedno prolazi tek
-            #    ako je jos svjeza, pa zaboravljena komanda nikad ne opali naknadno).
+            # 1) Nemamo cime izvrsiti -> komanda ceka ili odmah pada.
+            #    CEKA se NE gasi po starosti; kad se registri konfiguriraju, ogradu
+            #    30 min svejedno prolazi tek ako je jos svjeza, pa zaboravljena
+            #    komanda nikad ne opali naknadno.
             if plan is None:
-                ishodi.append({"komanda": kom, "ishod": "CEKA",
-                               "poruka": razlog or "ceka", "tankBroj": broj})
+                ishodi.append({"komanda": kom, "ishod": ishod,
+                               "poruka": poruka or "ceka", "tankBroj": broj})
+                if ishod == "NEUSPJELO":
+                    log.warning("KOMANDA tank %s %s: %s", broj, tip, poruka)
                 continue
 
             # 2) Sigurnosna ograda: stara komanda se ne izvrsava.
@@ -699,8 +861,17 @@ def obradi_komande_grane(client, k: Konfig, tankovi: list[dict],
                 izvrsi_komandu(client, k, uredaj, plan)
                 ishodi.append({"komanda": kom, "ishod": "PRIMIJENJENO",
                                "poruka": plan.opis, "tankBroj": broj})
-                log.info("KOMANDA tank %s %s -> %s: PRIMIJENJENO (reg 0x%04X=%s)",
-                         broj, tip, plan.opis, plan.registar, plan.sirovo)
+                if plan.registar is None:
+                    log.info("KOMANDA tank %s %s: %s (kontroler nije diran)",
+                             broj, tip, plan.opis)
+                else:
+                    log.info("KOMANDA tank %s %s -> %s: PRIMIJENJENO (reg 0x%04X=%s)",
+                             broj, tip, plan.opis, plan.registar, plan.sirovo)
+            except ZabranjenRegistar as e:
+                # Ponavljanje nema smisla i opasno je - odmah NEUSPJELO.
+                ishodi.append({"komanda": kom, "ishod": "NEUSPJELO",
+                               "poruka": str(e), "tankBroj": broj})
+                log.error("KOMANDA tank %s %s: %s", broj, tip, e)
             except Exception as e:
                 ishodi.append({"komanda": kom, "ishod": "GRESKA",
                                "poruka": str(e), "tankBroj": broj})
@@ -773,7 +944,7 @@ def obradi_granu(port: str, tankovi: list[dict], k: Konfig,
         # Komande tek nakon sto je cijela grana procitana - isti port, ista dretva.
         if komande_po_tanku:
             try:
-                ishodi = obradi_komande_grane(client, k, tankovi, komande_po_tanku)
+                ishodi = obradi_komande_grane(client, k, tankovi, komande_po_tanku, rezultat)
             except Exception:
                 log.exception("Obrada komandi na portu %s je pukla", port)
     finally:
@@ -965,7 +1136,7 @@ class Gateway:
         # tankId -> {tip: poruka} zeljenih alarma, i skup tipova koje ovaj ciklus ne dira
         zeljeni: dict[str, dict[str, str]] = {}
         ne_diraj: dict[str, set[str]] = {}
-        broj_ok = broj_alarm = broj_offline = broj_sonda = 0
+        broj_ok = broj_alarm = broj_offline = broj_sonda = broj_iskljuceno = 0
 
         for t in tankovi:
             tid = t["id"]
@@ -1014,12 +1185,21 @@ class Gateway:
                 ne_diraj[tid].update({TIP_TEMP, TIP_SONDA})
                 continue
 
+            # Soft-OFF: zadana = SOFT_OFF_TEMP znaci "hladjenje iskljuceno". Takav
+            # tank nitko ne hladi, pa alarm previsoke temperature nema smisla - ne
+            # trazi se ovaj ciklus, a postojeci se time i zatvara.
+            iskljuceno = je_soft_off(self.k, zadana)
+
             hladjenje = r.get("hladjenje")
-            if hladjenje is None:
+            if iskljuceno:
+                hladjenje = False
+            elif hladjenje is None:
                 hladjenje = temperatura > zadana  # bez statusnog registra: procjena
 
             donja, gornja = zadana - minus, zadana + plus
-            izvan = temperatura > gornja or temperatura < donja
+            izvan = not iskljuceno and (temperatura > gornja or temperatura < donja)
+            if iskljuceno:
+                broj_iskljuceno += 1
             if izvan:
                 broj_alarm += 1
                 smjer = "iznad" if temperatura > gornja else "ispod"
@@ -1027,7 +1207,7 @@ class Gateway:
                     f"Tank {broj}: {temperatura:.1f} C je {smjer} dozvoljenog "
                     f"({donja:.1f} - {gornja:.1f} C, zadana {zadana:.1f} C)."
                 )
-            else:
+            elif not iskljuceno:
                 broj_ok += 1
 
             redovi.append({
@@ -1042,8 +1222,9 @@ class Gateway:
 
         try:
             self.db.upisi_ocitanja(redovi)
-            log.info("Ciklus: %s ocitanja upisano (OK %s, ALARM %s, sonda %s, bez veze %s)",
-                     len(redovi), broj_ok, broj_alarm, broj_sonda, broj_offline)
+            log.info("Ciklus: %s ocitanja upisano (OK %s, ALARM %s, hladjenje off %s, "
+                     "sonda %s, bez veze %s)",
+                     len(redovi), broj_ok, broj_alarm, broj_iskljuceno, broj_sonda, broj_offline)
         except Exception as e:
             log.error("Upis ocitanja nije uspio: %s", e)
 
@@ -1091,14 +1272,19 @@ class Gateway:
                  f"0x{self.k.reg_setpoint:04X}" if self.k.reg_setpoint is not None else "iz baze (Tank.zadanaTemp)",
                  f"0x{self.k.reg_status:04X}" if self.k.reg_status is not None else "nema (hladjenje se procjenjuje)")
 
+        log.info("Zabranjeni registri (nikad se ne diraju): %s",
+                 ", ".join(f"0x{r:04X}" for r in sorted(self.k.registri_zabranjeni)) or "nema")
+
         if self.k.komande_omogucene:
             log.info(
-                "Komande: ON/OFF=%s, setpoint=%s, Hy=%s | ograda %s min, najvise %s pokusaja",
-                f"0x{self.k.reg_onoff:04X}" if self.k.reg_onoff is not None else "CEKA DISCOVERY",
+                "Komande: setpoint=%s, Hy=%s (pomak %s bita) | ograda %s min, najvise %s pokusaja",
                 f"0x{self.k.reg_setpoint:04X}" if self.k.reg_setpoint is not None else "CEKA DISCOVERY",
                 f"0x{self.k.reg_hy:04X}" if self.k.reg_hy is not None else "CEKA DISCOVERY",
+                self.k.hy_pomak_bitova,
                 self.k.komanda_max_minuta, self.k.komanda_max_pokusaja,
             )
+            log.info("ON/OFF hladjenja ide preko set pointa (soft-OFF na %.1f C) - "
+                     "kontroler nema registar za ukljucivanje.", self.k.soft_off_temp)
             log.info("ALARM_MINUS i ALARM_PLUS se ne salju kontroleru (pragovi aplikacije).")
         else:
             log.info("Komande su ISKLJUCENE (KOMANDE_OMOGUCENE=false) - gateway samo cita.")

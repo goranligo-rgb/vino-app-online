@@ -6,9 +6,18 @@ SAMO CITA. Ova skripta NIKAD ne pise po kontroleru - svaka promjena parametra
 radi se rukom na samom kontroleru, a skripta samo gleda koji se registar pomakao.
 Tako se ne moze nista slucajno pokvariti na tanku s vinom.
 
-Potvrdeno je samo 0x0100 = sonda P1 (vrijednost /10). Set point (SEt), diferencijal
-(Hy) i standby (onF) nisu javno dokumentirani, pa se traze usporedbom s onim sto
-pise na displeju kontrolera.
+Potvrdeno (discovery 16.08.2026., test tank 2):
+  0x0100 = sonda P1, /10
+  0x042D = set point (SEt), /10
+  0x0408 = diferencijal (Hy), PAKIRAN: (Hy * 10) << 8  (2,0 -> 5120)
+Standby (onF) preko Modbusa NE POSTOJI - hladjenje se gasi podizanjem set pointa
+na 20,0 C (soft-OFF, vidi gateway.py).
+
+ZABRANJENO - 0x0420 je MODBUS ADRESA SAMOG KONTROLERA. Upis u njega je prepisao
+adrese vise kontrolera odjednom i srusio cijelu granu (svi uredaji zavrse na istoj
+adresi i vise se ne razlikuju; popravlja se rucno, kontroler po kontroler). Zato
+je na popisu REGISTRI_ZABRANJENI: `jedan()` ga preskace i kod citanja, a `--upisi`
+ga odbija bez obzira na sve zastavice i potvrde.
 
 Primjeri:
 
@@ -31,14 +40,9 @@ Primjeri:
   #    snimi stanje, rukom promijeni parametar na kontroleru, pritisni Enter
   python discover_registers.py --port /dev/ttyUSB0 --adresa 1 --preset --razlika
 
-Trazi se:
-  - SET POINT (SEt): registar cija je vrijednost/10 jednaka SEt-u na kontroleru
-    (promijeni SEt za 1 C i --razlika ce pokazati pomak od 10)
-  - DIFERENCIJAL (Hy): isto, ali promijeni Hy za 0,1 -> pomak od 1
-  - STANDBY (onF): promijeni kontroler iz rada u standby -> --razlika pokazuje
-    registar/bit koji se prebacio; to je kandidat za REG_ONOFF
+Jos se trazi:
   - STATUS: registar koji se mijenja tocno kad relej hladjenja upadne/ispadne
-    (obicno bitovna maska - gledaj stupac BIN)
+    (obicno bitovna maska - gledaj stupac BIN) -> REG_STATUS, BIT_HLADJENJE
 """
 
 from __future__ import annotations
@@ -53,13 +57,23 @@ try:
 except ImportError:
     sys.exit("GRESKA: pymodbus nije instaliran. Aktiviraj venv: source ~/gateway/venv/bin/activate")
 
+# Registri koji se NIKAD ne diraju - ni citanje, ni upis.
+# Mora se poklapati s REGISTRI_ZABRANJENI u gateway/.env.
+REGISTRI_ZABRANJENI = {0x0420}
+OBJASNJENJE_ZABRANE = {
+    0x0420: "Modbus adresa samog kontrolera - upis je 16.08.2026. prepisao adrese "
+            "vise uredaja odjednom i srusio granu",
+}
+
 # Prozori koje ima smisla pogledati kod Dixell CX serije (logicke zone protokola).
 PRESET_PROZORI = [
     (0x0000, 0x0020),  # identifikacija uredaja / status
     (0x0100, 0x0120),  # sonde (0x0100 = P1, POTVRDENO)
     (0x0120, 0x0140),
     (0x0180, 0x01A0),  # cesto status digitalnih izlaza/alarma
-    (0x0200, 0x0220),  # korisnicki parametri (SEt je obicno prvi)
+    (0x0200, 0x0220),  # korisnicki parametri
+    (0x0400, 0x0440),  # POTVRDENO: 0x0408 = Hy, 0x042D = SEt
+                       # (0x0420 je u ovom rasponu, ali ga `jedan()` preskace)
     (0x1000, 0x1020),  # EEPROM zona
 ]
 
@@ -96,7 +110,14 @@ def predznak(v: int) -> int:
 
 
 def jedan(client, fc: int, adresa_reg: int, uredaj: int):
-    """Vraca (vrijednost | None, poruka_greske | None)."""
+    """
+    Vraca (vrijednost | None, poruka_greske | None).
+
+    Zabranjeni registri se preskacu bez slanja ijednog okvira - to je jedina
+    tocka citanja u skripti, pa prolaz kroz raspon ne moze zagrepsti 0x0420.
+    """
+    if adresa_reg in REGISTRI_ZABRANJENI:
+        return None, f"PRESKACEM (zabranjen: {OBJASNJENJE_ZABRANE.get(adresa_reg, 'ne dirati')})"
     try:
         odgovor = citaj(client, fc, adresa_reg, uredaj)
     except Exception as e:
@@ -274,6 +295,10 @@ def upisi(client, args) -> None:
     KORISTI SAMO NA PRAZNOM TEST TANKU. Krivi registar na tanku s vinom moze
     promijeniti rezim hladjenja.
     """
+    if args.upisi in REGISTRI_ZABRANJENI:
+        sys.exit(f"ODBIJENO: registar 0x{args.upisi:04X} je na popisu zabranjenih "
+                 f"({OBJASNJENJE_ZABRANE.get(args.upisi, 'rusi kontroler')}). "
+                 f"Ovaj upis se ne radi ni s --potvrdi-upis.")
     if args.test_tank != args.adresa:
         sys.exit(f"ODBIJENO: --test-tank ({args.test_tank}) i --adresa ({args.adresa}) "
                  f"moraju biti isti broj. To je namjerna prepreka.")

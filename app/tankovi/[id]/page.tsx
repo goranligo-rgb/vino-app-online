@@ -11,7 +11,10 @@ import TankRoleSastavModal from "./tank-role-sastav-modal";
 import TankRoleDokumentiUpload from "./tank-role-dokumenti-upload";
 import HladjenjeGraf from "./hladjenje-graf";
 import HladjenjeHy, { type HyKomandaStanje } from "./hladjenje-hy";
-import { smijeUpravljati as smijeUpravljatiRole } from "@/lib/tank-komanda";
+import {
+  smijeUpravljati as smijeUpravljatiRole,
+  jeHladjenjeIskljuceno,
+} from "@/lib/tank-komanda";
 import {
   izracunajStatus,
   stilZaStatus,
@@ -610,12 +613,16 @@ export default async function TankPregledPage({
     ? { status: zadnjaHyKomanda.status, greska: zadnjaHyKomanda.greska }
     : null;
 
+  // Soft-OFF: zadana = SOFT_OFF_TEMP (20,0 C) znaci "hladjenje iskljuceno" -
+  // kontroler nema Modbus registar za ON/OFF (vidi lib/tank-komanda.ts).
+  const hladjenjeIskljuceno = jeHladjenjeIskljuceno(uBroj(tank.zadanaTemp));
   const tempStatus = izracunajStatus({
     mjerenoU: zadnjeOcitanje?.mjerenoU ?? null,
     imaAktivanAlarm: aktivniAlarmi.length > 0,
+    hladjenjeIskljuceno,
   });
   const tempStil = stilZaStatus(tempStatus);
-  const hladiSad = zadnjeOcitanje?.hladjenjeAktivno ?? null;
+  const hladiSad = hladjenjeIskljuceno ? false : (zadnjeOcitanje?.hladjenjeAktivno ?? null);
 
   const mjerenjaZaTop = await prisma.mjerenje.findMany({
     where: { tankId: id },
@@ -1012,14 +1019,22 @@ const izvrseniZadaci = tankJePrazan
               tone={tempStatus === "ALARM" ? "red" : "default"}
             />
             <ParamTop
-              label="Zadana temperatura"
-              value={formatTemp(tank.zadanaTemp)}
+              label={hladjenjeIskljuceno ? "Zadana (zapamćena)" : "Zadana temperatura"}
+              value={formatTemp(
+                hladjenjeIskljuceno ? tank.zadnjaZadanaTemp : tank.zadanaTemp
+              )}
               unit="°C"
             />
             <ParamTop
               label="Hlađenje"
               value={
-                hladiSad == null ? "—" : hladiSad ? "Hladi (ON)" : "Ne hladi (OFF)"
+                hladjenjeIskljuceno
+                  ? "Isključeno"
+                  : hladiSad == null
+                    ? "—"
+                    : hladiSad
+                      ? "Hladi (ON)"
+                      : "Ne hladi (OFF)"
               }
               tone={hladiSad ? "green" : "default"}
             />

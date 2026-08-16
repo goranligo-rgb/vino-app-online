@@ -3,11 +3,14 @@
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/putnik-auth";
 import { revalidatePath } from "next/cache";
+import { uBroj } from "@/lib/temperatura";
 import {
   type KomandaTip,
   validiraj,
   smijeUpravljati,
   poljeTanka,
+  SOFT_OFF_TEMP,
+  jeHladjenjeIskljuceno,
 } from "@/lib/tank-komanda";
 
 export type KomandaRezultat = { ok: boolean; error?: string };
@@ -16,6 +19,12 @@ export type KomandaRezultat = { ok: boolean; error?: string };
 // (da UI prikaze novo stanje). Gateway na Pi-ju preuzima komande sa statusom
 // NA_CEKANJU i salje ih kontroleru (Faza B) - vidi gateway/gateway.py.
 // Provjera prava je OVDJE (server), ne samo skrivanjem gumba u UI.
+//
+// Soft-OFF (HLADJENJE_ON / HLADJENJE_OFF): kontroler nema Modbus registar za
+// ON/OFF, pa se hladjenje gasi podizanjem zadane temperature na SOFT_OFF_TEMP.
+// Pamcenje stare zadane radi se OVDJE, u istoj transakciji u kojoj nastaje
+// komanda, a ne u gatewayu - tako ponovni pokusaj upisa na kontroler ne moze
+// pregaziti zapamcenu vrijednost, a UI odmah pokazuje novo stanje.
 export async function posaljiKomandu(input: {
   tankId: string;
   tip: KomandaTip;
@@ -35,9 +44,52 @@ export async function posaljiKomandu(input: {
 
   const tank = await prisma.tank.findUnique({
     where: { id: tankId },
-    select: { id: true },
+    select: { id: true, zadanaTemp: true, zadnjaZadanaTemp: true },
   });
   if (!tank) return { ok: false, error: "Tank ne postoji." };
+
+  const zadanaSad = uBroj(tank.zadanaTemp);
+  const zapamcena = uBroj(tank.zadnjaZadanaTemp);
+  const iskljuceno = jeHladjenjeIskljuceno(zadanaSad);
+
+  // Sto se uz komandu mijenja na Tanku. Ponovno slanje iste komande (npr. kad
+  // prvi pokusaj nije prosao do kontrolera) namjerno NE mijenja nista - samo
+  // nastane nova komanda koju gateway pokusa izvrsiti.
+  let promjenaTanka: Record<string, unknown> | null = null;
+
+  if (tip === "HLADJENJE_OFF") {
+    if (!iskljuceno) {
+      if (zadanaSad == null) {
+        return {
+          ok: false,
+          error: "Tank nema zadanu temperaturu - prvo je postavi, pa isključi hlađenje.",
+        };
+      }
+      promjenaTanka = { zadnjaZadanaTemp: zadanaSad, zadanaTemp: SOFT_OFF_TEMP };
+    }
+  } else if (tip === "HLADJENJE_ON") {
+    if (iskljuceno) {
+      if (zapamcena == null || jeHladjenjeIskljuceno(zapamcena)) {
+        return {
+          ok: false,
+          error:
+            "Nema zapamćene zadane temperature. Upiši željenu zadanu temperaturu - " +
+            "hlađenje se uključuje s njom.",
+        };
+      }
+      promjenaTanka = { zadanaTemp: zapamcena, zadnjaZadanaTemp: null };
+    }
+  } else {
+    const polje = poljeTanka(tip);
+    if (polje && vrijednost != null) {
+      promjenaTanka =
+        tip === "ZADANA_TEMP"
+          ? // Rucno postavljena zadana ponistava soft-OFF pamcenje: od sada
+            // vrijedi ova vrijednost, a ne ono sto je zapamceno prije gasenja.
+            { [polje]: vrijednost, zadnjaZadanaTemp: null }
+          : { [polje]: vrijednost };
+    }
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -51,11 +103,10 @@ export async function posaljiKomandu(input: {
         },
       });
 
-      const polje = poljeTanka(tip);
-      if (polje && vrijednost != null) {
+      if (promjenaTanka) {
         await tx.tank.update({
           where: { id: tankId },
-          data: { [polje]: vrijednost },
+          data: promjenaTanka,
         });
       }
     });

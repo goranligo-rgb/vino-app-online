@@ -5,12 +5,14 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/putnik-auth";
 import {
   izracunajStatus,
-  stilZaStatus,
+  gatewayNeJavlja,
   formatTemp,
+  prijeKoliko,
   uBroj,
 } from "@/lib/temperatura";
 import {
   smijeUpravljati as smijeUpravljatiRole,
+  jeHladjenjeIskljuceno,
   OPIS_TIPA,
   JEDINICA_TIPA,
   type KomandaTip,
@@ -33,9 +35,11 @@ export default async function HladjenjeDashboard() {
 
   const smije = smijeUpravljatiRole(user.role);
 
-  // Tankovi ukljuceni u nadzor temperature (imaju modbus adresu).
+  // Tankovi ukljuceni u nadzor temperature: moraju imati modbus adresu I biti
+  // pod nadzorom. Tank bez kontrolera hladjenja (41-44) ima nadzorHladjenja =
+  // false - isti uvjet koristi i gateway, da dashboard i Pi gledaju isti popis.
   const tankovi = await prisma.tank.findMany({
-    where: { modbusAdresa: { not: null } },
+    where: { modbusAdresa: { not: null }, nadzorHladjenja: true },
     orderBy: { broj: "asc" },
     select: {
       id: true,
@@ -43,6 +47,7 @@ export default async function HladjenjeDashboard() {
       sorta: true,
       nazivVina: true,
       zadanaTemp: true,
+      zadnjaZadanaTemp: true,
       alarmMinus: true,
       alarmPlus: true,
       hy: true,
@@ -108,13 +113,16 @@ export default async function HladjenjeDashboard() {
   // Pripremi pločice + sažetak.
   const tiles: TankTile[] = tankovi.map((t) => {
     const o = zadnjaMap.get(t.id);
+    const zadanaTemp = uBroj(t.zadanaTemp);
     return {
       id: t.id,
       broj: t.broj,
       sorta: t.sorta,
       nazivVina: t.nazivVina,
       zadnjaTemp: o ? uBroj(o.temperatura) : null,
-      zadanaTemp: uBroj(t.zadanaTemp),
+      zadanaTemp,
+      zadnjaZadanaTemp: uBroj(t.zadnjaZadanaTemp),
+      hladjenjeIskljuceno: jeHladjenjeIskljuceno(zadanaTemp),
       alarmMinus: uBroj(t.alarmMinus),
       alarmPlus: uBroj(t.alarmPlus),
       hy: uBroj(t.hy),
@@ -128,12 +136,28 @@ export default async function HladjenjeDashboard() {
   let brOk = 0;
   let brAlarm = 0;
   let brBezVeze = 0;
+  let brIskljuceno = 0;
   for (const t of tiles) {
-    const s = izracunajStatus({ mjerenoU: t.mjerenoU, imaAktivanAlarm: t.imaAktivanAlarm });
+    const s = izracunajStatus({
+      mjerenoU: t.mjerenoU,
+      imaAktivanAlarm: t.imaAktivanAlarm,
+      hladjenjeIskljuceno: t.hladjenjeIskljuceno,
+    });
     if (s === "OK") brOk++;
     else if (s === "ALARM") brAlarm++;
+    else if (s === "HLADJENJE_OFF") brIskljuceno++;
     else brBezVeze++;
   }
+
+  // Heartbeat gatewaya: najsvježije očitanje IKOJEG tanka. Ako ga nema duže od
+  // HEARTBEAT_PRAG_MIN, ne javlja se ni jedan tank - dakle stoji gateway, Pi ili
+  // mreža, a ne pojedini kontroler. (Servis je jednom stajao tjedan dana a da
+  // nitko nije primijetio - zato upozorenje ide na vrh, preko cijele širine.)
+  const zadnjeIkad = parovi.reduce<Date | null>(
+    (max, p) => (max == null || p.mjerenoU > max ? p.mjerenoU : max),
+    null
+  );
+  const nemaHeartbeata = tiles.length > 0 && gatewayNeJavlja(zadnjeIkad);
 
   return (
     <div
@@ -156,6 +180,31 @@ export default async function HladjenjeDashboard() {
       `}</style>
 
       <div style={{ maxWidth: 1400, margin: "0 auto", display: "grid", gap: 18 }}>
+        {nemaHeartbeata ? (
+          <div
+            role="alert"
+            style={{
+              background: "#c0392b",
+              border: "3px solid #7d1f16",
+              color: "#ffffff",
+              padding: "16px 18px",
+            }}
+          >
+            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "0.5px" }}>
+              ⚠ GATEWAY NE JAVLJA — PODACI NISU SVJEŽI!
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginTop: 6 }}>
+              {zadnjeIkad
+                ? `Zadnje očitanje bilo kojeg tanka stiglo je ${prijeKoliko(zadnjeIkad)} (${formatDatum(zadnjeIkad)}).`
+                : "U bazi nema nijednog očitanja temperature."}{" "}
+              Temperature i stanja ispod su zadnje poznate vrijednosti, ne trenutno stanje u podrumu.
+            </div>
+            <div style={{ fontSize: 13, marginTop: 6, opacity: 0.95 }}>
+              Provjeri Raspberry Pi u podrumu: <code>sudo systemctl status vino-gateway</code>.
+            </div>
+          </div>
+        ) : null}
+
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "0.5px" }}>HLAĐENJE TANKOVA</div>
@@ -180,6 +229,7 @@ export default async function HladjenjeDashboard() {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <SazetakBadge label="OK" broj={brOk} bg="#eef7f0" border="#8db79a" text="#2f6b43" />
             <SazetakBadge label="Alarm" broj={brAlarm} bg="#fdecec" border="#e0776f" text="#a11d1d" />
+            <SazetakBadge label="Hlađenje off" broj={brIskljuceno} bg="#eef1f4" border="#9fb0bd" text="#3d5566" />
             <SazetakBadge label="Bez veze" broj={brBezVeze} bg="#f0f0f0" border="#cfcfcf" text="#6b7075" />
           </div>
         </div>
@@ -194,7 +244,7 @@ export default async function HladjenjeDashboard() {
           }}
         >
           {smije
-            ? "Promjene se bilježe kao komande i odmah prikazuju kao novo stanje. Primjena na uređaje se aktivira spajanjem sustava u podrumu."
+            ? "Promjene se bilježe kao komande i odmah prikazuju kao novo stanje. Gateway u podrumu ih preuzima u sljedećem ciklusu (do 2 min) i tek tada badge prelazi u „primijenjeno“. Hlađenje se isključuje podizanjem zadane temperature na 20,0 °C — kontroler nema zaseban ON/OFF."
             : "Pregled bez upravljanja. Promjene postavki rade role Admin, Enolog i Podrum."}
         </div>
 

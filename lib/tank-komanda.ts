@@ -13,6 +13,22 @@ export type VrijednosnaKomanda = "ZADANA_TEMP" | "ALARM_MINUS" | "ALARM_PLUS" | 
 
 export const KORAK = 0.5; // °C po kliku +/- (zadano)
 
+/**
+ * Soft-OFF: Dixell XR75CX nema Modbus registar za ON/OFF hlađenja (discovery
+ * 16.08.2026.; registar 0x0420 se ne smije dirati jer ruši komunikaciju), pa se
+ * hlađenje gasi podizanjem zadane temperature na ovu vrijednost.
+ *
+ * MORA biti isto kao SOFT_OFF_TEMP u gateway/.env na Pi-ju.
+ *
+ * Zato je i gornja granica ZADANA_TEMP niža (19,5 °C): 20,0 °C znači isključeno
+ * i ne smije se moći postaviti kao obična zadana temperatura.
+ */
+export const SOFT_OFF_TEMP = 20.0;
+
+export function jeHladjenjeIskljuceno(zadanaTemp: number | null | undefined): boolean {
+  return zadanaTemp != null && Math.abs(zadanaTemp - SOFT_OFF_TEMP) < 0.05;
+}
+
 // Hy (diferencijal hladjenja) se na Dixellu podesava u desetinkama, pa ima svoj korak.
 export const KORAK_ZA: Record<VrijednosnaKomanda, number> = {
   ZADANA_TEMP: 0.5,
@@ -23,7 +39,9 @@ export const KORAK_ZA: Record<VrijednosnaKomanda, number> = {
 
 // Dozvoljeni rasponi za vrijednosne komande.
 export const LIMITI: Record<VrijednosnaKomanda, { min: number; max: number }> = {
-  ZADANA_TEMP: { min: 4, max: 20 },
+  // Gornja granica je 19,5 a ne 20,0 jer je 20,0 rezervirano za soft-OFF
+  // (vidi SOFT_OFF_TEMP). Najviša zadana u pogonu je danas 16,5 °C.
+  ZADANA_TEMP: { min: 4, max: 19.5 },
   ALARM_MINUS: { min: 0.5, max: 10 },
   ALARM_PLUS: { min: 0.5, max: 10 },
   HY: { min: 0.3, max: 3.0 },

@@ -2,7 +2,7 @@
  * SEED TESTNIH PODATAKA za nadzor temperature (Faza A - hardver jos nije spojen).
  *
  * Ne kreira nove tankove. Postojecima popunjava modbusAdresa/grana/zadanaTemp
- * (grana A = broj 1-22, B = 23-44; modbusAdresa = broj). Postojeca polja
+ * (grana A = broj 1-20, B = 21-44; modbusAdresa = broj). Postojeca polja
  * (sorta, tip, kapacitet, ...) se NE diraju.
  *
  * Generira testna ocitanja za zadnjih 30 dana:
@@ -43,7 +43,8 @@ function zadanaZa(broj: number): number {
 }
 
 function grana(broj: number): "A" | "B" {
-  return broj <= 22 ? "A" : "B";
+  // Fizicka podjela u podrumu: A = 1-20, B = 21-44 (vidi migraciju 20260816_tankovi_i_grane).
+  return broj <= 20 ? "A" : "B";
 }
 
 function r1(x: number): number {

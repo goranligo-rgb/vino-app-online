@@ -42,12 +42,19 @@ model Tank {
   godiste              Int?
   // --- Nadzor temperature (Faza A): sve nullable, aditivno na postojeci Tank ---
   modbusAdresa         Int?                  @unique
-  grana                String?
+  grana                String?               // "A" = tankovi 1-20, "B" = 21-44
+  // Proziva li gateway ovaj tank? false = tank postoji, ali nema kontroler
+  // hladjenja (npr. 41-44). Adresa se cuva, ali se ne salje nijedan upit.
+  nadzorHladjenja      Boolean               @default(true)
   zadanaTemp           Decimal?              @db.Decimal(4, 1)
   alarmMinus           Decimal?              @default(2.0) @db.Decimal(3, 1)
   alarmPlus            Decimal?              @default(2.0) @db.Decimal(3, 1)
   // Hy = diferencijal hladjenja na Dixellu (0,3-3,0 K). Faza B.
   hy                   Decimal?              @db.Decimal(3, 1)
+  // Soft-OFF: kontroler nema Modbus registar za ON/OFF, pa se hladjenje gasi
+  // podizanjem set pointa na SOFT_OFF_TEMP (20,0 C). Ovdje se pamti zadana
+  // temperatura od prije iskljucenja da ju "UKLJUCI" moze vratiti.
+  zadnjaZadanaTemp     Decimal?              @db.Decimal(4, 1)
   additions            Addition[]
   blendIzvori          BlendIzvor[]          @relation("CiljniBlendTank")
   kaoIzvorBlenda       BlendIzvor[]          @relation("IzvorBlendTank")
