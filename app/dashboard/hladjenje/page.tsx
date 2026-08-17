@@ -173,10 +173,10 @@ export default async function HladjenjeDashboard() {
 
   return (
     <div
+      className="hlad-stranica"
       style={{
         minHeight: "100vh",
         background: "#e9ecef",
-        padding: 16,
         fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
         color: "#222",
         boxSizing: "border-box",
@@ -197,6 +197,23 @@ export default async function HladjenjeDashboard() {
         kutiju preko ruba kartice i prelije se preko susjednih redaka.
       */}
       <style>{`
+        /* Na iPhoneu dodanom na početni zaslon nema Safarijeve trake, pa bi gumb
+           NATRAG završio pod satom i notchem. Zato gornji razmak uključuje
+           safe-area umetak; gdje ga nema (računalo, Android bez notcha) ostaje
+           uobičajenih 16 px. */
+        .hlad-stranica { padding: 16px; padding-top: max(16px, calc(env(safe-area-inset-top) + 10px)); }
+        @media (max-width: 639px){ .hlad-stranica { padding: 12px; padding-top: max(12px, calc(env(safe-area-inset-top) + 10px)); } }
+
+        .hlad-vrh { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; min-width:0; }
+        .hlad-vrh-naslov { min-width:0; flex:1 1 auto; }
+        .hlad-natrag { display:inline-flex; align-items:center; justify-content:center; }
+
+        /* Brojači: mreža, ne flex red. Četiri pločice od 96 px + razmaci ne stanu
+           na 360 px, a kao flex stavka bez min-width:0 se nisu smjele stisnuti pa
+           je "Bez veze" ostajao odrezan izvan ekrana. Na mobitelu idu 2x2. */
+        .hlad-sazetak { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:10px; min-width:0; }
+        @media (max-width: 639px){ .hlad-sazetak { grid-template-columns: repeat(2, minmax(0,1fr)); width:100%; } }
+
         .hlad-grid { display:grid; gap:12px; grid-template-columns: minmax(0,1fr); }
         @media (min-width: 640px){ .hlad-grid{ grid-template-columns: repeat(2, minmax(0,1fr));} }
         @media (min-width: 900px){ .hlad-grid{ grid-template-columns: repeat(4, minmax(0,1fr));} }
@@ -229,9 +246,20 @@ export default async function HladjenjeDashboard() {
 
         .hlad-stepper { display:flex; align-items:center; justify-content:center; gap:8px;
                         flex-wrap:wrap; min-width:0; }
-        .hlad-korak { min-width:40px; min-height:40px; }
         .hlad-vrijednost { min-width:44px; text-align:center; font-size:18px; font-weight:700; }
-        .hlad-spremi { min-height:40px; padding:8px 14px; }
+
+        /* Tailwind Preflight postavlja buttonima "text-align: inherit", pa gumb
+           NE centrira svoj tekst sam od sebe kao inače - naslijedi poravnanje
+           roditelja i natpis odluta u kut. Zato svaki gumb kartice centrira
+           sadržaj izričito, preko flexa. */
+        .hlad-korak, .hlad-spremi, .hlad-onoff > button {
+          display:inline-flex; align-items:center; justify-content:center;
+          text-align:center; line-height:1.1;
+        }
+        .hlad-korak { min-width:40px; min-height:40px; }
+        /* justify-self drži gumb na svojoj širini i u redcima Alarm −/+, gdje je
+           izravno dijete mreže pa bi se inače razvukao preko cijele širine. */
+        .hlad-spremi { min-height:40px; padding:8px 16px; justify-self:start; }
 
         /* Mobitel uspravno: jedna kartica po redu, sve veće i lakše za prst. */
         @media (max-width: 639px){
@@ -242,7 +270,9 @@ export default async function HladjenjeDashboard() {
           .hlad-stepper { justify-content:flex-start; }
           .hlad-korak { min-width:52px; min-height:48px; font-size:22px; }
           .hlad-vrijednost { min-width:64px; font-size:20px; }
-          .hlad-spremi { flex:1 1 100%; min-height:48px; font-size:15px; }
+          /* Gumb normalne širine, ne razvučen preko cijelog retka - dovoljno
+             velik za prst (46 px), ali i dalje izgleda kao gumb. */
+          .hlad-spremi { flex:0 0 auto; min-height:46px; min-width:104px; font-size:15px; }
           .hlad-onoff > button { min-height:48px; font-size:15px; }
           .hlad-znacka { font-size:12px; padding:4px 10px; }
         }
@@ -274,17 +304,18 @@ export default async function HladjenjeDashboard() {
           </div>
         ) : null}
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
-          <div>
+        <div className="hlad-vrh">
+          <div className="hlad-vrh-naslov">
             <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "0.5px" }}>HLAĐENJE TANKOVA</div>
             <Link
               href="/dashboard"
+              className="hlad-natrag"
               style={{
-                display: "inline-flex",
                 marginTop: 10,
                 border: "1px solid #cfcfcf",
                 background: "#f8f9fa",
-                padding: "8px 12px",
+                padding: "10px 14px",
+                minHeight: 44,
                 fontSize: 12,
                 color: "#222",
                 textDecoration: "none",
@@ -295,7 +326,7 @@ export default async function HladjenjeDashboard() {
             </Link>
           </div>
 
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div className="hlad-sazetak">
             <SazetakBadge label="OK" broj={brOk} bg="#eef7f0" border="#8db79a" text="#2f6b43" />
             <SazetakBadge label="Alarm" broj={brAlarm} bg="#fdecec" border="#e0776f" text="#a11d1d" />
             <SazetakBadge label="Hlađenje off" broj={brIskljuceno} bg="#eef1f4" border="#9fb0bd" text="#3d5566" />
@@ -393,11 +424,13 @@ function SazetakBadge({
   return (
     <div
       style={{
-        minWidth: 96,
+        // minWidth: 0 je bitno - pločica je stavka mreže i mora se smjeti
+        // stisnuti, inače četiri komada zajedno šire zaglavlje izvan ekrana.
+        minWidth: 0,
         background: bg,
         border: `1px solid ${border}`,
         borderRadius: 0,
-        padding: "8px 14px",
+        padding: "8px 10px",
         textAlign: "center",
       }}
     >

@@ -21,6 +21,13 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Aplikacija se na iPhone dodaje na pocetni zaslon i vrti kao standalone
+  // (vidi app/manifest.ts, display: "standalone"), pa nema Safarijevu traku
+  // koja bi je odmaknula od sata i notcha. Bez viewport-fit=cover je
+  // env(safe-area-inset-*) uvijek 0 i stranica se ne moze sama maknuti ispod
+  // status trake - zato cover, a razmake dodaju stranice
+  // (npr. /dashboard/hladjenje) i vodoravna zastita u globals.css.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
