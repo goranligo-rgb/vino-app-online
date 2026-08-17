@@ -55,6 +55,49 @@ Cita Dixell XR75CX kontrolere preko Modbus RTU i puni tablice modula Hladjenje
 Dok je tank offline, alarmi `PREVISOKA_TEMP` i `GRESKA_SONDE` se **ne diraju** - bez podataka
 se ne zna jesu li rijeseni.
 
+## SMS obavijesti (Infobip)
+
+Opcionalan modul. Bez `INFOBIP_API_KEY` / `INFOBIP_BASE_URL` / `SMS_BROJEVI` gateway radi
+tocno kao prije - u logu samo pise zasto je SMS preskocen.
+
+| Dogadaj | Kad ide SMS | Primjer teksta |
+|---|---|---|
+| Alarm temperature | `PREVISOKA_TEMP` (taj tip pokriva i **prenisku**) traje **neprekidno** dulje od `SMS_ODGODA_MIN` (15 min) | `ALARM Vinarija: Tank 17 na 3.2 C (granica 10.0-14.0 C) vec 15 min. 18:42` |
+| Povratak u granice | alarm se zatvorio, a za njega je SMS bio poslan | `OK Vinarija: Tank 17 vratio se u granice (12.1 C). 19:05` |
+| Gateway ne javlja | **ne salje gateway** nego watchdog (vidi nize) | `ALARM Vinarija: gateway ne javlja vec 17 min - provjeri sustav! 18:42` |
+
+Sto se **ne** javlja SMS-om: `GRESKA_SONDE`, `NEMA_VEZE` pojedinog tanka (to pokriva
+watchdog), tank u soft-OFF stanju (hladjenje je namjerno ugaseno - nije alarm) i alarm
+kraci od praga (skok kod punjenja ili pretoka ne budi nikoga).
+
+Kljucna pravila izvedbe:
+
+- **Jedan SMS po dogadaju, ne po ciklusu.** Brava je `TankAlarm.smsPoslanU` - u bazi, pa
+  je restart servisa ne ponisti. Alarm koji se zatvori pa opet otvori je novi red u bazi,
+  dakle i novi dogadaj vrijedan poruke.
+- Trajanje se broji od `TankAlarm.nastaoU`, i to samo dok tank **daje ocitanja**. Ako tank
+  usred alarma zasuti (offline), odbrojavanje staje - poruka ce otici kad se javi, ako je
+  i tada u alarmu. Bez ocitanja nema dokaza da alarm jos stoji.
+- Ako Infobip ne prima, pokusava se jos `SMS_POKUSAJA` (3) ciklusa pa se odustaje (alarm
+  se oznaci javljenim) da pokvaren kljuc ne bi mljeo zauvijek.
+- Ograda `SMS_MAX_NA_SAT` (20) stiti od petlje u logici - skupo je i budi ljude.
+- Poruke idu **bez dijakritike**: jedno slovo s kvacicom prebacuje SMS iz GSM-7 u UCS-2 i
+  prepolovljuje segment (70 znakova umjesto 160), pa se isti tekst naplacuje dvostruko.
+- Svaki pokusaj (i neuspjeh) zapisuje se u log i u tablicu `SmsObavijest`.
+- Sat u poruci je **lokalno vrijeme Pi-ja**, pa mora biti tocna zona:
+  `timedatectl` -> `Time zone: Europe/Zagreb` (inace `sudo timedatectl set-timezone Europe/Zagreb`).
+
+Provjera postave - posalje jednu poruku na sve brojeve pa izade:
+
+```bash
+~/gateway/venv/bin/python ~/gateway/gateway.py --test-sms
+```
+
+Zastavica `--bez-sms` radi normalan ciklus, ali ne salje nista (korisno uz `--jednom`).
+
+> **Migracija ide prva.** Gateway od sada cita `TankAlarm.smsPoslanU`; bez migracije
+> `20260817_sms_obavijesti` PostgREST vraca 400 i **sinkronizacija alarma prestaje raditi**.
+
 ## Heartbeat - kad stane cijeli gateway
 
 Alarm `NEMA_VEZE` otvara gateway, pa ako gateway ne radi, nitko ga nece ni otvoriti.
@@ -64,6 +107,39 @@ crveno upozorenje "GATEWAY NE JAVLJA - podaci nisu svjezi!". Podatke ispod tada 
 citati kao zadnje poznato stanje, a ne kao trenutno.
 
 Prva provjera na Pi-ju: `sudo systemctl status vino-gateway` i `journalctl -u vino-gateway -n 100`.
+
+### Heartbeat watchdog (SMS kad gateway sutne)
+
+Upozorenje na ekranu vidi samo onaj tko gleda ekran. SMS mora poslati netko **izvan
+Pi-ja**: mrtav gateway (pukao servis, nestalo struje, podrum bez interneta) ne moze javiti
+sam za sebe, a ni watchdog na istom Pi-ju ne pomaze ako je Pi taj koji je pao.
+
+Zato watchdog zivi u aplikaciji i gleda **samo bazu**: `GET /api/cron/heartbeat` procita
+najsvjezije `OcitanjeTemperature` i, ako je starije od `HEARTBEAT_PRAG_MIN` (isti prag i
+ista funkcija kao crveno upozorenje na ekranu), posalje SMS. Ruta ne zna nista o Modbusu i
+ne ovisi o Pi-ju - to je cijela poanta.
+
+- **Raspored:** `vercel.json` -> cron svakih 5 min. Projekt je na **Vercel Pro** planu, pa
+  taj raspored radi kako je zapisan (Hobby plan bi dopustio samo jednom dnevno). Rezerva,
+  ako Vercel ikad zataji: isti URL moze okidati bilo koji vanjski cron (cron-job.org,
+  UptimeRobot) - ruta uz zaglavlje `Authorization: Bearer <CRON_SECRET>` prihvaca i
+  `?kljuc=<CRON_SECRET>`.
+- **Zastita:** bez postavljenog `CRON_SECRET` ruta vraca 401 i ne salje nista - inace bi
+  je svatko mogao okidati i trositi SMS.
+- **Ponavljanje:** jedan SMS po ispadu. Stanje nije u memoriji (svaki poziv je nova
+  instanca) nego u `SmsObavijest`: zadnji uspjesni red tipa `HEARTBEAT` znaci "ispad je
+  vec javljen", `HEARTBEAT_OK` (ili nista) znaci mirno stanje. Kad ocitanja opet krenu,
+  ide poruka `OK Vinarija: gateway ponovno javlja ocitanja.`
+- **Varijable okoline na Vercelu** (Project Settings -> Environment Variables):
+  `CRON_SECRET`, `INFOBIP_BASE_URL`, `INFOBIP_API_KEY`, `SMS_POSILJATELJ`, `SMS_NAZIV`,
+  `SMS_BROJEVI`, po zelji `SMS_OMOGUCEN=false` i `SMS_VREMENSKA_ZONA` (zadano
+  `Europe/Zagreb`). Iste vrijednosti stoje i u `~/gateway/.env` na Pi-ju - to je jedina
+  namjerna duplikacija; kod promjene brojeva treba ispraviti oba mjesta.
+- **Rucna provjera:**
+  ```bash
+  curl -s -H "Authorization: Bearer $CRON_SECRET" https://<domena>/api/cron/heartbeat
+  ```
+  Vraca JSON sa `starostMin`, `mrtav`, `radnja` - bez slanja poruke ako je sve u redu.
 
 ## Zasto se kod "nema veze" ne pise red u OcitanjeTemperature
 
@@ -269,7 +345,9 @@ scp gateway/gateway.py gateway/discover_registers.py gateway/.env.example \
 
 **Prvo migracije na bazi, pa tek onda gateway** - novi kod trazi kolonu
 `Tank.nadzorHladjenja` i bez nje `GET Tank` vraca gresku (gateway bi radio s zadnjim
-zapamcenim popisom tankova i o tome pisao upozorenje svaki ciklus).
+zapamcenim popisom tankova i o tome pisao upozorenje svaki ciklus). Isto vrijedi za
+`TankAlarm.smsPoslanU` iz migracije `20260817_sms_obavijesti`: bez nje prestaje raditi
+sinkronizacija alarma, ne samo SMS.
 
 Na Pi-ju:
 
@@ -280,6 +358,8 @@ nano ~/gateway/.env
 #                   SOFT_OFF_TEMP=20.0, REGISTRI_ZABRANJENI=0x0420
 #    PORTOVI: PORT_A=/dev/ttyUSB1, PORT_B=/dev/ttyUSB0  (grane su fizicki obrnute!)
 #    obrisi (vise se ne citaju): REG_ONOFF, ONOFF_VRIJEDNOST_ON, ONOFF_VRIJEDNOST_OFF
+#    SMS (opcionalno): INFOBIP_BASE_URL, INFOBIP_API_KEY, SMS_POSILJATELJ, SMS_NAZIV,
+#                      SMS_BROJEVI=385xx,385yy,385zz
 #    (usporedi s .env.example)
 
 # 2) sintaksa (na Windowsu se ne moze provjeriti - Python je samo ovdje)
@@ -290,7 +370,10 @@ python -m py_compile ~/gateway/gateway.py ~/gateway/discover_registers.py
 ls -l /dev/serial/by-id/
 
 # 4) proba bez diranja kontrolera (cita i pise u bazu, komande ne salje)
-python ~/gateway/gateway.py --jednom --bez-komandi
+python ~/gateway/gateway.py --jednom --bez-komandi --bez-sms
+
+# 4b) ako je Infobip podesen: jedna probna poruka na sve brojeve
+python ~/gateway/gateway.py --test-sms
 
 # 5) restart servisa
 sudo systemctl restart vino-gateway
@@ -318,6 +401,7 @@ journalctl -u vino-gateway -n 100      # zadnjih 100 redaka
 tail -f ~/gateway/gateway.log          # vlastiti log (rotacija 5 MB x 5)
 
 grep KOMANDA ~/gateway/gateway.log     # samo komande (tank, tip, ishod)
+grep SMS ~/gateway/gateway.log         # poslane/preskocene poruke i greske Infobipa
 ```
 
 ## Sto jos nije rijeseno

@@ -106,9 +106,37 @@ model TankAlarm {
   aktivan     Boolean   @default(true)
   nastaoU     DateTime  @default(now())
   razrijesenU DateTime?
+  // Kad je za ovaj alarm poslan SMS (Infobip). NULL = nije poslan. Sluzi kao
+  // brava protiv ponavljanja: SMS ide jednom, tek kad alarm potraje
+  // SMS_ODGODA_MIN, a "opet OK" SMS se salje samo ako je ovo popunjeno.
+  // Stanje je u bazi, a ne u gatewayu, da ga restart servisa ne izgubi.
+  smsPoslanU  DateTime?
   tank        Tank      @relation(fields: [tankId], references: [id], onDelete: Cascade)
 
   @@index([tankId])
+}
+
+// Dnevnik poslanih SMS obavijesti (Infobip). Dvije uloge:
+//   1. trag "sto je, kome i kada poslano" (i sto je Infobip odbio);
+//   2. stanje za heartbeat watchdog - je li za trenutni ispad SMS vec poslan.
+// Namjerno BEZ relacije na Tank: dnevnik mora prezivjeti brisanje tanka, a
+// tankId/tankBroj su tu samo kao podsjetnik o cemu se radilo.
+model SmsObavijest {
+  id         String   @id @default(cuid())
+  // "ALARM" | "OPORAVAK" | "HEARTBEAT" | "HEARTBEAT_OK" | "TEST"
+  tip        String
+  izvor      String // "GATEWAY" (Pi) | "WATCHDOG" (cron nad bazom)
+  tankId     String?
+  tankBroj   Int?
+  alarmId    String?
+  tekst      String
+  primatelji String // brojevi odvojeni zarezom, onako kako su poslani
+  uspjeh     Boolean
+  greska     String?
+  poslanoU   DateTime @default(now())
+
+  @@index([tip, poslanoU(sort: Desc)])
+  @@index([poslanoU(sort: Desc)])
 }
 
 // Zahtjev za promjenu parametra tanka (zadana temp, alarm pragovi, hladjenje ON/OFF).

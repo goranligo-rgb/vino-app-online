@@ -69,6 +69,23 @@ Komande (Faza B):
     novi pokusaj sljedeci ciklus, najvise KOMANDA_MAX_POKUSAJA (3) puta, pa NEUSPJELO.
   - KOMANDE_OMOGUCENE=false u .env potpuno gasi izvrsavanje (kill switch).
 
+SMS obavijesti (Infobip, opcionalno):
+  - Salju se SAMO za alarm temperature (PREVISOKA_TEMP - taj tip pokriva i
+    prenisku) koji NEPREKIDNO traje dulje od SMS_ODGODA_MIN (15 min). Kratki skok
+    kod punjenja ili pretoka tako nikoga ne budi.
+  - Jedan SMS po dogadaju, ne po ciklusu: brava je TankAlarm.smsPoslanU (u bazi,
+    pa je restart gatewaya ne ponisti). Kad se alarm zatvori, ide jos jedan SMS
+    "opet OK" - ali samo ako je za taj alarm poruka stvarno bila poslana.
+  - NE salju se: greska sonde, nema veze (to pokriva heartbeat watchdog) i tank
+    u soft-OFF stanju (hladjenje je namjerno ugaseno - to nije alarm).
+  - Bez INFOBIP_API_KEY / INFOBIP_BASE_URL / SMS_BROJEVI modul je ugasen i
+    gateway radi kao i prije. Greska Infobipa nikad ne rusi ciklus.
+  - Svaki pokusaj se zapisuje u log i u tablicu SmsObavijest (kome, koji tank,
+    ishod). Trazi migraciju 20260817_sms_obavijesti!
+  - Heartbeat ("gateway ne javlja") NIJE ovdje: mrtav gateway ne moze javiti sam
+    za sebe. To radi vanjski watchdog nad bazom - vidi README, poglavlje
+    "Heartbeat watchdog".
+
 Zabranjeni registri:
   0x0420 je MODBUS ADRESA SAMOG KONTROLERA. Upis u njega kod discoveryja je
   prepisao adrese vise kontrolera odjednom i srusio cijelu granu (svi uredaji
@@ -191,6 +208,27 @@ def env_reg(kljuc: str) -> int | None:
             return None
 
 
+def env_popis_brojeva(kljuc: str) -> list[str]:
+    """
+    SMS_BROJEVI=385911234567,385981234567 -> ["385911234567", "385981234567"].
+
+    Infobip trazi broj u medunarodnom obliku bez plusa i bez razmaka. Redoslijed
+    se cuva (prvi na popisu je prvi u logu), duplikati se izbacuju, a sve sto nije
+    niz znamenki se preskace uz upozorenje - bolje poslati trojici nego pasti.
+    """
+    brojevi: list[str] = []
+    for dio in env_str(kljuc).replace(";", ",").split(","):
+        dio = dio.strip().replace(" ", "").replace("-", "").lstrip("+")
+        if not dio:
+            continue
+        if not dio.isdigit():
+            log.warning("Neispravan broj u %s: %r - preskacem", kljuc, dio)
+            continue
+        if dio not in brojevi:
+            brojevi.append(dio)
+    return brojevi
+
+
 def env_reg_popis(kljuc: str, zadano: str) -> set[int]:
     """
     Popis adresa registara odvojen zarezom -> skup brojeva.
@@ -288,6 +326,27 @@ class Konfig:
         self.temp_min_valjana = env_float("TEMP_MIN_VALJANA", -60.0)
         self.temp_max_valjana = env_float("TEMP_MAX_VALJANA", 150.0)
 
+        # --- SMS obavijesti (Infobip) ---
+        # Modul je OPCIONALAN: bez INFOBIP_API_KEY-a, URL-a ili brojeva gateway
+        # radi tocno kao prije, samo se slanje preskace - bez greske i bez pokusaja.
+        self.infobip_base_url = env_str("INFOBIP_BASE_URL").rstrip("/")
+        self.infobip_api_key = env_str("INFOBIP_API_KEY")
+        self.sms_posiljatelj = env_str("SMS_POSILJATELJ", "Vinarija")
+        self.sms_brojevi = env_popis_brojeva("SMS_BROJEVI")
+        self.sms_omogucen = env_bool("SMS_OMOGUCEN", True)  # kill switch
+        # Naziv koji ide u tekst poruke ("ALARM Vinarija: ...").
+        self.sms_naziv = env_str("SMS_NAZIV", "Vinarija")
+        # Koliko alarm mora NEPREKIDNO trajati prije SMS-a. Kratki skok temperature
+        # kod punjenja ili pretoka ne smije nikoga zvati usred noci.
+        self.sms_odgoda_min = env_int("SMS_ODGODA_MIN", 15)
+        # Ako Infobip ne prima, pokusava se jos ovoliko ciklusa pa se odustaje
+        # (alarm se oznaci javljenim). Bez toga bi pokvaren kljuc mljeo zauvijek.
+        self.sms_pokusaja = env_int("SMS_POKUSAJA", 3)
+        # Ograda protiv troska i petlji: vise od ovoliko poruka na sat znaci da
+        # nesto nije u redu s logikom, a ne da je pola podruma u alarmu.
+        self.sms_max_na_sat = env_int("SMS_MAX_NA_SAT", 20)
+        self.sms_timeout = env_float("SMS_TIMEOUT", 10.0)
+
         self.log_file = os.path.expanduser(env_str("LOG_FILE", os.path.join(BAZA_DIR, "gateway.log")))
         self.log_level = env_str("LOG_LEVEL", "INFO").upper()
         self.log_max_mb = env_int("LOG_MAX_MB", 5)
@@ -313,6 +372,16 @@ class Konfig:
             raise SystemExit("GRESKA: HY_MIN mora biti veci od 0 i ne veci od HY_MAX")
         if not (self.temp_min_valjana <= self.soft_off_temp <= self.temp_max_valjana):
             raise SystemExit("GRESKA: SOFT_OFF_TEMP je izvan valjanog raspona temperatura")
+        # SMS je pomocni modul - nikad ne smije sprijeciti pokretanje nadzora.
+        # Polovicna konfiguracija se zato samo glasno prijavi.
+        if self.sms_odgoda_min < 1:
+            log.warning("SMS_ODGODA_MIN=%s je premalo - koristim 1 min", self.sms_odgoda_min)
+            self.sms_odgoda_min = 1
+        if self.sms_omogucen and self.infobip_api_key and not self.sms_brojevi:
+            log.warning("INFOBIP_API_KEY je postavljen, ali SMS_BROJEVI su prazni - SMS se NECE slati")
+        if self.sms_omogucen and self.infobip_api_key and not self.infobip_base_url:
+            log.warning("INFOBIP_API_KEY je postavljen, ali INFOBIP_BASE_URL nije - SMS se NECE slati")
+
         for ime, reg in (("REG_TEMP", self.reg_temp), ("REG_SETPOINT", self.reg_setpoint),
                          ("REG_HY", self.reg_hy), ("REG_STATUS", self.reg_status)):
             if reg is not None and reg in self.registri_zabranjeni:
@@ -485,8 +554,10 @@ class Supabase:
         ) or []
 
     def dohvati_aktivne_alarme(self) -> list[dict]:
+        # smsPoslanU trazi migraciju 20260817_sms_obavijesti. Bez nje PostgREST
+        # vraca 400 i sinkronizacija alarma pada - migracija ide PRIJE gatewaya.
         return self._zahtjev(
-            "GET", "TankAlarm?select=id,tankId,tip,nastaoU&aktivan=is.true"
+            "GET", "TankAlarm?select=id,tankId,tip,poruka,nastaoU,smsPoslanU&aktivan=is.true"
         ) or []
 
     def upisi_ocitanja(self, redovi: list[dict]) -> None:
@@ -502,6 +573,17 @@ class Supabase:
     def zatvori_alarm(self, alarm_id: str) -> None:
         self._zahtjev("PATCH", f"TankAlarm?id=eq.{alarm_id}",
                       {"aktivan": False, "razrijesenU": sada_utc_iso()})
+
+    # --- SMS obavijesti ---
+
+    def oznaci_sms_poslan(self, alarm_id: str) -> None:
+        """Pecat "za ovaj alarm je SMS obavljen" - brava protiv ponavljanja."""
+        self._zahtjev("PATCH", f"TankAlarm?id=eq.{alarm_id}",
+                      {"smsPoslanU": sada_utc_iso()})
+
+    def zabiljezi_sms(self, red: dict) -> None:
+        self._zahtjev("POST", "SmsObavijest",
+                      [{"id": cuid(), "izvor": "GATEWAY", "poslanoU": sada_utc_iso(), **red}])
 
     def azuriraj_tank(self, tank_id: str, promjene: dict, uvjeti: list[str]) -> bool:
         """
@@ -1034,6 +1116,210 @@ def obradi_granu(port: str, tankovi: list[dict], k: Konfig,
     return rezultat, ishodi
 
 
+# ------------------------------------------------------- SMS obavijesti (Infobip)
+
+# Poruke se namjerno pisu BEZ dijakritike: GSM-7 abeceda nema c/c/z/s/d, pa bi
+# jedno slovo s kvacicom prebacilo poruku u UCS-2 i prepolovilo duljinu segmenta
+# (70 znakova umjesto 160) - odnosno naplatilo dva SMS-a umjesto jednog.
+_BEZ_KVACICA = str.maketrans({
+    "č": "c", "ć": "c", "ž": "z", "š": "s", "đ": "d",
+    "Č": "C", "Ć": "C", "Ž": "Z", "Š": "S", "Đ": "D",
+    "°": "", "–": "-", "—": "-", "„": '"', "”": '"', "…": "...",
+})
+
+
+def gsm_tekst(tekst: str) -> str:
+    """Ocisti tekst poruke od dijakritike i ostalog sto nije u GSM-7 abecedi."""
+    ocisceno = tekst.translate(_BEZ_KVACICA)
+    return "".join(z if ord(z) < 128 else "?" for z in ocisceno)
+
+
+def sada_lokalno_hhmm() -> str:
+    """Sat i minuta po lokalnom vremenu Pi-ja (za tekst poruke)."""
+    return datetime.now().strftime("%H:%M")
+
+
+def _broj_tanka(broj: Any) -> str:
+    return str(broj) if broj is not None else "?"
+
+
+def tekst_alarma(k: Konfig, broj: Any, temperatura: float | None,
+                 donja: float | None, gornja: float | None,
+                 minuta: float, opis_iz_baze: str = "") -> str:
+    """
+    "ALARM Vinarija: Tank 17 na 3.2 C (granica 10.0-14.0 C) vec 15 min. 18:42"
+
+    Ako ovaj ciklus nema svjezeg ocitanja (tank je u meduvremenu zasutio), uzima
+    se opis zapisan kod otvaranja alarma - bolje priblizno nego nista.
+    """
+    if temperatura is not None:
+        stanje = f"na {temperatura:.1f} C"
+        if donja is not None and gornja is not None:
+            stanje += f" (granica {donja:.1f}-{gornja:.1f} C)"
+    else:
+        stanje = opis_iz_baze.strip() or "izvan dozvoljenih granica"
+    return gsm_tekst(
+        f"ALARM {k.sms_naziv}: Tank {_broj_tanka(broj)} {stanje} vec "
+        f"{int(minuta)} min. {sada_lokalno_hhmm()}"
+    )
+
+
+def tekst_oporavka(k: Konfig, broj: Any, temperatura: float | None,
+                   iskljuceno: bool) -> str:
+    """Primjer: OK Vinarija: Tank 17 vratio se u granice (12.1 C). 19:05"""
+    if iskljuceno:
+        razlog = "hladjenje je iskljuceno, alarm zatvoren"
+    elif temperatura is not None:
+        razlog = f"vratio se u granice ({temperatura:.1f} C)"
+    else:
+        razlog = "vise nije u alarmu"
+    return gsm_tekst(
+        f"OK {k.sms_naziv}: Tank {_broj_tanka(broj)} {razlog}. {sada_lokalno_hhmm()}"
+    )
+
+
+class Sms:
+    """
+    Slanje SMS-a preko Infobipa (POST /sms/2/text/advanced) + dnevnik u bazi.
+
+    Nacela:
+      - Modul je opcionalan. Bez kljuca, URL-a ili brojeva `ukljucen` je False i
+        posalji() samo zapise u log da je preskoceno. Gateway zbog SMS-a NIKAD ne
+        pada - greska Infobipa se zabiljezi i ciklus ide dalje.
+      - Slanje se NE ponavlja unutar jednog poziva: ponovljeni POST kod isteka
+        veze lako znaci dvije poruke za isti dogadaj. Ponavljanje (najvise
+        SMS_POKUSAJA ciklusa) vodi pozivatelj, koji zna radi li se o istom alarmu.
+      - Ograda SMS_MAX_NA_SAT stiti od petlje u logici: skupo je i budi ljude.
+      - --bez-upisa (proba) ne salje nista.
+    """
+
+    URL_PUTANJA = "/sms/2/text/advanced"
+
+    def __init__(self, k: Konfig, db: Supabase) -> None:
+        self.k = k
+        self.db = db
+        self._trenuci: list[float] = []  # monotona vremena zadnjih pokusaja
+        self._brava = threading.Lock()
+
+    @property
+    def ukljucen(self) -> bool:
+        return bool(
+            self.k.sms_omogucen
+            and self.k.infobip_api_key
+            and self.k.infobip_base_url
+            and self.k.sms_brojevi
+            and not self.db.bez_upisa
+        )
+
+    def razlog_iskljucenja(self) -> str:
+        if not self.k.sms_omogucen:
+            return "SMS_OMOGUCEN=false"
+        if self.db.bez_upisa:
+            return "--bez-upisa"
+        if not self.k.infobip_api_key:
+            return "nema INFOBIP_API_KEY"
+        if not self.k.infobip_base_url:
+            return "nema INFOBIP_BASE_URL"
+        if not self.k.sms_brojevi:
+            return "nema SMS_BROJEVI"
+        return ""
+
+    def _ograda_dopusta(self) -> bool:
+        sada = time.monotonic()
+        with self._brava:
+            self._trenuci = [t for t in self._trenuci if sada - t < 3600]
+            if len(self._trenuci) >= self.k.sms_max_na_sat:
+                return False
+            self._trenuci.append(sada)
+            return True
+
+    def posalji(self, tekst: str, *, tip: str, tank_id: str | None = None,
+                tank_broj: Any = None, alarm_id: str | None = None) -> bool:
+        """Vraca True ako je Infobip poruku prihvatio."""
+        if not self.ukljucen:
+            log.info("SMS (%s) preskocen [%s]: %s", tip, self.razlog_iskljucenja(), tekst)
+            return False
+        if not self._ograda_dopusta():
+            log.error("SMS (%s) NIJE poslan - dosegnuta ograda %s poruka/sat: %s",
+                      tip, self.k.sms_max_na_sat, tekst)
+            return False
+
+        primatelji = ",".join(self.k.sms_brojevi)
+        greska = self._posalji_infobip(tekst)
+        if greska:
+            log.error("SMS (%s) NIJE poslan na %s: %s | tekst: %s",
+                      tip, primatelji, greska, tekst)
+        else:
+            log.info("SMS (%s) poslan na %s: %s", tip, primatelji, tekst)
+
+        try:
+            self.db.zabiljezi_sms({
+                "tip": tip,
+                "tankId": tank_id,
+                "tankBroj": int(tank_broj) if tank_broj is not None else None,
+                "alarmId": alarm_id,
+                "tekst": tekst[:500],
+                "primatelji": primatelji[:200],
+                "uspjeh": greska is None,
+                "greska": greska[:500] if greska else None,
+            })
+        except Exception as e:
+            # Dnevnik je koristan, ali poruka je vec otisla - ne rusi ciklus.
+            log.warning("SMS dnevnik nije zapisan: %s", e)
+
+        return greska is None
+
+    def _posalji_infobip(self, tekst: str) -> str | None:
+        """Vraca None ako je sve u redu, inace opis greske."""
+        url = f"{self.k.infobip_base_url}{self.URL_PUTANJA}"
+        tijelo = json.dumps({
+            "messages": [{
+                "destinations": [{"to": b} for b in self.k.sms_brojevi],
+                "from": self.k.sms_posiljatelj,
+                "text": tekst,
+            }]
+        }).encode("utf-8")
+
+        zahtjev = urllib.request.Request(url, data=tijelo, method="POST")
+        zahtjev.add_header("Authorization", f"App {self.k.infobip_api_key}")
+        zahtjev.add_header("Content-Type", "application/json")
+        zahtjev.add_header("Accept", "application/json")
+        try:
+            with urllib.request.urlopen(zahtjev, timeout=self.k.sms_timeout) as odgovor:
+                sirovo = odgovor.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            detalj = e.read().decode("utf-8", "replace")[:300]
+            return f"HTTP {e.code}: {detalj}"
+        except (urllib.error.URLError, TimeoutError, socket.timeout) as e:
+            return f"veza prema Infobipu: {e}"
+        except Exception as e:  # nikad ne rusi ciklus zbog SMS-a
+            return f"neocekivana greska: {e}"
+        return self._greska_iz_odgovora(sirovo)
+
+    @staticmethod
+    def _greska_iz_odgovora(sirovo: str) -> str | None:
+        """
+        Infobip vraca HTTP 200 i kad poruku odbije - pravi status je u tijelu
+        (messages[].status.groupName: PENDING/DELIVERED je dobro, REJECTED nije).
+        """
+        try:
+            podaci = json.loads(sirovo) if sirovo.strip() else {}
+        except json.JSONDecodeError:
+            return None  # poruka je predana, samo ne razumijemo odgovor
+        if not isinstance(podaci, dict):
+            return None
+        odbijeni = []
+        for poruka in podaci.get("messages") or []:
+            status = poruka.get("status") or {}
+            skupina = str(status.get("groupName") or "").upper()
+            if skupina in ("REJECTED", "UNDELIVERABLE"):
+                opis = status.get("description") or status.get("name") or skupina
+                odbijeni.append(f"{poruka.get('to')}: {opis}")
+        if odbijeni:
+            return "Infobip odbio - " + "; ".join(odbijeni)
+        return None
+
+
 # ------------------------------------------------------------ alarmna logika
 
 TIP_TEMP = "PREVISOKA_TEMP"
@@ -1055,8 +1341,16 @@ class Gateway:
         self.k = k
         self.db = Supabase(k, bez_upisa=bez_upisa)
         self.bez_komandi = bez_komandi
+        self.sms = Sms(k, self.db)
         self.neuspjeha: dict[str, int] = {}   # tankId -> uzastopnih neuspjelih ciklusa
         self.pokusaji_komandi: dict[str, int] = {}  # komandaId -> neuspjelih pokusaja
+        # alarmId -> neuspjelih pokusaja slanja SMS-a. Samo u memoriji: trajna
+        # brava je TankAlarm.smsPoslanU (upisuje se tek kad poruka prode), pa
+        # restart u najgorem slucaju znaci jos par pokusaja, nikad dvostruki SMS.
+        self.sms_neuspjeha: dict[str, int] = {}
+        # Alarmi za koje je poruka OTISLA u ovom zivotu procesa. Cuva se odvojeno
+        # od baze jer upis brave moze pasti (mreza) - a poruka je vec kod ljudi.
+        self.sms_javljeni: set[str] = set()
         self.tankovi_cache: list[dict] = []
         self.stop = threading.Event()
 
@@ -1323,6 +1617,9 @@ class Gateway:
         # tankId -> {tip: poruka} zeljenih alarma, i skup tipova koje ovaj ciklus ne dira
         zeljeni: dict[str, dict[str, str]] = {}
         ne_diraj: dict[str, set[str]] = {}
+        # tankId -> svjeze stanje za tekst SMS-a (broj tanka, temperatura, granice).
+        # Bez ovoga bi poruka morala prepricavati zapis iz baze.
+        stanje: dict[str, dict] = {}
         broj_ok = broj_alarm = broj_offline = broj_sonda = broj_iskljuceno = 0
 
         for t in tankovi:
@@ -1333,6 +1630,8 @@ class Gateway:
                 continue
             zeljeni[tid] = {}
             ne_diraj[tid] = set()
+            stanje[tid] = {"broj": broj, "temperatura": None, "donja": None,
+                           "gornja": None, "iskljuceno": False}
 
             zadana_db = u_broj(t.get("zadanaTemp"))
             minus = u_broj(t.get("alarmMinus"))
@@ -1385,6 +1684,8 @@ class Gateway:
 
             donja, gornja = zadana - minus, zadana + plus
             izvan = not iskljuceno and (temperatura > gornja or temperatura < donja)
+            stanje[tid].update({"temperatura": temperatura, "donja": donja,
+                                "gornja": gornja, "iskljuceno": iskljuceno})
             if iskljuceno:
                 broj_iskljuceno += 1
             if izvan:
@@ -1416,12 +1717,14 @@ class Gateway:
             log.error("Upis ocitanja nije uspio: %s", e)
 
         try:
-            self.sinkroniziraj_alarme(zeljeni, ne_diraj)
+            self.sinkroniziraj_alarme(zeljeni, ne_diraj, stanje)
         except Exception as e:
             log.error("Sinkronizacija alarma nije uspjela: %s", e)
 
     def sinkroniziraj_alarme(self, zeljeni: dict[str, dict[str, str]],
-                             ne_diraj: dict[str, set[str]]) -> None:
+                             ne_diraj: dict[str, set[str]],
+                             stanje: dict[str, dict] | None = None) -> None:
+        stanje = stanje or {}
         aktivni = self.db.dohvati_aktivne_alarme()
         po_tanku: dict[str, dict[str, list[dict]]] = {}
         for a in aktivni:
@@ -1439,13 +1742,102 @@ class Gateway:
                     self.db.otvori_alarm(tid, tip, zeljeni_tipovi[tip])
                     otvoreno += 1
                     log.info("ALARM OTVOREN %s: %s", tip, zeljeni_tipovi[tip])
+                    # SMS se OVDJE namjerno ne salje: alarm mora prvo potrajati
+                    # (vidi mozda_javi_alarm nize).
                 elif not treba and ima_aktivan:
                     for a in postojeci[tip]:
                         self.db.zatvori_alarm(a["id"])
                         zatvoreno += 1
                         log.info("ALARM ZATVOREN %s (tank %s, id %s)", tip, tid, a["id"])
+                        self.javi_oporavak(a, stanje.get(tid))
+                elif treba and ima_aktivan:
+                    for a in postojeci[tip]:
+                        self.mozda_javi_alarm(a, stanje.get(tid))
         if otvoreno or zatvoreno:
             log.info("Alarmi: otvoreno %s, zatvoreno %s", otvoreno, zatvoreno)
+
+        # Brave i brojaci za alarme kojih vise nema (zatvoreni, obrisani) - inace
+        # bi rasli do kraja svijeta.
+        zivi = {a["id"] for a in aktivni}
+        self.sms_neuspjeha = {aid: n for aid, n in self.sms_neuspjeha.items() if aid in zivi}
+        self.sms_javljeni &= zivi
+
+    # --- SMS za alarme --------------------------------------------------------
+
+    def mozda_javi_alarm(self, alarm: dict, st: dict | None) -> None:
+        """
+        SMS za alarm temperature koji NEPREKIDNO traje dulje od SMS_ODGODA_MIN.
+
+        Salje se najvise jednom po alarmu: trajna brava je TankAlarm.smsPoslanU,
+        a alarm koji se zatvori pa ponovno otvori je novi red u bazi, dakle i novi
+        dogadaj vrijedan poruke. SMS ide samo za PREVISOKA_TEMP (taj tip pokriva i
+        prenisku temperaturu); greska sonde i nema veze se ne javljaju SMS-om.
+
+        Tank koji ovaj ciklus nije dao ocitanje (offline, sonda) je u ne_diraj i
+        ovdje uopce ne dolazi - trajanje se broji samo dok imamo dokaz da alarm jos
+        stoji. Poruka ce otici kad se tank javi, ako je i tada u alarmu.
+        """
+        if alarm.get("tip") != TIP_TEMP or not self.sms.ukljucen:
+            return
+        aid = alarm.get("id") or ""
+        if alarm.get("smsPoslanU") or aid in self.sms_javljeni:
+            return  # vec javljeno - jedan SMS po dogadaju
+
+        st = st or {}
+        if st.get("iskljuceno"):
+            return  # soft-OFF: hladjenje je namjerno ugaseno, to nije alarm
+
+        nastao = parsiraj_vrijeme(alarm.get("nastaoU"))
+        if nastao is None:
+            log.warning("Alarm %s nema citljiv nastaoU - SMS se preskace", aid)
+            return
+        minuta = (datetime.now(timezone.utc) - nastao).total_seconds() / 60.0
+        if minuta < self.k.sms_odgoda_min:
+            return
+
+        tekst = tekst_alarma(self.k, st.get("broj"), st.get("temperatura"),
+                             st.get("donja"), st.get("gornja"), minuta,
+                             str(alarm.get("poruka") or ""))
+        poslan = self.sms.posalji(tekst, tip="ALARM", tank_id=alarm.get("tankId"),
+                                  tank_broj=st.get("broj"), alarm_id=aid)
+
+        if poslan:
+            # Brava u memoriji ide PRVA: ako upis u bazu padne, sljedeci ciklus
+            # svejedno ne smije poslati istu poruku drugi put.
+            self.sms_javljeni.add(aid)
+            self.sms_neuspjeha.pop(aid, None)
+            try:
+                self.db.oznaci_sms_poslan(aid)
+            except Exception as e:
+                log.error("SMS je poslan, ali smsPoslanU nije upisan za alarm %s: %s "
+                          "(brava vrijedi do restarta gatewaya)", aid, e)
+            return
+
+        self.sms_neuspjeha[aid] = self.sms_neuspjeha.get(aid, 0) + 1
+        if self.sms_neuspjeha[aid] >= self.k.sms_pokusaja:
+            log.error("SMS za alarm %s nije uspio %s puta - odustajem i oznacavam ga javljenim",
+                      aid, self.sms_neuspjeha[aid])
+            try:
+                self.db.oznaci_sms_poslan(aid)
+            except Exception as e:
+                log.error("Ne mogu oznaciti alarm %s javljenim: %s", aid, e)
+
+    def javi_oporavak(self, alarm: dict, st: dict | None) -> None:
+        """
+        "Opet je OK" - samo za alarm zbog kojeg je SMS stvarno otisao. Alarm koji
+        je prosao ispod praga od 15 min nikoga nije budio, pa ga ne treba ni
+        razbudivati porukom da je gotovo.
+        """
+        if alarm.get("tip") != TIP_TEMP or not self.sms.ukljucen:
+            return
+        aid = alarm.get("id") or ""
+        if not alarm.get("smsPoslanU") and aid not in self.sms_javljeni:
+            return
+        st = st or {}
+        tekst = tekst_oporavka(self.k, st.get("broj"), st.get("temperatura"),
+                               bool(st.get("iskljuceno")))
+        self.sms.posalji(tekst, tip="OPORAVAK", tank_id=alarm.get("tankId"),
+                         tank_broj=st.get("broj"), alarm_id=aid)
 
     # --- glavna petlja --------------------------------------------------------
 
@@ -1480,6 +1872,16 @@ class Gateway:
         else:
             log.info("Komande su ISKLJUCENE (KOMANDE_OMOGUCENE=false) - gateway samo cita.")
 
+        if self.sms.ukljucen:
+            log.info("SMS (Infobip): %s primatelja (%s), posiljatelj %s, prag %s min, "
+                     "najvise %s poruka/sat",
+                     len(self.k.sms_brojevi), ", ".join(self.k.sms_brojevi),
+                     self.k.sms_posiljatelj, self.k.sms_odgoda_min, self.k.sms_max_na_sat)
+            log.info("SMS ide samo za %s dulji od praga i za povratak u granice; "
+                     "greska sonde, nema veze i soft-OFF se ne javljaju.", TIP_TEMP)
+        else:
+            log.info("SMS obavijesti su ISKLJUCENE (%s).", self.sms.razlog_iskljucenja())
+
         while not self.stop.is_set():
             pocetak = time.monotonic()
             try:
@@ -1501,18 +1903,32 @@ def main() -> None:
     jednom = "--jednom" in sys.argv            # odradi jedan ciklus pa izadi
     bez_upisa = "--bez-upisa" in sys.argv      # nista ne pisi u bazu (prvi test)
     bez_komandi = "--bez-komandi" in sys.argv  # citaj i pisi u bazu, ali ne diraj kontrolere
+    bez_sms = "--bez-sms" in sys.argv          # radi normalno, ali ne salji nijedan SMS
 
     ucitaj_env(os.path.join(BAZA_DIR, ".env"))
     k = Konfig()
+    if bez_sms:
+        k.sms_omogucen = False
     postavi_logiranje(k)
     k.provjeri()
 
     gw = Gateway(k, bez_upisa=bez_upisa, bez_komandi=bez_komandi)
 
+    # Provjera postave Infobipa: posalje jednu poruku na sve brojeve pa izade.
+    if "--test-sms" in sys.argv:
+        if not gw.sms.ukljucen:
+            log.error("Test SMS-a nije moguc: %s", gw.sms.razlog_iskljucenja())
+            sys.exit(1)
+        uspjeh = gw.sms.posalji(
+            gsm_tekst(f"TEST {k.sms_naziv}: SMS obavijesti rade. {sada_lokalno_hhmm()}"),
+            tip="TEST")
+        sys.exit(0 if uspjeh else 1)
+
     if jednom:
-        log.info("JEDAN CIKLUS%s%s",
+        log.info("JEDAN CIKLUS%s%s%s",
                  " (BEZ UPISA)" if bez_upisa else "",
-                 " (BEZ KOMANDI)" if bez_komandi else "")
+                 " (BEZ KOMANDI)" if bez_komandi else "",
+                 " (BEZ SMS-a)" if bez_sms else "")
         gw.ciklus()
         return
 
