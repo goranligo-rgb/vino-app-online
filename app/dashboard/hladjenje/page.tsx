@@ -211,6 +211,15 @@ export default async function HladjenjeDashboard() {
            moze ostati bez margina ako ovo pravilo iz bilo kojeg razloga ne prode. */
         .hlad-stranica { padding-top: max(14px, calc(env(safe-area-inset-top) + 10px)); }
 
+        /* Sigurnosna mreza za mobitel: pravi krivac (auto staza vanjskog grida +
+           tablica od 640px) je popravljen iznad, ali ako se ikad ubaci nesto sire
+           od ekrana, neka radije bude odrezano nego da cijela stranica krene
+           vodoravno - tada je i grid "razvucen" i nista se ne moze citati.
+           Traka dijagnostike prijavi ako se to dogodi. */
+        @media (max-width: 639px){
+          html, body { overflow-x: hidden; max-width: 100%; }
+        }
+
         /* PRIVREMENO: dijagnostika mobilnog rasporeda - vidi dijagnostika-sirine.tsx.
            Zelena traka = media upit "<640px" okida na uredaju; tamna = ne okida. */
         .hlad-dijagnostika { font-size:11px; font-weight:700; padding:6px 8px; color:#fff;
@@ -305,7 +314,25 @@ export default async function HladjenjeDashboard() {
         }
       `}</style>
 
-      <div style={{ maxWidth: 1400, margin: "0 auto", display: "grid", gap: 18 }}>
+      {/*
+        gridTemplateColumns: "minmax(0, 1fr)" je OVDJE kljucno, a ne kozmetika.
+        Bez njega grid dobiva implicitni stupac velicine "auto", a auto staza se
+        siri na max-content najsireg djeteta - a to je tablica dnevnika s
+        min-width:640px. Staza tako postane ~672px i SVE u njoj (kartice, traka,
+        zaglavlje) dobije tu sirinu, pa se na telefonu od 402px stranica vuce
+        vodoravno i kartice izgledaju razvuceno. minmax(0, 1fr) veze stazu uz
+        sirinu kontejnera, a tablica se scrolla unutar svog okvira.
+      */}
+      <div
+        style={{
+          maxWidth: 1400,
+          margin: "0 auto",
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr)",
+          gap: 18,
+          minWidth: 0,
+        }}
+      >
         {nemaHeartbeata ? (
           <div
             role="alert"
@@ -385,12 +412,15 @@ export default async function HladjenjeDashboard() {
         </div>
 
         {/* Dnevnik zadnjih promjena */}
-        <div style={{ background: "#ffffff", border: "1px solid #e2e2e2", padding: 16 }}>
+        {/* minWidth:0 na kartici i na okviru koji scrolla: bez toga se okvir s
+            tablicom (min-width 640) ne smije stisnuti i gura cijelu stranicu u
+            sirinu umjesto da tablica scrolla sama za sebe. */}
+        <div style={{ background: "#ffffff", border: "1px solid #e2e2e2", padding: 16, minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 12 }}>Zadnje promjene</div>
           {dnevnik.length === 0 ? (
             <div style={{ fontSize: 13, color: "#777" }}>Još nema zabilježenih komandi.</div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
+            <div style={{ overflowX: "auto", minWidth: 0, maxWidth: "100%", WebkitOverflowScrolling: "touch" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 640 }}>
                 <thead>
                   <tr style={{ textAlign: "left", color: "#666", borderBottom: "2px solid #eee" }}>

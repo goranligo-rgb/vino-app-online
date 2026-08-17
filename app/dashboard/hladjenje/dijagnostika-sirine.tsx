@@ -29,10 +29,34 @@ export default function DijagnostikaSirine() {
       const mq = window.matchMedia("(max-width: 639px)").matches ? "DA" : "NE";
       const kartica = document.querySelector(".hlad-kartica");
       const sirinaKartice = kartica ? Math.round(kartica.getBoundingClientRect().width) : 0;
+
+      // Vodoravni scroll cijele stranice + tko ga uzrokuje. Element koji desnim
+      // rubom prelazi viewport je krivac; ispisuju se tri najgora, s oznakom po
+      // kojoj se prepoznaju u kodu (tag.klasa ili tag#id).
+      const sirina = window.innerWidth;
+      const docW = document.documentElement.scrollWidth;
+      const prelijeva = docW > sirina + 1;
+      let krivci = "";
+      if (prelijeva) {
+        krivci =
+          " · KRIVCI: " +
+          (Array.from(document.querySelectorAll<HTMLElement>("body *"))
+            .map((e) => ({ e, r: Math.round(e.getBoundingClientRect().right) }))
+            .filter((x) => x.r > sirina + 1)
+            .sort((a, b) => b.r - a.r)
+            .slice(0, 3)
+            .map(({ e, r }) => {
+              const klasa = typeof e.className === "string" ? e.className.split(/\s+/)[0] : "";
+              return `${e.tagName.toLowerCase()}${e.id ? "#" + e.id : klasa ? "." + klasa : ""}→${r}`;
+            })
+            .join(", ") || "nijedan pojedinacni element");
+      }
+
       setRedak(
         `viewport ${window.innerWidth}×${window.innerHeight} · ekran ${window.screen.width} · ` +
           `DPR ${window.devicePixelRatio} · media <640px: ${mq} · ` +
-          `stupaca: ${stupci} · kartica: ${sirinaKartice}px`
+          `stupaca: ${stupci} · kartica: ${sirinaKartice}px · ` +
+          `scrollWidth ${docW} vs ${sirina} → ${prelijeva ? "PRELIJEVA SE" : "OK"}${krivci}`
       );
     }
     izmjeri();
