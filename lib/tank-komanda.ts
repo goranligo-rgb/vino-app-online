@@ -44,7 +44,10 @@ export const LIMITI: Record<VrijednosnaKomanda, { min: number; max: number }> = 
   ZADANA_TEMP: { min: 4, max: 19.5 },
   ALARM_MINUS: { min: 0.5, max: 10 },
   ALARM_PLUS: { min: 0.5, max: 10 },
-  HY: { min: 0.3, max: 3.0 },
+  // XR75CX podrzava Hy 0,1-25,5 K (prirucnik). Donja granica je zato 0,1, a
+  // gornja ostaje 3,0 jer je za vino i vise od toga nepotrebno siroka histereza.
+  // Pakiranje registra 0x0408 radi i za 0,1 (1 << 8 = 256).
+  HY: { min: 0.1, max: 3.0 },
 };
 
 // Role koje smiju upravljati (PREGLED je iskljucen - samo gleda).

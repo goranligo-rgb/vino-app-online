@@ -255,6 +255,12 @@ class Konfig:
         self.djelitelj_hy = env_float("DJELITELJ_HY", 10.0)
         self.hy_pomak_bitova = env_int("HY_POMAK_BITOVA", 8)
 
+        # Dozvoljeni raspon Hy kod upisa. Kontroler podnosi 0,1-25,5 K, ali gateway
+        # ne pusta sto god stigne iz baze - ovo mora pratiti LIMITI.HY u
+        # lib/tank-komanda.ts (0,1-3,0 K za vino).
+        self.hy_min = env_float("HY_MIN", 0.1)
+        self.hy_max = env_float("HY_MAX", 3.0)
+
         # ON/OFF hladjenja: kontroler NEMA izlozen Modbus registar za ukljucivanje,
         # pa se gasi "meko" - set point se digne na SOFT_OFF_TEMP, a stara zadana
         # temperatura se zapamti u Tank.zadnjaZadanaTemp i vrati kod ukljucivanja.
@@ -303,6 +309,8 @@ class Konfig:
             raise SystemExit("GRESKA: KOMANDA_MAX_POKUSAJA mora biti veci od 0")
         if not (0 <= self.hy_pomak_bitova <= 15):
             raise SystemExit("GRESKA: HY_POMAK_BITOVA mora biti izmedu 0 i 15")
+        if not (0 < self.hy_min <= self.hy_max):
+            raise SystemExit("GRESKA: HY_MIN mora biti veci od 0 i ne veci od HY_MAX")
         if not (self.temp_min_valjana <= self.soft_off_temp <= self.temp_max_valjana):
             raise SystemExit("GRESKA: SOFT_OFF_TEMP je izvan valjanog raspona temperatura")
         for ime, reg in (("REG_TEMP", self.reg_temp), ("REG_SETPOINT", self.reg_setpoint),
@@ -841,6 +849,10 @@ def isplaniraj(k: Konfig, tip: str, vrijednost: Any, tank: dict,
     if tip == "HY":
         if k.reg_hy is None:
             return None, f"{NAPOMENA_DISCOVERY} REG_HY", "CEKA"
+        # Raspon se provjerava i u aplikaciji, ali gateway je zadnji pred kontrolerom.
+        if not (k.hy_min - 0.05 <= broj <= k.hy_max + 0.05):
+            return None, (f"Hy {broj:.1f} K je izvan dozvoljenog raspona "
+                          f"{k.hy_min:.1f}-{k.hy_max:.1f} K"), "NEUSPJELO"
         sirovo = hy_u_registar(k, broj)
         # Provjera pakiranja: ako se vrijednost ne vrati ista, .env je krivo podesen
         # i bolje je ne pisati nista nego upisati besmislicu u kontroler.
@@ -1455,10 +1467,11 @@ class Gateway:
 
         if self.k.komande_omogucene:
             log.info(
-                "Komande: setpoint=%s, Hy=%s (pomak %s bita) | ograda %s min, najvise %s pokusaja",
+                "Komande: setpoint=%s, Hy=%s (pomak %s bita, raspon %.1f-%.1f K) | "
+                "ograda %s min, najvise %s pokusaja",
                 f"0x{self.k.reg_setpoint:04X}" if self.k.reg_setpoint is not None else "CEKA DISCOVERY",
                 f"0x{self.k.reg_hy:04X}" if self.k.reg_hy is not None else "CEKA DISCOVERY",
-                self.k.hy_pomak_bitova,
+                self.k.hy_pomak_bitova, self.k.hy_min, self.k.hy_max,
                 self.k.komanda_max_minuta, self.k.komanda_max_pokusaja,
             )
             log.info("ON/OFF hladjenja ide preko set pointa (soft-OFF na %.1f C) - "

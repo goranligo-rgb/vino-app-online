@@ -81,7 +81,7 @@ red u `TankKomanda` sa statusom `NA_CEKANJU`. Gateway ga preuzima u sljedecem ci
 |---|---|---|
 | `HLADJENJE_ON` / `HLADJENJE_OFF` | `REG_SETPOINT` (soft-OFF, vidi nize) | da |
 | `ZADANA_TEMP` | `REG_SETPOINT` (0x042D) | da |
-| `HY` (diferencijal 0,3-3,0 K) | `REG_HY` (0x0408, pakiran u gornji bajt) | da |
+| `HY` (diferencijal 0,1-3,0 K, korak 0,1) | `REG_HY` (0x0408, pakiran u gornji bajt) | da |
 | `ALARM_MINUS` / `ALARM_PLUS` | - | **ne** - to su pragovi upozorenja u aplikaciji, ne parametri kontrolera |
 
 ### Soft-OFF: kako se hladjenje gasi bez ON/OFF registra
