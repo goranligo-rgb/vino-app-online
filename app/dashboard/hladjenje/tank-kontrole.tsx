@@ -19,6 +19,7 @@ import {
   type KomandaTip,
 } from "@/lib/tank-komanda";
 import { posaljiKomandu } from "./actions";
+import SmsPrekidac from "./sms-prekidac";
 
 export type KomandaStanje = { status: string; greska: string | null } | null;
 
@@ -43,6 +44,8 @@ export type TankTile = {
   hladjenjeAktivno: boolean | null;
   mjerenoU: string | null;
   imaAktivanAlarm: boolean;
+  // Salje li se SMS kad ovaj tank ode u alarm. Ne utjece na sam alarm.
+  smsAktivan: boolean;
   komande: Partial<Record<KomandaTip, KomandaStanje>>;
 };
 
@@ -266,6 +269,13 @@ export default function TankKontrole({
             <span style={{ width: 8, height: 8, borderRadius: 0, background: stil.dot }} />
             {stil.label}
           </span>
+          <SmsPrekidac
+            tankId={tank.id}
+            tankBroj={tank.broj}
+            smsAktivan={tank.smsAktivan}
+            smijeUpravljati={smijeUpravljati}
+            uAlarmu={status === "ALARM"}
+          />
           <a
             href={`/tankovi/${tank.id}#hladjenje`}
             style={{

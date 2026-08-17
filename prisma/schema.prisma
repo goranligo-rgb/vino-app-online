@@ -46,10 +46,15 @@ model Tank {
   // Proziva li gateway ovaj tank? false = tank postoji, ali nema kontroler
   // hladjenja (npr. 41-44). Adresa se cuva, ali se ne salje nijedan upit.
   nadzorHladjenja      Boolean               @default(true)
+  // Salje li se SMS kad ovaj tank ode u alarm temperature? false utisava SAMO
+  // poruku - alarm se i dalje otvara, broji i crveni na ekranu. Sluzi za tank
+  // koji se zna da je izvan granica (punjenje, pretok, tank koji se hladi
+  // danima) da ne budi ljude svakih 15 min.
+  smsAktivan           Boolean               @default(true)
   zadanaTemp           Decimal?              @db.Decimal(4, 1)
   alarmMinus           Decimal?              @default(2.0) @db.Decimal(3, 1)
   alarmPlus            Decimal?              @default(2.0) @db.Decimal(3, 1)
-  // Hy = diferencijal hladjenja na Dixellu (0,3-3,0 K). Faza B.
+  // Hy = diferencijal hladjenja na Dixellu (0,1-3,0 K). Faza B.
   hy                   Decimal?              @db.Decimal(3, 1)
   // Soft-OFF: kontroler nema Modbus registar za ON/OFF, pa se hladjenje gasi
   // podizanjem set pointa na SOFT_OFF_TEMP (20,0 C). Ovdje se pamti zadana

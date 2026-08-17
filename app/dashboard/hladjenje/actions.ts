@@ -119,3 +119,49 @@ export async function posaljiKomandu(input: {
   revalidatePath(`/tankovi/${tankId}`); // Hy se mijenja i s kartice Hladjenje na monitoru
   return { ok: true };
 }
+
+/**
+ * Prekidac "SMS obavijesti" za jedan tank (Tank.smsAktivan).
+ *
+ * NIJE komanda: ne ide preko gatewaya, ne stvara TankKomanda i ne dira kontroler
+ * - to je postavka u bazi koja vrijedi odmah. Gateway je samo cita kad odlucuje
+ * hoce li poslati SMS.
+ *
+ * Alarm se time NE gasi: TankAlarm se i dalje otvara, crveni badge i brojaci na
+ * dashboardu ostaju isti. Utisava se samo poruka.
+ *
+ * Prava su ista kao za komande (ADMIN/ENOLOG/PODRUM) i provjeravaju se OVDJE,
+ * ne skrivanjem prekidaca u UI-ju.
+ */
+export async function postaviSmsObavijesti(input: {
+  tankId: string;
+  aktivan: boolean;
+}): Promise<KomandaRezultat> {
+  const user = await getAuthUser();
+  if (!user) return { ok: false, error: "Niste prijavljeni." };
+  if (!smijeUpravljati(user.role)) {
+    return { ok: false, error: "Nemate pravo mijenjati postavke hlađenja." };
+  }
+
+  const { tankId, aktivan } = input;
+  if (typeof aktivan !== "boolean") return { ok: false, error: "Neispravna vrijednost." };
+
+  try {
+    const tank = await prisma.tank.update({
+      where: { id: tankId },
+      data: { smsAktivan: aktivan },
+      select: { broj: true },
+    });
+    console.log(
+      `[sms] Tank ${tank.broj}: SMS obavijesti ${aktivan ? "UKLJUČENE" : "ISKLJUČENE"} ` +
+        `(${user.ime})`
+    );
+  } catch (e) {
+    console.error("postaviSmsObavijesti greška:", e);
+    return { ok: false, error: "Greška kod spremanja postavke." };
+  }
+
+  revalidatePath("/dashboard/hladjenje");
+  revalidatePath(`/tankovi/${tankId}`);
+  return { ok: true };
+}

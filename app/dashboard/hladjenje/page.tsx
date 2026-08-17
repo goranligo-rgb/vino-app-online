@@ -52,6 +52,7 @@ export default async function HladjenjeDashboard() {
       alarmMinus: true,
       alarmPlus: true,
       hy: true,
+      smsAktivan: true,
     },
   });
   const ids = tankovi.map((t) => t.id);
@@ -137,6 +138,7 @@ export default async function HladjenjeDashboard() {
       hladjenjeAktivno: o ? o.hladjenjeAktivno : null,
       mjerenoU: o ? o.mjerenoU.toISOString() : null,
       imaAktivanAlarm: alarmSet.has(t.id),
+      smsAktivan: t.smsAktivan,
       komande: komandeMap.get(t.id) ?? {},
     };
   });

@@ -78,6 +78,12 @@ SMS obavijesti (Infobip, opcionalno):
     "opet OK" - ali samo ako je za taj alarm poruka stvarno bila poslana.
   - NE salju se: greska sonde, nema veze (to pokriva heartbeat watchdog) i tank
     u soft-OFF stanju (hladjenje je namjerno ugaseno - to nije alarm).
+  - Prekidac po tanku: Tank.smsAktivan = false utisava poruke za taj tank (i
+    alarmnu i onu o oporavku). ALARM SE NE MIJENJA - TankAlarm se i dalje otvara
+    i zatvara, tank na ekranu ostaje crven, brojaci su isti. Postavlja se u
+    aplikaciji (dashboard hladjenja / monitor tanka), vrijedi odmah i ne ide
+    kroz red komandi. Pecat smsPoslanU se pri utisavanju NE upisuje, pa ce SMS
+    otici ako se prekidac vrati dok alarm jos traje.
   - Bez INFOBIP_API_KEY / INFOBIP_BASE_URL / SMS_BROJEVI modul je ugasen i
     gateway radi kao i prije. Greska Infobipa nikad ne rusi ciklus.
   - Svaki pokusaj se zapisuje u log i u tablicu SmsObavijest (kome, koji tank,
@@ -545,8 +551,10 @@ class Supabase:
         Tank bez kontrolera (41-44) ima nadzorHladjenja = false pa se preskace,
         a adresa mu ostaje zapisana za dan kad kontroler dobije.
         """
+        # smsAktivan trazi migraciju 20260817_tank_sms_aktivan (kao i smsPoslanU
+        # gore) - migracije idu PRIJE deploya gatewaya.
         stupci = ("id,broj,modbusAdresa,grana,zadanaTemp,zadnjaZadanaTemp,"
-                  "alarmMinus,alarmPlus,hy")
+                  "alarmMinus,alarmPlus,hy,smsAktivan")
         return self._zahtjev(
             "GET",
             f"Tank?select={stupci}&modbusAdresa=not.is.null&nadzorHladjenja=is.true"
@@ -1351,6 +1359,8 @@ class Gateway:
         # Alarmi za koje je poruka OTISLA u ovom zivotu procesa. Cuva se odvojeno
         # od baze jer upis brave moze pasti (mreza) - a poruka je vec kod ljudi.
         self.sms_javljeni: set[str] = set()
+        # Alarmi utisani prekidacem Tank.smsAktivan - samo da se u log upise jednom.
+        self.sms_utisani: set[str] = set()
         self.tankovi_cache: list[dict] = []
         self.stop = threading.Event()
 
@@ -1630,8 +1640,12 @@ class Gateway:
                 continue
             zeljeni[tid] = {}
             ne_diraj[tid] = set()
+            # sms_aktivan: prekidac po tanku iz aplikacije. Nedostatak kolone
+            # (stara baza) se tumaci kao "salji" - prekidac je zamisljen kao
+            # utisavanje, pa se u dvojbi radije javi.
             stanje[tid] = {"broj": broj, "temperatura": None, "donja": None,
-                           "gornja": None, "iskljuceno": False}
+                           "gornja": None, "iskljuceno": False,
+                           "sms_aktivan": t.get("smsAktivan") is not False}
 
             zadana_db = u_broj(t.get("zadanaTemp"))
             minus = u_broj(t.get("alarmMinus"))
@@ -1761,6 +1775,7 @@ class Gateway:
         zivi = {a["id"] for a in aktivni}
         self.sms_neuspjeha = {aid: n for aid, n in self.sms_neuspjeha.items() if aid in zivi}
         self.sms_javljeni &= zivi
+        self.sms_utisani &= zivi
 
     # --- SMS za alarme --------------------------------------------------------
 
@@ -1786,6 +1801,17 @@ class Gateway:
         st = st or {}
         if st.get("iskljuceno"):
             return  # soft-OFF: hladjenje je namjerno ugaseno, to nije alarm
+        if not st.get("sms_aktivan", True):
+            # Prekidac "SMS obavijesti" na tanku je iskljucen. Alarm i dalje stoji
+            # u bazi i crveni na ekranu - utisana je samo poruka. Pecat se NE
+            # upisuje: ako se prekidac vrati dok alarm jos traje, SMS ce otici.
+            # U log ide jednom po alarmu, ne svaki ciklus.
+            if aid not in self.sms_utisani:
+                self.sms_utisani.add(aid)
+                log.info("SMS za tank %s preskocen - smsAktivan je iskljucen (alarm ostaje)",
+                         st.get("broj"))
+            return
+        self.sms_utisani.discard(aid)
 
         nastao = parsiraj_vrijeme(alarm.get("nastaoU"))
         if nastao is None:
@@ -1827,6 +1853,11 @@ class Gateway:
         "Opet je OK" - samo za alarm zbog kojeg je SMS stvarno otisao. Alarm koji
         je prosao ispod praga od 15 min nikoga nije budio, pa ga ne treba ni
         razbudivati porukom da je gotovo.
+
+        Prekidac Tank.smsAktivan vrijedi u OBA smjera: tko je poruke za tank
+        utisao, ne dobiva ni obavijest o oporavku. Rijedak slucaj (SMS je otisao,
+        pa je prekidac ugasen usred alarma) tako zavrsi bez zavrsne poruke - ali
+        prekidac znaci "ne salji", a ne "salji jos jednu".
         """
         if alarm.get("tip") != TIP_TEMP or not self.sms.ukljucen:
             return
@@ -1834,6 +1865,9 @@ class Gateway:
         if not alarm.get("smsPoslanU") and aid not in self.sms_javljeni:
             return
         st = st or {}
+        if not st.get("sms_aktivan", True):
+            log.info("Oporavak tanka %s se ne javlja - smsAktivan je iskljucen", st.get("broj"))
+            return
         tekst = tekst_oporavka(self.k, st.get("broj"), st.get("temperatura"),
                                bool(st.get("iskljuceno")))
         self.sms.posalji(tekst, tip="OPORAVAK", tank_id=alarm.get("tankId"),

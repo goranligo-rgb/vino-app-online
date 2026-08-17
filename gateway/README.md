@@ -70,6 +70,21 @@ Sto se **ne** javlja SMS-om: `GRESKA_SONDE`, `NEMA_VEZE` pojedinog tanka (to pok
 watchdog), tank u soft-OFF stanju (hladjenje je namjerno ugaseno - nije alarm) i alarm
 kraci od praga (skok kod punjenja ili pretoka ne budi nikoga).
 
+### Prekidac "SMS obavijesti" po tanku
+
+`Tank.smsAktivan` (zadano `true`) utisava poruke za jedan tank - i alarmnu i onu o
+oporavku. **Alarm se time ne dira**: `TankAlarm` se i dalje otvara i zatvara, tank na
+`/dashboard/hladjenje` ostaje crven i broji se u sazetku. Utisava se iskljucivo SMS.
+
+Prekidac je na plocici dashboarda hladjenja i na kartici Hlađenje u monitoru tanka
+(`SMS UKLJ` / `SMS ISKLJ`, prava kao za komande: ADMIN/ENOLOG/PODRUM). Kad je iskljucen
+na tanku koji **jest** u alarmu, uz njega stoji crveno `alarm bez SMS-a` - da se odmah
+vidi zasto poruka ne stize. To **nije komanda**: ne ide kroz `TankKomanda` ni kroz
+gateway, nego je obicna postavka u bazi koja vrijedi od sljedeceg ciklusa.
+
+Pecat `smsPoslanU` se kod utisavanja **ne** upisuje, pa ako se prekidac vrati dok alarm
+jos traje, SMS ce otici (uz uobicajeni uvjet od 15 min).
+
 Kljucna pravila izvedbe:
 
 - **Jedan SMS po dogadaju, ne po ciklusu.** Brava je `TankAlarm.smsPoslanU` - u bazi, pa

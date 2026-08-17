@@ -11,6 +11,7 @@ import TankRoleSastavModal from "./tank-role-sastav-modal";
 import TankRoleDokumentiUpload from "./tank-role-dokumenti-upload";
 import HladjenjeGraf from "./hladjenje-graf";
 import HladjenjeHy, { type HyKomandaStanje } from "./hladjenje-hy";
+import SmsPrekidac from "@/app/dashboard/hladjenje/sms-prekidac";
 import {
   smijeUpravljati as smijeUpravljatiRole,
   jeHladjenjeIskljuceno,
@@ -1015,6 +1016,15 @@ const izvrseniZadaci = tankJePrazan
                   )})`
                 : "nema očitanja"}
             </span>
+            <div style={{ marginLeft: "auto" }}>
+              <SmsPrekidac
+                tankId={tank.id}
+                tankBroj={tank.broj}
+                smsAktivan={tank.smsAktivan}
+                smijeUpravljati={smijeHladjenje}
+                uAlarmu={tempStatus === "ALARM"}
+              />
+            </div>
           </div>
 
           <div style={topParamsGridStyle}>
