@@ -21,6 +21,7 @@ import {
   type KomandaTip,
 } from "@/lib/tank-komanda";
 import TankKontrole, { type TankTile, type KomandaStanje } from "./tank-kontrole";
+import DijagnostikaSirine from "./dijagnostika-sirine"; // PRIVREMENO
 
 export const dynamic = "force-dynamic";
 
@@ -177,6 +178,11 @@ export default async function HladjenjeDashboard() {
       style={{
         minHeight: "100vh",
         background: "#e9ecef",
+        // Bocni i donji razmak namjerno inline: to je jedina stvar koju ne smije
+        // slomiti nijedno CSS pravilo. Gornji dolazi iz .hlad-stranica (safe-area).
+        paddingLeft: 14,
+        paddingRight: 14,
+        paddingBottom: 14,
         fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
         color: "#222",
         boxSizing: "border-box",
@@ -201,8 +207,15 @@ export default async function HladjenjeDashboard() {
            NATRAG završio pod satom i notchem. Zato gornji razmak uključuje
            safe-area umetak; gdje ga nema (računalo, Android bez notcha) ostaje
            uobičajenih 16 px. */
-        .hlad-stranica { padding: 16px; padding-top: max(16px, calc(env(safe-area-inset-top) + 10px)); }
-        @media (max-width: 639px){ .hlad-stranica { padding: 12px; padding-top: max(12px, calc(env(safe-area-inset-top) + 10px)); } }
+        /* Samo gornji razmak - bocni i donji su u inline stilu, da stranica ne
+           moze ostati bez margina ako ovo pravilo iz bilo kojeg razloga ne prode. */
+        .hlad-stranica { padding-top: max(14px, calc(env(safe-area-inset-top) + 10px)); }
+
+        /* PRIVREMENO: dijagnostika mobilnog rasporeda - vidi dijagnostika-sirine.tsx.
+           Zelena traka = media upit "<640px" okida na uredaju; tamna = ne okida. */
+        .hlad-dijagnostika { font-size:11px; font-weight:700; padding:6px 8px; color:#fff;
+                             background:#333a40; overflow-wrap:anywhere; }
+        @media (max-width: 639px){ .hlad-dijagnostika { background:#2f6b43; } }
 
         .hlad-vrh { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; min-width:0; }
         .hlad-vrh-naslov { min-width:0; flex:1 1 auto; }
@@ -214,8 +227,14 @@ export default async function HladjenjeDashboard() {
         .hlad-sazetak { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:10px; min-width:0; }
         @media (max-width: 639px){ .hlad-sazetak { grid-template-columns: repeat(2, minmax(0,1fr)); width:100%; } }
 
-        .hlad-grid { display:grid; gap:12px; grid-template-columns: minmax(0,1fr); }
-        @media (min-width: 640px){ .hlad-grid{ grid-template-columns: repeat(2, minmax(0,1fr));} }
+        /* Broj stupaca se racuna iz STVARNE sirine kontejnera, ne iz media upita:
+           minmax(min(100%, 300px), 1fr) znaci "stupac je najmanje 300 px, osim ako
+           toliko nema - tada je siroko koliko i kontejner". Na uspravnom mobitelu
+           tako uvijek ispadne jedan stupac pune sirine, cak i ako media upiti ne
+           okinu (npr. kad preglednik prijavi 980 px layout viewporta).
+           Media upiti ispod su samo dodatna kontrola gustoce na velikim ekranima. */
+        .hlad-grid { display:grid; gap:12px;
+                     grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
         @media (min-width: 900px){ .hlad-grid{ grid-template-columns: repeat(4, minmax(0,1fr));} }
         @media (min-width: 1300px){ .hlad-grid{ grid-template-columns: repeat(5, minmax(0,1fr));} }
         .hlad-grid > * { min-width: 0; box-sizing: border-box; }
@@ -240,11 +259,16 @@ export default async function HladjenjeDashboard() {
                        align-items:center; gap:6px; flex-wrap:wrap; min-width:0; }
         .hlad-kontrole { display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
         .hlad-napomena { font-size:11px; min-width:0; overflow-wrap:anywhere; }
-        .hlad-alarmi { display:grid; gap:10px; grid-template-columns: repeat(auto-fit, minmax(128px,1fr)); }
+        /* Isti trik kao kod .hlad-grid: na uskoj kartici Alarm − i Alarm + padnu
+           jedan ispod drugog sami od sebe, bez media upita. */
+        .hlad-alarmi { display:grid; gap:10px;
+                       grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); }
         .hlad-onoff { display:flex; gap:8px; flex-wrap:wrap; min-width:0; }
         .hlad-onoff > button { flex:1 1 110px; min-height:42px; }
 
-        .hlad-stepper { display:flex; align-items:center; justify-content:center; gap:8px;
+        /* Lijevo poravnato uvijek: u sirokoj kartici je centrirani stepper izgledao
+           razvuceno, s vrijednoscu daleko od gumba. */
+        .hlad-stepper { display:flex; align-items:center; justify-content:flex-start; gap:8px;
                         flex-wrap:wrap; min-width:0; }
         .hlad-vrijednost { min-width:44px; text-align:center; font-size:18px; font-weight:700; }
 
@@ -256,10 +280,12 @@ export default async function HladjenjeDashboard() {
           display:inline-flex; align-items:center; justify-content:center;
           text-align:center; line-height:1.1;
         }
-        .hlad-korak { min-width:40px; min-height:40px; }
+        /* Mete su i u osnovi dovoljno velike za prst (44 px), pa dodir radi i ako
+           media upit ispod ne okine. Mobilno pravilo ih samo jos malo poveca. */
+        .hlad-korak { min-width:44px; min-height:44px; }
         /* justify-self drži gumb na svojoj širini i u redcima Alarm −/+, gdje je
            izravno dijete mreže pa bi se inače razvukao preko cijele širine. */
-        .hlad-spremi { min-height:40px; padding:8px 16px; justify-self:start; }
+        .hlad-spremi { min-height:44px; padding:8px 16px; justify-self:start; flex:0 0 auto; }
 
         /* Mobitel uspravno: jedna kartica po redu, sve veće i lakše za prst. */
         @media (max-width: 639px){
@@ -333,6 +359,9 @@ export default async function HladjenjeDashboard() {
             <SazetakBadge label="Bez veze" broj={brBezVeze} bg="#f0f0f0" border="#cfcfcf" text="#6b7075" />
           </div>
         </div>
+
+        {/* PRIVREMENO - dijagnostika mobilnog rasporeda; makni kad se potvrdi. */}
+        <DijagnostikaSirine />
 
         <div
           style={{
