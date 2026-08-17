@@ -110,6 +110,48 @@ export function validiraj(tip: KomandaTip, vrijednost: number | null): string | 
   return null;
 }
 
+/**
+ * Strojna oznaka razloga neuspjeha na pocetku TankKomanda.greska.
+ *
+ * Gateway je upisuje (gateway.py, OZNAKA_ISTEKLA), a prikaz se ravna po njoj -
+ * NE po tekstu poruke. Tekst je za ljude i smije se mijenjati; oznaka je ugovor
+ * izmedu gatewaya i aplikacije i mijenja se samo na oba mjesta odjednom.
+ */
+export const OZNAKA_ISTEKLA = "ISTEKLA:";
+
+/**
+ * Je li komanda pala samo zato jer je ISTEKLA (sigurnosna ograda gatewaya)?
+ *
+ * Gateway ne izvrsava komandu stariju od KOMANDA_MAX_MINUTA (30) - zaboravljeni
+ * zahtjev ne smije opaliti sat vremena kasnije. Takva komanda je mrtva i
+ * BEZOPASNA: tank radi po svom stvarnom stanju i korisnik ne treba nista
+ * poduzeti. Zato se u prikazu ne smije crveniti kao kvar - vidi StatusBadge u
+ * app/dashboard/hladjenje/tank-kontrole.tsx.
+ */
+export function jeIsteklaKomanda(
+  status: string | null | undefined,
+  greska: string | null | undefined
+): boolean {
+  if (status !== "NEUSPJELO" || !greska) return false;
+  if (greska.trimStart().startsWith(OZNAKA_ISTEKLA)) return true;
+
+  // PRIJELAZNO (dodano 17.08.2026.): zapisi nastali prije uvodjenja oznake, i
+  // svaki gateway koji na Pi-ju jos nije azuriran, nemaju prefiks - njih se
+  // prepoznaje po tekstu. Smije se obrisati kad u bazi vise nema takvih redova
+  // (provjera: TankKomanda gdje je status NEUSPJELO i greska ne pocinje oznakom).
+  return (
+    /starij\w*\s+od\s+\d+\s*min/i.test(greska) ||
+    /neispravno\s+vrijeme\s+zahtjeva/i.test(greska)
+  );
+}
+
+/** Poruka za prikaz - bez strojne oznake, koja korisniku ne znaci nista. */
+export function porukaBezOznake(greska: string | null | undefined): string {
+  if (!greska) return "";
+  const t = greska.trimStart();
+  return t.startsWith(OZNAKA_ISTEKLA) ? t.slice(OZNAKA_ISTEKLA.length).trim() : greska;
+}
+
 // Polje na Tank-u koje komanda azurira (null za ON/OFF - nema trajnog polja).
 export function poljeTanka(
   tip: KomandaTip

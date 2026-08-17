@@ -14,6 +14,8 @@ import {
   stegni,
   SOFT_OFF_TEMP,
   jeHladjenjeIskljuceno,
+  jeIsteklaKomanda,
+  porukaBezOznake,
   OPIS_TIPA,
   JEDINICA_TIPA,
   type KomandaTip,
@@ -59,11 +61,20 @@ function StatusBadge({ komanda }: { komanda: KomandaStanje }) {
     NA_CEKANJU: { label: "na čekanju", bg: "#fff8e1", border: "#e6c65c", text: "#8a6d00" },
     PRIMIJENJENO: { label: "primijenjeno", bg: "#eef7f0", border: "#8db79a", text: "#2f6b43" },
     NEUSPJELO: { label: "neuspjelo", bg: "#fdecec", border: "#e0776f", text: "#a11d1d" },
+    // Istekla komanda NIJE kvar: gateway je nije izvrsio jer je bila prestara,
+    // tank i dalje radi po svom stvarnom stanju. Sivo i tiho - crveno na kartici
+    // znaci "korisnik mora nesto poduzeti".
+    ISTEKLA: { label: "istekla", bg: "#f1f3f5", border: "#c8ccd0", text: "#5c6469" },
   };
-  const s = map[komanda.status] ?? map.NA_CEKANJU;
+  const s = jeIsteklaKomanda(komanda.status, komanda.greska)
+    ? map.ISTEKLA
+    : map[komanda.status] ?? map.NA_CEKANJU;
+  // Sama znacka je uvijek kratka i u jednom retku; tekst greske ide u zaseban
+  // redak ispod (GreskaKomande). Prije je bio zalijepljen ovdje pa je poruka
+  // poput "komanda starija od 30 min" razvukla znacku preko ruba kartice.
   return (
     <span
-      title={komanda.greska ?? undefined}
+      title={porukaBezOznake(komanda.greska) || undefined}
       style={{
         fontSize: 10,
         fontWeight: 700,
@@ -73,11 +84,32 @@ function StatusBadge({ komanda }: { komanda: KomandaStanje }) {
         border: `1px solid ${s.border}`,
         color: s.text,
         whiteSpace: "nowrap",
+        flexShrink: 0,
       }}
     >
       {s.label}
-      {komanda.status === "NEUSPJELO" && komanda.greska ? ` · ${komanda.greska}` : ""}
     </span>
+  );
+}
+
+/**
+ * Objasnjenje uz komandu: crveno samo kad korisnik stvarno mora nesto poduzeti
+ * (kontroler odbio upis, nema odgovora), zuto dok komanda jos ceka.
+ *
+ * Istekla komanda (ograda od 30 min) NEMA redak: ona je mrtva i tank o njoj ne
+ * ovisi. Trag ostaje u sivoj znacki "istekla", a cijeli tekst u tooltipu.
+ */
+function GreskaKomande({ komanda }: { komanda: KomandaStanje }) {
+  if (!komanda?.greska) return null;
+  if (jeIsteklaKomanda(komanda.status, komanda.greska)) return null;
+  const crvena = komanda.status === "NEUSPJELO";
+  return (
+    <div
+      className="hlad-napomena"
+      style={{ color: crvena ? "#a11d1d" : "#8a6d00", fontWeight: 600 }}
+    >
+      {porukaBezOznake(komanda.greska)}
+    </div>
   );
 }
 
@@ -96,9 +128,9 @@ function Stepper({
   disabled: boolean;
   korak?: number;
 }) {
+  // Velicina gumba dolazi iz klase .hlad-korak (na mobitelu 52x48 px, dovoljno
+  // za prst); ovdje ostaje samo izgled.
   const btn: React.CSSProperties = {
-    minWidth: 40,
-    minHeight: 40,
     fontSize: 20,
     fontWeight: 700,
     border: "1px solid #cfcfcf",
@@ -109,9 +141,10 @@ function Stepper({
     touchAction: "manipulation",
   };
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
+    <div className="hlad-stepper">
       <button
         type="button"
+        className="hlad-korak"
         style={btn}
         disabled={disabled || vrijednost <= min}
         onClick={() => onChange(Math.max(min, Math.round((vrijednost - korak) * 10) / 10))}
@@ -119,11 +152,10 @@ function Stepper({
       >
         −
       </button>
-      <span style={{ minWidth: 44, textAlign: "center", fontSize: 18, fontWeight: 700 }}>
-        {fmt(vrijednost)}
-      </span>
+      <span className="hlad-vrijednost">{fmt(vrijednost)}</span>
       <button
         type="button"
+        className="hlad-korak"
         style={btn}
         disabled={disabled || vrijednost >= max}
         onClick={() => onChange(Math.min(max, Math.round((vrijednost + korak) * 10) / 10))}
@@ -203,9 +235,8 @@ export default function TankKontrole({
   const promijenjenPlus = aPlus !== (tank.alarmPlus ?? 2);
   const promijenjenHy = hy !== (tank.hy ?? 2);
 
+  // Visina/sirina dolaze iz klase .hlad-spremi (na mobitelu puna sirina retka).
   const spremiBtn = (aktivan: boolean): React.CSSProperties => ({
-    minHeight: 40,
-    padding: "8px 14px",
     fontSize: 14,
     fontWeight: 700,
     borderRadius: 0,
@@ -218,20 +249,16 @@ export default function TankKontrole({
 
   return (
     <div
+      className="hlad-kartica"
       style={{
         background: stil.bg,
         border: `2px solid ${stil.border}`,
         borderRadius: 0,
-        padding: 12,
-        display: "grid",
-        gap: 10,
-        minWidth: 0,
-        boxSizing: "border-box",
       }}
     >
       {/* Zaglavlje pločice (klik na broj -> pregled tanka) */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
-        <div style={{ minWidth: 0 }}>
+      <div className="hlad-zaglavlje">
+        <div className="hlad-naslov">
           <a
             href={`/tankovi/${tank.id}`}
             style={{ fontSize: 18, fontWeight: 800, color: "#1a1a1a", textDecoration: "none" }}
@@ -250,23 +277,20 @@ export default function TankKontrole({
             {tank.nazivVina || tank.sorta || "—"}
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+        {/* Desni stupac zaglavlja se SMIJE stisnuti i prelomiti: status
+            "HLAĐENJE ISKLJUČENO" je dugačak i na uskoj kartici bi inače
+            gurnuo naslov i SMS prekidač izvan okvira. */}
+        <div className="hlad-zaglavlje-desno">
           <span
+            className="hlad-znacka"
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "3px 9px",
               borderRadius: 0,
-              fontSize: 11,
-              fontWeight: 700,
               background: "#ffffff",
               border: `1px solid ${stil.border}`,
               color: stil.text,
-              whiteSpace: "nowrap",
             }}
           >
-            <span style={{ width: 8, height: 8, borderRadius: 0, background: stil.dot }} />
+            <span className="hlad-tocka" style={{ borderRadius: 0, background: stil.dot }} />
             {stil.label}
           </span>
           <SmsPrekidac
@@ -299,7 +323,7 @@ export default function TankKontrole({
       </div>
 
       {/* Trenutna temperatura (velika) + zadnje očitanje */}
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
         <span style={{ fontSize: 34, fontWeight: 800, color: stil.text }}>
           {fmt(tank.zadnjaTemp)}
         </span>
@@ -319,13 +343,13 @@ export default function TankKontrole({
       </div>
 
       {/* Zadana temperatura */}
-      <div style={rowStyle}>
-        <div style={rowLabelStyle}>
+      <div className="hlad-red">
+        <div className="hlad-oznaka">
           {iskljuceno ? "Zadana (zapamćena)" : "Zadana"}{" "}
           <StatusBadge komanda={tank.komande.ZADANA_TEMP ?? null} />
         </div>
         {smijeUpravljati ? (
-          <div style={rowKontroleStyle}>
+          <div className="hlad-kontrole">
             <Stepper
               vrijednost={zadana}
               min={LIMITI.ZADANA_TEMP.min}
@@ -335,6 +359,7 @@ export default function TankKontrole({
             />
             <button
               type="button"
+              className="hlad-spremi"
               style={spremiBtn(promijenjenaZadana)}
               disabled={!promijenjenaZadana || pending}
               onClick={() => posalji("ZADANA_TEMP", stegni("ZADANA_TEMP", zadana), zadanaZaPrikaz)}
@@ -347,27 +372,28 @@ export default function TankKontrole({
             {fmt(iskljuceno ? zadanaZaPrikaz : (tank.zadanaNaKontroleru ?? zadanaZaPrikaz))} °C
           </div>
         )}
+        <GreskaKomande komanda={tank.komande.ZADANA_TEMP ?? null} />
         {iskljuceno ? (
-          <div style={{ fontSize: 11, color: "#3d5566" }}>
+          <div className="hlad-napomena" style={{ color: "#3d5566" }}>
             Hlađenje je isključeno (na kontroleru stoji {fmt(SOFT_OFF_TEMP)} °C).{" "}
             {zadanaZaPrikaz != null
               ? "Ova vrijednost se vraća pritiskom na UKLJUČI."
               : "Nema zapamćene vrijednosti — upiši zadanu i hlađenje se uključuje s njom."}
           </div>
         ) : razilaziSe ? (
-          <div style={{ fontSize: 11, color: "#8a6d00", fontWeight: 600 }}>
+          <div className="hlad-napomena" style={{ color: "#8a6d00", fontWeight: 600 }}>
             Na kontroleru je {fmt(tank.zadanaNaKontroleru)} °C (zadnje očitanje).
           </div>
         ) : null}
       </div>
 
       {/* Diferencijal (Hy) — koliko temperatura mora prijeci zadanu da hladjenje krene */}
-      <div style={rowStyle}>
-        <div style={rowLabelStyle}>
+      <div className="hlad-red">
+        <div className="hlad-oznaka">
           Diferencijal (Hy) <StatusBadge komanda={tank.komande.HY ?? null} />
         </div>
         {smijeUpravljati ? (
-          <div style={rowKontroleStyle}>
+          <div className="hlad-kontrole">
             <Stepper
               vrijednost={hy}
               min={LIMITI.HY.min}
@@ -378,6 +404,7 @@ export default function TankKontrole({
             />
             <button
               type="button"
+              className="hlad-spremi"
               style={spremiBtn(promijenjenHy)}
               disabled={!promijenjenHy || pending}
               onClick={() => posalji("HY", stegni("HY", hy), tank.hy)}
@@ -388,12 +415,13 @@ export default function TankKontrole({
         ) : (
           <div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(tank.hy)} K</div>
         )}
+        <GreskaKomande komanda={tank.komande.HY ?? null} />
       </div>
 
-      {/* Alarm − / Alarm + */}
-      <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))" }}>
-        <div style={rowStyle}>
-          <div style={rowLabelStyle}>
+      {/* Alarm − / Alarm + (na mobitelu jedan ispod drugog) */}
+      <div className="hlad-alarmi">
+        <div className="hlad-red">
+          <div className="hlad-oznaka">
             Alarm − <StatusBadge komanda={tank.komande.ALARM_MINUS ?? null} />
           </div>
           {smijeUpravljati ? (
@@ -407,6 +435,7 @@ export default function TankKontrole({
               />
               <button
                 type="button"
+                className="hlad-spremi"
                 style={spremiBtn(promijenjenMinus)}
                 disabled={!promijenjenMinus || pending}
                 onClick={() => posalji("ALARM_MINUS", stegni("ALARM_MINUS", aMinus), tank.alarmMinus)}
@@ -417,10 +446,11 @@ export default function TankKontrole({
           ) : (
             <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(tank.alarmMinus)} °C</div>
           )}
+          <GreskaKomande komanda={tank.komande.ALARM_MINUS ?? null} />
         </div>
 
-        <div style={rowStyle}>
-          <div style={rowLabelStyle}>
+        <div className="hlad-red">
+          <div className="hlad-oznaka">
             Alarm + <StatusBadge komanda={tank.komande.ALARM_PLUS ?? null} />
           </div>
           {smijeUpravljati ? (
@@ -434,6 +464,7 @@ export default function TankKontrole({
               />
               <button
                 type="button"
+                className="hlad-spremi"
                 style={spremiBtn(promijenjenPlus)}
                 disabled={!promijenjenPlus || pending}
                 onClick={() => posalji("ALARM_PLUS", stegni("ALARM_PLUS", aPlus), tank.alarmPlus)}
@@ -444,23 +475,22 @@ export default function TankKontrole({
           ) : (
             <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(tank.alarmPlus)} °C</div>
           )}
+          <GreskaKomande komanda={tank.komande.ALARM_PLUS ?? null} />
         </div>
       </div>
 
       {/* Hlađenje ON/OFF (soft-OFF preko zadane temperature) */}
-      <div style={rowStyle}>
-        <div style={rowLabelStyle}>
+      <div className="hlad-red">
+        <div className="hlad-oznaka">
           Hlađenje <StatusBadge komanda={tank.komande.HLADJENJE_ON ?? tank.komande.HLADJENJE_OFF ?? null} />
         </div>
         {smijeUpravljati ? (
-          <div style={{ display: "flex", gap: 8 }}>
+          <div className="hlad-onoff">
             <button
               type="button"
               disabled={pending}
               onClick={() => posalji("HLADJENJE_ON", null, null)}
               style={{
-                flex: 1,
-                minHeight: 42,
                 borderRadius: 0,
                 fontWeight: 700,
                 fontSize: 14,
@@ -478,8 +508,6 @@ export default function TankKontrole({
               disabled={pending}
               onClick={() => posalji("HLADJENJE_OFF", null, null)}
               style={{
-                flex: 1,
-                minHeight: 42,
                 borderRadius: 0,
                 fontWeight: 700,
                 fontSize: 14,
@@ -498,35 +526,21 @@ export default function TankKontrole({
             {iskljuceno ? "ISKLJUČENO" : "UKLJUČENO"}
           </div>
         )}
+        <GreskaKomande
+          komanda={tank.komande.HLADJENJE_ON ?? tank.komande.HLADJENJE_OFF ?? null}
+        />
       </div>
 
       {poruka ? (
-        <div style={{ fontSize: 12, color: "#a11d1d", fontWeight: 600 }}>{poruka}</div>
+        <div className="hlad-napomena" style={{ fontSize: 12, color: "#a11d1d", fontWeight: 600 }}>
+          {poruka}
+        </div>
       ) : null}
       {pending ? <div style={{ fontSize: 12, color: "#777" }}>Spremam…</div> : null}
     </div>
   );
 }
 
-const rowStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 6,
-  background: "rgba(255,255,255,0.55)",
-  borderRadius: 0,
-  padding: 8,
-};
-const rowLabelStyle: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 700,
-  color: "#444",
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-  flexWrap: "wrap",
-};
-const rowKontroleStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  flexWrap: "wrap",
-};
+// Raspored redaka kartice (.hlad-red, .hlad-oznaka, .hlad-kontrole i ostalo)
+// definiran je u <style> bloku u page.tsx - tamo se mogu pisati media upiti,
+// koji su za mobilni prikaz nužni, a u inline stilu ih nema.

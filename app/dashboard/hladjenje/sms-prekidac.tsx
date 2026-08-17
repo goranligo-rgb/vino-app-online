@@ -74,10 +74,11 @@ export default function SmsPrekidac({
     : "SMS obavijesti za ovaj tank su isključene. Alarm se i dalje bilježi i prikazuje.";
 
   return (
-    <div style={{ display: "grid", gap: 3, justifyItems: "flex-end" }}>
+    <div style={{ display: "grid", gap: 3, justifyItems: "flex-end", minWidth: 0, maxWidth: "100%" }}>
       {smijeUpravljati ? (
         <button
           type="button"
+          className="sms-prekidac"
           onClick={prebaci}
           disabled={pending}
           title={opis}
@@ -96,7 +97,6 @@ export default function SmsPrekidac({
             cursor: pending ? "wait" : "pointer",
             whiteSpace: "nowrap",
             touchAction: "manipulation",
-            minHeight: 26,
           }}
         >
           <span aria-hidden style={{ fontSize: 12 }}>{aktivan ? "🔔" : "🔕"}</span>
@@ -104,6 +104,7 @@ export default function SmsPrekidac({
         </button>
       ) : (
         <span
+          className="sms-prekidac"
           title={opis}
           style={{
             display: "inline-flex",

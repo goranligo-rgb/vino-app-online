@@ -25,6 +25,22 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Prekidac "SMS obavijesti" (app/dashboard/hladjenje/sms-prekidac.tsx).
+   Stoji ovdje, a ne uz ostale .hlad-* klase u dashboardu hladjenja, jer se ista
+   komponenta koristi i na monitoru tanka - a media upit se u inline stilu ne
+   moze napisati. Na mobitelu je meta veca da se pogodi prstom. */
+.sms-prekidac {
+  min-height: 28px;
+  max-width: 100%;
+}
+@media (max-width: 639px) {
+  .sms-prekidac {
+    min-height: 40px;
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+}
+
 .signature-handwriting {
   font-size: 16px;
   color: #d4af37;

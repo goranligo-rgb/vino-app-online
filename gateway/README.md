@@ -270,6 +270,24 @@ kod se ne mijenja.
 > starije od 30 min pa ce prijeci u `NEUSPJELO`. To je namjerno - posalji ih
 > ponovo iz aplikacije. Nista se nece samo od sebe izvrsiti unatrag.
 
+#### Oznaka `ISTEKLA:` u poruci
+
+Komanda odbijena zbog ograde nije kvar nego mrtav zahtjev, pa gateway u
+`TankKomanda.greska` upisuje strojnu oznaku:
+
+```
+ISTEKLA: Komanda starija od 30 min - nije izvrsena.
+```
+
+Aplikacija po **oznaci** (a ne po tekstu poruke) odlucuje kako to prikazati: sivo
+i tiho `istekla` umjesto crvenog `neuspjelo`, jer crveno na kartici znaci "korisnik
+mora nesto poduzeti". Konstanta je `OZNAKA_ISTEKLA` u `gateway.py` i istoimena u
+`lib/tank-komanda.ts` - mijenja se samo na oba mjesta odjednom. Tekst iza oznake je
+za ljude i slobodno se prepravlja.
+
+Aplikacija prijelazno prepoznaje i stare zapise bez oznake (po tekstu), pa dashboard
+radi ispravno i dok gateway na Pi-ju jos nije azuriran.
+
 ### Kako naci registre
 
 `discover_registers.py` **samo cita**. Parametre mijenjas rukom na kontroleru, a

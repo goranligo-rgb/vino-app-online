@@ -843,6 +843,15 @@ def procitaj_tank(client, k: Konfig, uredaj: int) -> dict:
 # nisu ovdje: to su pragovi upozorenja u aplikaciji, a ne parametri kontrolera.
 KOMANDE_ZA_IZVRSITI = {"HLADJENJE_ON", "HLADJENJE_OFF", "ZADANA_TEMP", "HY"}
 
+# Strojna oznaka na pocetku TankKomanda.greska: komanda nije izvrsena zato jer je
+# bila prestara (sigurnosna ograda), a NE zato jer nesto ne valja s hardverom.
+# Aplikacija po ovoj oznaci razvrstava prikaz (lib/tank-komanda.ts,
+# OZNAKA_ISTEKLA / jeIsteklaKomanda): istekla komanda se pokazuje tiho i sivo,
+# crveno je rezervirano za probleme koje korisnik mora rjesavati.
+# Tekst poruke iza oznake je za ljude i smije se mijenjati - oznaka ne smije,
+# osim istovremeno na oba mjesta.
+OZNAKA_ISTEKLA = "ISTEKLA:"
+
 # Koja komanda "drzi" koje polje Tanka. Dok takva komanda ceka (ili je bas ovaj
 # ciklus izvrsena), u bazi stoji zelja korisnika i sinkronizacija s kontrolera to
 # polje ne dira - inace bi svjezu zelju odmah pregazila stara vrijednost.
@@ -1012,13 +1021,16 @@ def obradi_komande_grane(client, k: Konfig, tankovi: list[dict],
                     log.warning("KOMANDA tank %s %s: %s", broj, tip, poruka)
                 continue
 
-            # 2) Sigurnosna ograda: stara komanda se ne izvrsava.
+            # 2) Sigurnosna ograda: stara komanda se ne izvrsava. Poruka nosi
+            #    strojnu oznaku OZNAKA_ISTEKLA - aplikacija po njoj zna da to
+            #    nije kvar nego mrtav zahtjev, pa ga prikazuje tiho (sivo
+            #    "istekla"), a ne crveno kao pravu gresku kontrolera.
             trazeno = parsiraj_vrijeme(kom.get("trazenoU"))
             if trazeno is None or trazeno < granica:
                 poruka = (
-                    f"Komanda starija od {k.komanda_max_minuta} min - nije izvrsena."
+                    f"{OZNAKA_ISTEKLA} Komanda starija od {k.komanda_max_minuta} min - nije izvrsena."
                     if trazeno is not None
-                    else "Neispravno vrijeme zahtjeva - komanda nije izvrsena."
+                    else f"{OZNAKA_ISTEKLA} Neispravno vrijeme zahtjeva - komanda nije izvrsena."
                 )
                 ishodi.append({"komanda": kom, "ishod": "NEUSPJELO",
                                "poruka": poruka, "tankBroj": broj})

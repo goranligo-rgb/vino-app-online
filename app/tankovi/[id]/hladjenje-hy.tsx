@@ -10,7 +10,14 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { KORAK_ZA, LIMITI, stegni, OPIS_TIPA } from "@/lib/tank-komanda";
+import {
+  KORAK_ZA,
+  LIMITI,
+  stegni,
+  jeIsteklaKomanda,
+  porukaBezOznake,
+  OPIS_TIPA,
+} from "@/lib/tank-komanda";
 import { posaljiKomandu } from "@/app/dashboard/hladjenje/actions";
 
 export type HyKomandaStanje = { status: string; greska: string | null } | null;
@@ -23,6 +30,8 @@ const STATUS_OPIS: Record<string, { label: string; bg: string; border: string; t
   NA_CEKANJU: { label: "na čekanju", bg: "#fff8e1", border: "#e6c65c", text: "#8a6d00" },
   PRIMIJENJENO: { label: "primijenjeno", bg: "#eef7f0", border: "#8db79a", text: "#2f6b43" },
   NEUSPJELO: { label: "neuspjelo", bg: "#fdecec", border: "#e0776f", text: "#a11d1d" },
+  // Zaostala komanda koju je gateway odbio zbog starosti - mrtva, ne kvar.
+  ISTEKLA: { label: "istekla", bg: "#f1f3f5", border: "#c8ccd0", text: "#5c6469" },
 };
 
 export default function HladjenjeHy({
@@ -46,7 +55,12 @@ export default function HladjenjeHy({
   const { min, max } = LIMITI.HY;
   const korak = KORAK_ZA.HY;
   const promijenjeno = vrijednost !== (hy ?? 2);
-  const stil = zadnjaKomanda ? STATUS_OPIS[zadnjaKomanda.status] ?? STATUS_OPIS.NA_CEKANJU : null;
+  const istekla = jeIsteklaKomanda(zadnjaKomanda?.status, zadnjaKomanda?.greska);
+  const stil = zadnjaKomanda
+    ? istekla
+      ? STATUS_OPIS.ISTEKLA
+      : STATUS_OPIS[zadnjaKomanda.status] ?? STATUS_OPIS.NA_CEKANJU
+    : null;
 
   function spremi() {
     const novo = stegni("HY", vrijednost);
@@ -101,7 +115,7 @@ export default function HladjenjeHy({
         Diferencijal (Hy)
         {stil ? (
           <span
-            title={zadnjaKomanda?.greska ?? undefined}
+            title={porukaBezOznake(zadnjaKomanda?.greska) || undefined}
             style={{
               fontSize: 10,
               fontWeight: 700,
@@ -113,8 +127,8 @@ export default function HladjenjeHy({
             }}
           >
             {stil.label}
-            {zadnjaKomanda?.status === "NEUSPJELO" && zadnjaKomanda.greska
-              ? ` · ${zadnjaKomanda.greska}`
+            {zadnjaKomanda?.status === "NEUSPJELO" && zadnjaKomanda.greska && !istekla
+              ? ` · ${porukaBezOznake(zadnjaKomanda.greska)}`
               : ""}
           </span>
         ) : null}

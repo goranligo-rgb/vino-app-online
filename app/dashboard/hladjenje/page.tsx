@@ -14,6 +14,8 @@ import {
 import {
   smijeUpravljati as smijeUpravljatiRole,
   jeHladjenjeIskljuceno,
+  jeIsteklaKomanda,
+  porukaBezOznake,
   OPIS_TIPA,
   JEDINICA_TIPA,
   type KomandaTip,
@@ -182,11 +184,68 @@ export default async function HladjenjeDashboard() {
         maxWidth: "100%",
       }}
     >
+      {/*
+        Raspored pločica i unutrašnjost kartice žive OVDJE, a ne u inline
+        stilovima komponente: dashboard se najviše gleda s mobitela, a media
+        upiti se u inline stilu ne mogu napisati. TankKontrole zato koristi ove
+        klase, a inline stil zadržava samo ono što ovisi o stanju (boje).
+
+        Ključno pravilo protiv preklapanja: SVAKI ugniježđeni okvir ima
+        min-width:0. Bez toga grid/flex dijete ne smije biti uže od svog
+        sadržaja, pa dugačak nelomljivi tekst (npr. značka
+        "HLAĐENJE ISKLJUČENO" ili poruka greške neuspjele komande) razvuče
+        kutiju preko ruba kartice i prelije se preko susjednih redaka.
+      */}
       <style>{`
-        .hlad-grid { display:grid; gap:12px; grid-template-columns: repeat(2, minmax(0,1fr)); }
+        .hlad-grid { display:grid; gap:12px; grid-template-columns: minmax(0,1fr); }
+        @media (min-width: 640px){ .hlad-grid{ grid-template-columns: repeat(2, minmax(0,1fr));} }
         @media (min-width: 900px){ .hlad-grid{ grid-template-columns: repeat(4, minmax(0,1fr));} }
         @media (min-width: 1300px){ .hlad-grid{ grid-template-columns: repeat(5, minmax(0,1fr));} }
         .hlad-grid > * { min-width: 0; box-sizing: border-box; }
+
+        .hlad-kartica { padding:12px; display:grid; gap:10px; min-width:0; box-sizing:border-box; }
+
+        .hlad-zaglavlje { display:flex; justify-content:space-between; align-items:flex-start;
+                          gap:8px; min-width:0; flex-wrap:wrap; }
+        .hlad-naslov { min-width:0; flex:1 1 120px; }
+        .hlad-zaglavlje-desno { display:flex; flex-direction:column; align-items:flex-end;
+                                gap:6px; min-width:0; max-width:100%; }
+
+        /* Značke se smiju lomiti u dva retka - radije viša kartica nego prelijevanje. */
+        .hlad-znacka { display:inline-flex; align-items:center; gap:5px; padding:3px 9px;
+                       font-size:11px; font-weight:700; max-width:100%; min-width:0;
+                       text-align:right; overflow-wrap:anywhere; }
+        .hlad-tocka { width:8px; height:8px; flex:0 0 auto; }
+
+        .hlad-red { display:grid; gap:6px; background:rgba(255,255,255,0.55); padding:8px;
+                    min-width:0; }
+        .hlad-oznaka { font-size:12px; font-weight:700; color:#444; display:flex;
+                       align-items:center; gap:6px; flex-wrap:wrap; min-width:0; }
+        .hlad-kontrole { display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
+        .hlad-napomena { font-size:11px; min-width:0; overflow-wrap:anywhere; }
+        .hlad-alarmi { display:grid; gap:10px; grid-template-columns: repeat(auto-fit, minmax(128px,1fr)); }
+        .hlad-onoff { display:flex; gap:8px; flex-wrap:wrap; min-width:0; }
+        .hlad-onoff > button { flex:1 1 110px; min-height:42px; }
+
+        .hlad-stepper { display:flex; align-items:center; justify-content:center; gap:8px;
+                        flex-wrap:wrap; min-width:0; }
+        .hlad-korak { min-width:40px; min-height:40px; }
+        .hlad-vrijednost { min-width:44px; text-align:center; font-size:18px; font-weight:700; }
+        .hlad-spremi { min-height:40px; padding:8px 14px; }
+
+        /* Mobitel uspravno: jedna kartica po redu, sve veće i lakše za prst. */
+        @media (max-width: 639px){
+          .hlad-kartica { padding:14px; gap:12px; }
+          .hlad-red { padding:10px; }
+          .hlad-oznaka { font-size:13px; }
+          .hlad-alarmi { grid-template-columns: minmax(0,1fr); }
+          .hlad-stepper { justify-content:flex-start; }
+          .hlad-korak { min-width:52px; min-height:48px; font-size:22px; }
+          .hlad-vrijednost { min-width:64px; font-size:20px; }
+          .hlad-spremi { flex:1 1 100%; min-height:48px; font-size:15px; }
+          .hlad-onoff > button { min-height:48px; font-size:15px; }
+          .hlad-znacka { font-size:12px; padding:4px 10px; }
+        }
       `}</style>
 
       <div style={{ maxWidth: 1400, margin: "0 auto", display: "grid", gap: 18 }}>
@@ -354,11 +413,15 @@ function StatusText({ status, greska }: { status: string; greska: string | null 
     PRIMIJENJENO: { label: "primijenjeno", color: "#2f6b43" },
     NEUSPJELO: { label: "neuspjelo", color: "#a11d1d" },
   };
-  const s = map[status] ?? map.NA_CEKANJU;
+  // Istekla komanda (ograda od 30 min) nije kvar nego mrtav zapis - u dnevniku
+  // ostaje vidljiva, ali prigušeno sivo, ne crveno kao stvarna greška.
+  const istekla = jeIsteklaKomanda(status, greska);
+  const s = istekla ? { label: "istekla", color: "#5c6469" } : map[status] ?? map.NA_CEKANJU;
+  const opis = porukaBezOznake(greska);
   return (
-    <span style={{ color: s.color, fontWeight: 700 }} title={greska ?? undefined}>
+    <span style={{ color: s.color, fontWeight: 700 }} title={opis || undefined}>
       {s.label}
-      {status === "NEUSPJELO" && greska ? ` · ${greska}` : ""}
+      {status === "NEUSPJELO" && opis && !istekla ? ` · ${opis}` : ""}
     </span>
   );
 }
