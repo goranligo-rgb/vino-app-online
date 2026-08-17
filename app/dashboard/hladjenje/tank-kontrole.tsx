@@ -22,6 +22,8 @@ import {
 } from "@/lib/tank-komanda";
 import { posaljiKomandu } from "./actions";
 import SmsPrekidac from "./sms-prekidac";
+import SamokontrolaOznaka from "./samokontrola-oznaka";
+import type { SamokontrolaNalaz } from "@/lib/samokontrola";
 
 export type KomandaStanje = { status: string; greska: string | null } | null;
 
@@ -48,6 +50,11 @@ export type TankTile = {
   imaAktivanAlarm: boolean;
   // Salje li se SMS kad ovaj tank ode u alarm. Ne utjece na sam alarm.
   smsAktivan: boolean;
+  // Samokontrola: kolicina vina, je li tank izuzet i nalaz izracunat na serveru
+  // (vidi lib/samokontrola.ts). null = sve je u redu.
+  kolicinaVina: number | null;
+  samokontrolaAktivna: boolean;
+  samokontrola: SamokontrolaNalaz;
   komande: Partial<Record<KomandaTip, KomandaStanje>>;
 };
 
@@ -340,7 +347,18 @@ export default function TankKontrole({
       </div>
       <div style={{ fontSize: 11, color: "#777", marginTop: -4 }}>
         {tank.mjerenoU ? `očitano ${prijeKoliko(tank.mjerenoU)}` : "nema očitanja"}
+        {tank.kolicinaVina != null
+          ? ` · ${Math.round(tank.kolicinaVina).toLocaleString("hr-HR")} L vina`
+          : ""}
       </div>
+
+      <SamokontrolaOznaka
+        tankId={tank.id}
+        tankBroj={tank.broj}
+        nalaz={tank.samokontrola}
+        samokontrolaAktivna={tank.samokontrolaAktivna}
+        smijeUpravljati={smijeUpravljati}
+      />
 
       {/* Zadana temperatura */}
       <div className="hlad-red">

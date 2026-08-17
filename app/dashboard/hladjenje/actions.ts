@@ -165,3 +165,45 @@ export async function postaviSmsObavijesti(input: {
   revalidatePath(`/tankovi/${tankId}`);
   return { ok: true };
 }
+
+/**
+ * Prekidac "izuzmi iz samokontrole" za jedan tank (Tank.samokontrolaAktivna).
+ *
+ * Kao i SMS prekidac: obicna postavka u bazi, ne komanda - ne stvara
+ * TankKomanda, ne ide kroz gateway i vrijedi odmah. Samokontrola je ionako samo
+ * usporedba litraze i stanja hladjenja u aplikaciji.
+ *
+ * Izuzimanje ne dira ni alarme ni SMS - gasi samo zuti podsjetnik na kartici.
+ */
+export async function postaviSamokontrolu(input: {
+  tankId: string;
+  aktivna: boolean;
+}): Promise<KomandaRezultat> {
+  const user = await getAuthUser();
+  if (!user) return { ok: false, error: "Niste prijavljeni." };
+  if (!smijeUpravljati(user.role)) {
+    return { ok: false, error: "Nemate pravo mijenjati postavke hlađenja." };
+  }
+
+  const { tankId, aktivna } = input;
+  if (typeof aktivna !== "boolean") return { ok: false, error: "Neispravna vrijednost." };
+
+  try {
+    const tank = await prisma.tank.update({
+      where: { id: tankId },
+      data: { samokontrolaAktivna: aktivna },
+      select: { broj: true },
+    });
+    console.log(
+      `[samokontrola] Tank ${tank.broj}: ${aktivna ? "UKLJUČEN u provjeru" : "IZUZET iz provjere"} ` +
+        `(${user.ime})`
+    );
+  } catch (e) {
+    console.error("postaviSamokontrolu greška:", e);
+    return { ok: false, error: "Greška kod spremanja postavke." };
+  }
+
+  revalidatePath("/dashboard/hladjenje");
+  revalidatePath(`/tankovi/${tankId}`);
+  return { ok: true };
+}

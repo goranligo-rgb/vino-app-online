@@ -20,6 +20,7 @@ import {
   JEDINICA_TIPA,
   type KomandaTip,
 } from "@/lib/tank-komanda";
+import { provjeriSamokontrolu, SAMOKONTROLA_STIL } from "@/lib/samokontrola";
 import TankKontrole, { type TankTile, type KomandaStanje } from "./tank-kontrole";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +56,8 @@ export default async function HladjenjeDashboard() {
       alarmPlus: true,
       hy: true,
       smsAktivan: true,
+      kolicinaVinaUTanku: true,
+      samokontrolaAktivna: true,
     },
   });
   const ids = tankovi.map((t) => t.id);
@@ -122,6 +125,18 @@ export default async function HladjenjeDashboard() {
     // samo želja koja može zaostati ako komanda propadne. Zato se i "hlađenje
     // isključeno" računa iz stvarnog stanja, a ne iz baze.
     const zadanaNaKontroleru = o ? uBroj(o.zadanaTemperatura) : null;
+    const hladjenjeIskljuceno = jeHladjenjeIskljuceno(
+      stvarnaZadana(zadanaNaKontroleru, zadanaTemp)
+    );
+    // Samokontrola se racuna na serveru (ista funkcija sluzi i sazetku na vrhu i
+    // oznaci na kartici, pa ne mogu razici).
+    const samokontrola = provjeriSamokontrolu({
+      litre: t.kolicinaVinaUTanku,
+      hladjenjeIskljuceno,
+      hladiSad: o ? o.hladjenjeAktivno : null,
+      samokontrolaAktivna: t.samokontrolaAktivna,
+      zadanaPoznata: stvarnaZadana(zadanaNaKontroleru, zadanaTemp) != null,
+    });
     return {
       id: t.id,
       broj: t.broj,
@@ -131,9 +146,7 @@ export default async function HladjenjeDashboard() {
       zadanaTemp,
       zadanaNaKontroleru,
       zadnjaZadanaTemp: uBroj(t.zadnjaZadanaTemp),
-      hladjenjeIskljuceno: jeHladjenjeIskljuceno(
-        stvarnaZadana(zadanaNaKontroleru, zadanaTemp)
-      ),
+      hladjenjeIskljuceno,
       alarmMinus: uBroj(t.alarmMinus),
       alarmPlus: uBroj(t.alarmPlus),
       hy: uBroj(t.hy),
@@ -141,6 +154,9 @@ export default async function HladjenjeDashboard() {
       mjerenoU: o ? o.mjerenoU.toISOString() : null,
       imaAktivanAlarm: alarmSet.has(t.id),
       smsAktivan: t.smsAktivan,
+      kolicinaVina: t.kolicinaVinaUTanku ?? null,
+      samokontrolaAktivna: t.samokontrolaAktivna,
+      samokontrola,
       komande: komandeMap.get(t.id) ?? {},
     };
   });
@@ -170,6 +186,9 @@ export default async function HladjenjeDashboard() {
     null
   );
   const nemaHeartbeata = tiles.length > 0 && gatewayNeJavlja(zadnjeIkad);
+
+  // Samokontrola: tankovi kod kojih se litraža i stanje hlađenja ne slažu.
+  const zaProvjeru = tiles.filter((t) => t.samokontrola);
 
   return (
     <div
@@ -244,6 +263,12 @@ export default async function HladjenjeDashboard() {
         .hlad-grid > * { min-width: 0; box-sizing: border-box; }
 
         .hlad-kartica { padding:12px; display:grid; gap:10px; min-width:0; box-sizing:border-box; }
+
+        /* Traka samokontrole u kartici: tekst se lomi, gumb ostaje cijel. */
+        .hlad-samokontrola { display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+                             min-width:0; padding:8px; font-size:12px; font-weight:700; }
+        .hlad-samokontrola-tekst { flex:1 1 140px; min-width:0; overflow-wrap:anywhere; }
+        .hlad-provjera-sazetak { min-width:0; overflow-wrap:anywhere; }
 
         .hlad-zaglavlje { display:flex; justify-content:space-between; align-items:flex-start;
                           gap:8px; min-width:0; flex-wrap:wrap; }
@@ -380,6 +405,39 @@ export default async function HladjenjeDashboard() {
             <SazetakBadge label="Bez veze" broj={brBezVeze} bg="#f0f0f0" border="#cfcfcf" text="#6b7075" />
           </div>
         </div>
+
+        {/* Samokontrola hlađenja: podsjetnik, ne alarm - žuto, ne crveno.
+            Popis brojeva tankova je namjerno u sažetku: na 40 kartica se
+            problematični inače traže scrollanjem. */}
+        {zaProvjeru.length > 0 ? (
+          <div
+            className="hlad-provjera-sazetak"
+            style={{
+              background: SAMOKONTROLA_STIL.bg,
+              border: `2px solid ${SAMOKONTROLA_STIL.border}`,
+              color: SAMOKONTROLA_STIL.text,
+              padding: "10px 12px",
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 800 }}>
+              ⚠ {zaProvjeru.length}{" "}
+              {zaProvjeru.length === 1
+                ? "tank za provjeru"
+                : zaProvjeru.length < 5
+                  ? "tanka za provjeru"
+                  : "tankova za provjeru"}
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4 }}>
+              {zaProvjeru
+                .map((t) => `Tank ${t.broj}: ${t.samokontrola?.poruka ?? ""}`)
+                .join(" · ")}
+            </div>
+            <div style={{ fontSize: 11, marginTop: 4, opacity: 0.9 }}>
+              Nije kvar — litraža i stanje hlađenja se ne slažu. Tank koji je namjerno takav
+              (jabučno-mliječna, maceracija) izuzmi na njegovoj kartici.
+            </div>
+          </div>
+        ) : null}
 
         <div
           style={{

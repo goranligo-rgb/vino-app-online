@@ -51,6 +51,10 @@ model Tank {
   // koji se zna da je izvan granica (punjenje, pretok, tank koji se hladi
   // danima) da ne budi ljude svakih 15 min.
   smsAktivan           Boolean               @default(true)
+  // Provjerava li samokontrola hladjenja ovaj tank? false = tank je namjerno
+  // "nelogican" (jabucno-mlijecna fermentacija, maceracija, tank u pripremi) pa
+  // se ne javlja. Ne utjece ni na alarme ni na SMS - samo na taj podsjetnik.
+  samokontrolaAktivna  Boolean               @default(true)
   zadanaTemp           Decimal?              @db.Decimal(4, 1)
   alarmMinus           Decimal?              @default(2.0) @db.Decimal(3, 1)
   alarmPlus            Decimal?              @default(2.0) @db.Decimal(3, 1)
