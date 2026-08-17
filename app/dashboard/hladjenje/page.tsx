@@ -21,7 +21,6 @@ import {
   type KomandaTip,
 } from "@/lib/tank-komanda";
 import TankKontrole, { type TankTile, type KomandaStanje } from "./tank-kontrole";
-import DijagnostikaSirine from "./dijagnostika-sirine"; // PRIVREMENO
 
 export const dynamic = "force-dynamic";
 
@@ -211,20 +210,14 @@ export default async function HladjenjeDashboard() {
            moze ostati bez margina ako ovo pravilo iz bilo kojeg razloga ne prode. */
         .hlad-stranica { padding-top: max(14px, calc(env(safe-area-inset-top) + 10px)); }
 
-        /* Sigurnosna mreza za mobitel: pravi krivac (auto staza vanjskog grida +
-           tablica od 640px) je popravljen iznad, ali ako se ikad ubaci nesto sire
-           od ekrana, neka radije bude odrezano nego da cijela stranica krene
-           vodoravno - tada je i grid "razvucen" i nista se ne moze citati.
-           Traka dijagnostike prijavi ako se to dogodi. */
+        /* Sigurnosna mreza za mobitel: pravi krivac (auto staza vanjskog grida
+           razvucena tablicom dnevnika od 640px) popravljen je na samom
+           kontejneru, ali ako se ikad ubaci nesto sire od ekrana, neka radije
+           bude odrezano nego da cijela stranica krene vodoravno - tada se i grid
+           "razvuce" i nista se ne moze citati. */
         @media (max-width: 639px){
           html, body { overflow-x: hidden; max-width: 100%; }
         }
-
-        /* PRIVREMENO: dijagnostika mobilnog rasporeda - vidi dijagnostika-sirine.tsx.
-           Zelena traka = media upit "<640px" okida na uredaju; tamna = ne okida. */
-        .hlad-dijagnostika { font-size:11px; font-weight:700; padding:6px 8px; color:#fff;
-                             background:#333a40; overflow-wrap:anywhere; }
-        @media (max-width: 639px){ .hlad-dijagnostika { background:#2f6b43; } }
 
         .hlad-vrh { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; min-width:0; }
         .hlad-vrh-naslov { min-width:0; flex:1 1 auto; }
@@ -387,9 +380,6 @@ export default async function HladjenjeDashboard() {
             <SazetakBadge label="Bez veze" broj={brBezVeze} bg="#f0f0f0" border="#cfcfcf" text="#6b7075" />
           </div>
         </div>
-
-        {/* PRIVREMENO - dijagnostika mobilnog rasporeda; makni kad se potvrdi. */}
-        <DijagnostikaSirine />
 
         <div
           style={{
