@@ -8,6 +8,7 @@ import {
   gatewayNeJavlja,
   formatTemp,
   prijeKoliko,
+  stvarnaZadana,
   uBroj,
 } from "@/lib/temperatura";
 import {
@@ -114,6 +115,10 @@ export default async function HladjenjeDashboard() {
   const tiles: TankTile[] = tankovi.map((t) => {
     const o = zadnjaMap.get(t.id);
     const zadanaTemp = uBroj(t.zadanaTemp);
+    // Glavna vrijednost je ona s kontrolera (zadnje očitanje); Tank.zadanaTemp je
+    // samo želja koja može zaostati ako komanda propadne. Zato se i "hlađenje
+    // isključeno" računa iz stvarnog stanja, a ne iz baze.
+    const zadanaNaKontroleru = o ? uBroj(o.zadanaTemperatura) : null;
     return {
       id: t.id,
       broj: t.broj,
@@ -121,8 +126,11 @@ export default async function HladjenjeDashboard() {
       nazivVina: t.nazivVina,
       zadnjaTemp: o ? uBroj(o.temperatura) : null,
       zadanaTemp,
+      zadanaNaKontroleru,
       zadnjaZadanaTemp: uBroj(t.zadnjaZadanaTemp),
-      hladjenjeIskljuceno: jeHladjenjeIskljuceno(zadanaTemp),
+      hladjenjeIskljuceno: jeHladjenjeIskljuceno(
+        stvarnaZadana(zadanaNaKontroleru, zadanaTemp)
+      ),
       alarmMinus: uBroj(t.alarmMinus),
       alarmPlus: uBroj(t.alarmPlus),
       hy: uBroj(t.hy),
@@ -244,7 +252,7 @@ export default async function HladjenjeDashboard() {
           }}
         >
           {smije
-            ? "Promjene se bilježe kao komande i odmah prikazuju kao novo stanje. Gateway u podrumu ih preuzima u sljedećem ciklusu (do 2 min) i tek tada badge prelazi u „primijenjeno“. Hlađenje se isključuje podizanjem zadane temperature na 20,0 °C — kontroler nema zaseban ON/OFF."
+            ? "Promjene se bilježe kao komande i odmah prikazuju kao novo stanje. Gateway u podrumu ih preuzima u sljedećem ciklusu (do 2 min) i tek tada badge prelazi u „primijenjeno“. Prikazane vrijednosti su one koje gateway čita s kontrolera: ako komanda ne prođe, vrijednost se vraća na stvarno stanje. Hlađenje se isključuje podizanjem zadane temperature na 20,0 °C — kontroler nema zaseban ON/OFF."
             : "Pregled bez upravljanja. Promjene postavki rade role Admin, Enolog i Podrum."}
         </div>
 

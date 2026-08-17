@@ -13,6 +13,7 @@ import {
   LIMITI,
   stegni,
   SOFT_OFF_TEMP,
+  jeHladjenjeIskljuceno,
   OPIS_TIPA,
   JEDINICA_TIPA,
   type KomandaTip,
@@ -27,10 +28,14 @@ export type TankTile = {
   sorta: string | null;
   nazivVina: string | null;
   zadnjaTemp: number | null;
+  // Zelja iz baze (upisana kod slanja komande). Moze zaostati za kontrolerom.
   zadanaTemp: number | null;
+  // Stvarni set point procitan s kontrolera u zadnjem ocitanju - istina.
+  zadanaNaKontroleru: number | null;
   // Soft-OFF: zadanaTemp = SOFT_OFF_TEMP znaci "hladjenje iskljuceno", a
   // zadnjaZadanaTemp je vrijednost koja se vraca kad se opet ukljuci.
   zadnjaZadanaTemp: number | null;
+  // Racuna se iz stvarnog set pointa s kontrolera (vidi page.tsx).
   hladjenjeIskljuceno: boolean;
   alarmMinus: number | null;
   alarmPlus: number | null;
@@ -134,10 +139,22 @@ export default function TankKontrole({
   tank: TankTile;
   smijeUpravljati: boolean;
 }) {
+  // Stvarno stanje kontrolera (iz zadnjeg ocitanja), a ne ono sto baza zeli.
   const iskljuceno = tank.hladjenjeIskljuceno;
-  // Dok je hladjenje iskljuceno, zadanaTemp je 20,0 (oznaka iskljucenja) - stepper
-  // zato radi sa zapamcenom vrijednoscu, onom koja se vraca kod ukljucivanja.
-  const zadanaZaPrikaz = iskljuceno ? tank.zadnjaZadanaTemp : tank.zadanaTemp;
+
+  // Stepper radi sa zeljom iz BAZE: s tom vrijednoscu racuna i server kod slanja
+  // komandi (vidi actions.ts). Dok je u bazi soft-OFF, zadanaTemp je 20,0 (oznaka
+  // iskljucenja) pa se koristi zapamcena vrijednost - ona koja se vraca kod
+  // ukljucivanja.
+  const iskljucenoUBazi = jeHladjenjeIskljuceno(tank.zadanaTemp);
+  const zadanaZaPrikaz = iskljucenoUBazi ? tank.zadnjaZadanaTemp : tank.zadanaTemp;
+
+  // Baza i kontroler se razilaze: komanda jos ceka ili je propala. Vrijednost s
+  // kontrolera je ono sto se stvarno dogada u podrumu, pa se mora vidjeti.
+  const razilaziSe =
+    tank.zadanaNaKontroleru != null &&
+    zadanaZaPrikaz != null &&
+    Math.abs(tank.zadanaNaKontroleru - zadanaZaPrikaz) >= 0.05;
 
   const [zadana, setZadana] = useState<number>(zadanaZaPrikaz ?? 12);
   const [aMinus, setAMinus] = useState<number>(tank.alarmMinus ?? 2);
@@ -158,7 +175,7 @@ export default function TankKontrole({
     if (tip === "HLADJENJE_ON") {
       poruka =
         `Tank ${tank.broj}: uključi hlađenje` +
-        (tank.zadnjaZadanaTemp != null ? ` (zadana natrag na ${fmt(tank.zadnjaZadanaTemp)} °C)` : "") +
+        (zadanaZaPrikaz != null ? ` (zadana natrag na ${fmt(zadanaZaPrikaz)} °C)` : "") +
         "?";
     } else if (tip === "HLADJENJE_OFF") {
       poruka =
@@ -316,14 +333,20 @@ export default function TankKontrole({
             </button>
           </div>
         ) : (
-          <div style={{ fontSize: 18, fontWeight: 700 }}>{fmt(zadanaZaPrikaz)} °C</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>
+            {fmt(iskljuceno ? zadanaZaPrikaz : (tank.zadanaNaKontroleru ?? zadanaZaPrikaz))} °C
+          </div>
         )}
         {iskljuceno ? (
           <div style={{ fontSize: 11, color: "#3d5566" }}>
             Hlađenje je isključeno (na kontroleru stoji {fmt(SOFT_OFF_TEMP)} °C).{" "}
-            {tank.zadnjaZadanaTemp != null
+            {zadanaZaPrikaz != null
               ? "Ova vrijednost se vraća pritiskom na UKLJUČI."
               : "Nema zapamćene vrijednosti — upiši zadanu i hlađenje se uključuje s njom."}
+          </div>
+        ) : razilaziSe ? (
+          <div style={{ fontSize: 11, color: "#8a6d00", fontWeight: 600 }}>
+            Na kontroleru je {fmt(tank.zadanaNaKontroleru)} °C (zadnje očitanje).
           </div>
         ) : null}
       </div>

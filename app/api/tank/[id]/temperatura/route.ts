@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/putnik-auth";
-import { uBroj } from "@/lib/temperatura";
+import { stvarnaZadana, uBroj } from "@/lib/temperatura";
 import { NextResponse } from "next/server";
 
 // Raspon -> koliko unatrag + velicina bucketa (sekunde; 0 = sirova ocitanja).
@@ -45,6 +45,14 @@ export async function GET(
     if (!tank) {
       return NextResponse.json({ error: "Tank ne postoji." }, { status: 404 });
     }
+
+    // Crta zadane na grafu ide po STVARNOM set pointu s kontrolera (zadnje
+    // očitanje), ne po želji iz baze - vidi stvarnaZadana().
+    const zadnjeOcitanje = await prisma.ocitanjeTemperature.findFirst({
+      where: { tankId },
+      orderBy: { mjerenoU: "desc" },
+      select: { zadanaTemperatura: true },
+    });
 
     const od = new Date(Date.now() - odMs);
 
@@ -98,7 +106,7 @@ export async function GET(
 
     return NextResponse.json({
       raspon,
-      zadana: uBroj(tank.zadanaTemp),
+      zadana: stvarnaZadana(zadnjeOcitanje?.zadanaTemperatura, tank.zadanaTemp),
       bucketSec,
       tocke,
     });

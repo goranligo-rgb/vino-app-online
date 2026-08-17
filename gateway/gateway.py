@@ -20,6 +20,26 @@ Ciklus (zadano 120 s):
   3. POST svih ocitanja odjednom
   4. Usporedba stanja s aktivnim alarmima -> POST novih / PATCH razrijesenih
   5. PATCH ishoda komandi (PRIMIJENJENO / NEUSPJELO / napomena)
+  6. Sinkronizacija Tank.zadanaTemp / Tank.hy sa stvarnim stanjem kontrolera
+     (vidi "Kontroler je izvor istine" nize)
+
+Kontroler je izvor istine:
+  Aplikacija kod slanja komande odmah upise zeljenu vrijednost na Tank (da ekran
+  pokaze novo stanje). Ako komanda potom propadne, baza tvrdi jedno a kontroler
+  radi drugo - i to ostaje zauvijek (viden slucaj: tank 11, baza 16,0, kontroler
+  22,0). Zato gateway svaki ciklus procita STVARNI set point (SEt) i Hy s
+  kontrolera i vrati bazu na stvarno stanje:
+
+    - stvarni SEt uvijek ide u OcitanjeTemperature.zadanaTemperatura;
+    - Tank.zadanaTemp / Tank.hy se ispravljaju samo ako za taj tank NEMA komande
+      koja bas to polje mijenja (zelja korisnika koja jos ceka izvrsenje ima
+      prednost pred kontrolerom);
+    - soft-OFF je iznimka: ako kontroler stoji na SOFT_OFF_TEMP (20,0 C), u
+      Tank.zadanaTemp se NE upisuje 20,0 - tamo (i u zadnjaZadanaTemp) cuva se
+      vrijednost s kojom se hladjenje vraca. Stanje "iskljuceno" se ionako vidi
+      iz ocitanja, cija je zadanaTemperatura tada 20,0.
+    - PATCH ide s uvjetom "vrijednost je jos uvijek ona koju sam procitao", pa
+      komanda poslana usred ciklusa ne moze biti pregazena.
 
 Komande (Faza B):
   - Izvrsavaju se HLADJENJE_ON, HLADJENJE_OFF, ZADANA_TEMP i HY.
@@ -378,6 +398,19 @@ def parsiraj_vrijeme(tekst: Any) -> datetime | None:
     return d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d.astimezone(timezone.utc)
 
 
+def uvjet_jednako(stupac: str, vrijednost: Any) -> str:
+    """
+    PostgREST filter "stupac je jos uvijek na ovoj vrijednosti".
+
+    Koristi se kod uvjetnog PATCH-a Tanka: vrijednost je ona koju je gateway
+    procitao na pocetku ciklusa, pa upis prolazi samo ako je aplikacija u
+    meduvremenu nije promijenila.
+    """
+    if vrijednost is None:
+        return f"{stupac}=is.null"
+    return f"{stupac}=eq.{vrijednost}"
+
+
 # ------------------------------------------------------------------- Supabase
 
 class Supabase:
@@ -435,7 +468,8 @@ class Supabase:
         Tank bez kontrolera (41-44) ima nadzorHladjenja = false pa se preskace,
         a adresa mu ostaje zapisana za dan kad kontroler dobije.
         """
-        stupci = "id,broj,modbusAdresa,grana,zadanaTemp,alarmMinus,alarmPlus"
+        stupci = ("id,broj,modbusAdresa,grana,zadanaTemp,zadnjaZadanaTemp,"
+                  "alarmMinus,alarmPlus,hy")
         return self._zahtjev(
             "GET",
             f"Tank?select={stupci}&modbusAdresa=not.is.null&nadzorHladjenja=is.true"
@@ -460,6 +494,20 @@ class Supabase:
     def zatvori_alarm(self, alarm_id: str) -> None:
         self._zahtjev("PATCH", f"TankAlarm?id=eq.{alarm_id}",
                       {"aktivan": False, "razrijesenU": sada_utc_iso()})
+
+    def azuriraj_tank(self, tank_id: str, promjene: dict, uvjeti: list[str]) -> bool:
+        """
+        Uvjetni PATCH Tanka: pise samo ako su navedeni stupci jos uvijek na
+        vrijednosti koju je gateway procitao na pocetku ciklusa. Ako je aplikacija
+        u meduvremenu upisala zelju korisnika, uvjet ne prolazi i PATCH ne dira
+        nista - bolje propustiti jedan ciklus nego pregaziti svjezu komandu.
+
+        Vraca True ako je red stvarno promijenjen.
+        """
+        filtri = "&".join([f"id=eq.{tank_id}", *uvjeti])
+        odgovor = self._zahtjev("PATCH", f"Tank?{filtri}", promjene,
+                                prefer="return=representation")
+        return bool(odgovor)
 
     # --- komande (Faza B) ---
 
@@ -645,7 +693,8 @@ def procitaj_registar(client, k: Konfig, adresa_reg: int, uredaj: int) -> int:
 
 def procitaj_tank(client, k: Konfig, uredaj: int) -> dict:
     """
-    Vraca {"temperatura": float, "setpoint": float|None, "hladjenje": bool|None}.
+    Vraca {"temperatura": float, "setpoint": float|None, "hy": float|None,
+           "hladjenje": bool|None}.
     Baca OfflineGreska / SondaGreska.
     """
     sirovo = procitaj_registar(client, k, k.reg_temp, uredaj)
@@ -662,6 +711,15 @@ def procitaj_tank(client, k: Konfig, uredaj: int) -> dict:
         except OfflineGreska as e:
             log.debug("Adresa %s: set point se ne cita (%s)", uredaj, e)
 
+    # Hy se cita svaki ciklus iz istog razloga kao i SEt: da baza zna sto je
+    # stvarno na kontroleru, a ne samo sto je netko zelio.
+    hy = None
+    if k.reg_hy is not None:
+        try:
+            hy = registar_u_hy(k, procitaj_registar(client, k, k.reg_hy, uredaj))
+        except OfflineGreska as e:
+            log.debug("Adresa %s: Hy se ne cita (%s)", uredaj, e)
+
     hladjenje = None
     greska_sonde_bit = False
     if k.reg_status is not None:
@@ -677,7 +735,8 @@ def procitaj_tank(client, k: Konfig, uredaj: int) -> dict:
     if greska_sonde_bit:
         raise SondaGreska("bit greske sonde u statusnom registru")
 
-    return {"temperatura": temperatura, "setpoint": setpoint, "hladjenje": hladjenje}
+    return {"temperatura": temperatura, "setpoint": setpoint, "hy": hy,
+            "hladjenje": hladjenje}
 
 
 # ------------------------------------------------------------------- komande
@@ -685,6 +744,14 @@ def procitaj_tank(client, k: Konfig, uredaj: int) -> dict:
 # Tipovi koje gateway uopce pokusava izvrsiti. ALARM_MINUS / ALARM_PLUS namjerno
 # nisu ovdje: to su pragovi upozorenja u aplikaciji, a ne parametri kontrolera.
 KOMANDE_ZA_IZVRSITI = {"HLADJENJE_ON", "HLADJENJE_OFF", "ZADANA_TEMP", "HY"}
+
+# Koja komanda "drzi" koje polje Tanka. Dok takva komanda ceka (ili je bas ovaj
+# ciklus izvrsena), u bazi stoji zelja korisnika i sinkronizacija s kontrolera to
+# polje ne dira - inace bi svjezu zelju odmah pregazila stara vrijednost.
+KOMANDE_ZA_POLJE: dict[str, set[str]] = {
+    "zadanaTemp": {"ZADANA_TEMP", "HLADJENJE_ON", "HLADJENJE_OFF"},
+    "hy": {"HY"},
+}
 
 NAPOMENA_DISCOVERY = "čeka discovery registra"
 
@@ -1033,6 +1100,114 @@ class Gateway:
         except Exception as e:
             log.error("Zapis ishoda komandi nije uspio: %s", e)
 
+        # Tek na kraju: baza se poravnava sa stvarnim stanjem kontrolera. Ide
+        # nakon ishoda komandi da propala komanda ostane zabiljezena kao propala,
+        # a vrijednost u bazi se svejedno vrati na istinu.
+        try:
+            self.sinkroniziraj_postavke(tankovi, rezultati, komande_po_tanku)
+        except Exception as e:
+            log.error("Sinkronizacija postavki s kontrolera nije uspjela: %s", e)
+
+    # --- sinkronizacija baze s kontrolerom ------------------------------------
+
+    def sinkroniziraj_postavke(self, tankovi: list[dict], rezultati: dict[str, dict],
+                               komande_po_tanku: dict[str, list[dict]]) -> None:
+        """
+        Vrati Tank.zadanaTemp i Tank.hy na ono sto STVARNO stoji na kontroleru.
+
+        Preskace se tank koji ovaj ciklus ima komandu za to polje - i onu koja jos
+        ceka, i onu koja je bas sad izvrsena (ocitanje je snimljeno prije upisa, pa
+        bi vratilo staru vrijednost). Red komandi se prije upisa provjerava jos
+        jednom, jer je korisnik mogao poslati komandu usred ciklusa.
+        """
+        if self.db.bez_upisa:
+            return
+
+        # tankId -> tipovi komandi koje se ne smiju pregaziti
+        blokirani: dict[str, set[str]] = {}
+        for tid, popis in (komande_po_tanku or {}).items():
+            blokirani.setdefault(tid, set()).update(str(kom.get("tip") or "") for kom in popis)
+
+        # Red komandi se cita i kad je izvrsavanje ugaseno (KOMANDE_OMOGUCENE=false,
+        # --bez-komandi): zelja koja ceka svoj cas ne smije se izgubiti time sto ju
+        # je sinkronizacija vratila na staro.
+        try:
+            for kom in self.db.dohvati_komande():
+                blokirani.setdefault(kom["tankId"], set()).add(str(kom.get("tip") or ""))
+        except Exception as e:
+            # Bez svjezeg pogleda na red komandi radije ne diramo nista.
+            log.warning("Sinkronizacija preskocena - ne mogu provjeriti komande: %s", e)
+            return
+
+        promijenjeno = 0
+        for t in tankovi:
+            tid = t["id"]
+            r = rezultati.get(tid)
+            if not r or r.get("stanje") != "OK":
+                continue
+            broj = t.get("broj")
+            tipovi = blokirani.get(tid, set())
+            promjene: dict[str, Any] = {}
+            uvjeti: list[str] = []
+
+            # --- zadana temperatura (SEt) ---
+            stvarna = u_broj(r.get("setpoint"))
+            u_bazi = u_broj(t.get("zadanaTemp"))
+            if stvarna is not None and not (tipovi & KOMANDE_ZA_POLJE["zadanaTemp"]):
+                if je_soft_off(self.k, stvarna):
+                    # Kontroler je u soft-OFF stanju. 20,0 se NE upisuje u
+                    # Tank.zadanaTemp: aplikacija tamo (i u zadnjaZadanaTemp) drzi
+                    # vrijednost s kojom se hladjenje vraca. Da je hladjenje
+                    # iskljuceno vidi se iz ocitanja (zadanaTemperatura = 20,0).
+                    if u_bazi is None or not je_soft_off(self.k, u_bazi):
+                        log.info(
+                            "SINK tank %s: kontroler je u soft-OFF (SEt %.1f C), baza kaze %s C "
+                            "- zadanaTemp se ne dira (cuva se za povratak)",
+                            broj, stvarna, f"{u_bazi:.1f}" if u_bazi is not None else "-",
+                        )
+                elif u_bazi is None or abs(u_bazi - stvarna) >= 0.05:
+                    promjene["zadanaTemp"] = stvarna
+                    uvjeti.append(uvjet_jednako("zadanaTemp", t.get("zadanaTemp")))
+                    # Baza je mislila da je hladjenje iskljuceno, a kontroler hladi:
+                    # zapamcena vrijednost za povratak vise nema smisla.
+                    if je_soft_off(self.k, u_bazi):
+                        promjene["zadnjaZadanaTemp"] = None
+
+            # --- diferencijal (Hy) ---
+            stvarni_hy = u_broj(r.get("hy"))
+            hy_baza = u_broj(t.get("hy"))
+            # Hy 0 (ili manje) nije stvarna postavka nego znak da pakiranje
+            # registra nije ono koje mislimo - takvo se u bazu ne upisuje.
+            if stvarni_hy is not None and stvarni_hy > 0 and not (tipovi & KOMANDE_ZA_POLJE["hy"]):
+                if hy_baza is None or abs(hy_baza - stvarni_hy) >= 0.05:
+                    promjene["hy"] = stvarni_hy
+                    uvjeti.append(uvjet_jednako("hy", t.get("hy")))
+
+            if not promjene:
+                continue
+
+            opis = ", ".join(
+                f"{polje} {self._staro(t, polje)} -> {promjene[polje]}"
+                for polje in ("zadanaTemp", "hy") if polje in promjene
+            )
+            try:
+                if self.db.azuriraj_tank(tid, promjene, uvjeti):
+                    promijenjeno += 1
+                    log.info("SINK tank %s: baza poravnata s kontrolerom (%s)", broj, opis)
+                else:
+                    log.info("SINK tank %s: preskoceno (%s) - vrijednost se promijenila "
+                             "u meduvremenu", broj, opis)
+            except Exception as e:
+                log.warning("SINK tank %s: upis nije uspio (%s): %s", broj, opis, e)
+
+        if promijenjeno:
+            log.info("Sinkronizacija s kontrolera: %s tank(ova) ispravljeno u bazi", promijenjeno)
+
+    @staticmethod
+    def _staro(tank: dict, polje: str) -> str:
+        v = u_broj(tank.get(polje))
+        return "-" if v is None else f"{v:.1f}"
+
     # --- komande --------------------------------------------------------------
 
     def dohvati_komande_po_tanku(self) -> dict[str, list[dict]]:
@@ -1267,10 +1442,13 @@ class Gateway:
         log.info("VINO GATEWAY start | ciklus %s s | portovi A=%s B=%s | %s baud %s%s%s | FC%s",
                  self.k.ciklus_sekundi, self.k.port_a, self.k.port_b, self.k.baudrate,
                  self.k.bytesize, self.k.parity, self.k.stopbits, self.k.modbus_funkcija)
-        log.info("Registri: temp=0x%04X, setpoint=%s, status=%s",
+        log.info("Registri: temp=0x%04X, setpoint=%s, hy=%s, status=%s",
                  self.k.reg_temp,
                  f"0x{self.k.reg_setpoint:04X}" if self.k.reg_setpoint is not None else "iz baze (Tank.zadanaTemp)",
+                 f"0x{self.k.reg_hy:04X}" if self.k.reg_hy is not None else "nema (Hy se ne cita)",
                  f"0x{self.k.reg_status:04X}" if self.k.reg_status is not None else "nema (hladjenje se procjenjuje)")
+        log.info("Set point i Hy se citaju svaki ciklus; baza (Tank.zadanaTemp/hy) se "
+                 "poravnava s kontrolerom kad za to polje nema komande na cekanju.")
 
         log.info("Zabranjeni registri (nikad se ne diraju): %s",
                  ", ".join(f"0x{r:04X}" for r in sorted(self.k.registri_zabranjeni)) or "nema")

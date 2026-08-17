@@ -20,6 +20,7 @@ import {
   stilZaStatus,
   formatTemp,
   prijeKoliko,
+  stvarnaZadana,
   uBroj,
 } from "@/lib/temperatura";
 
@@ -613,9 +614,15 @@ export default async function TankPregledPage({
     ? { status: zadnjaHyKomanda.status, greska: zadnjaHyKomanda.greska }
     : null;
 
+  // Zadana koja se prikazuje je STVARNA - ona koju je gateway zadnji put procitao
+  // s kontrolera. Tank.zadanaTemp je samo zelja i moze zaostati ako komanda propadne.
   // Soft-OFF: zadana = SOFT_OFF_TEMP (20,0 C) znaci "hladjenje iskljuceno" -
   // kontroler nema Modbus registar za ON/OFF (vidi lib/tank-komanda.ts).
-  const hladjenjeIskljuceno = jeHladjenjeIskljuceno(uBroj(tank.zadanaTemp));
+  const zadanaStvarna = stvarnaZadana(
+    zadnjeOcitanje?.zadanaTemperatura,
+    tank.zadanaTemp
+  );
+  const hladjenjeIskljuceno = jeHladjenjeIskljuceno(zadanaStvarna);
   const tempStatus = izracunajStatus({
     mjerenoU: zadnjeOcitanje?.mjerenoU ?? null,
     imaAktivanAlarm: aktivniAlarmi.length > 0,
@@ -1021,7 +1028,7 @@ const izvrseniZadaci = tankJePrazan
             <ParamTop
               label={hladjenjeIskljuceno ? "Zadana (zapamćena)" : "Zadana temperatura"}
               value={formatTemp(
-                hladjenjeIskljuceno ? tank.zadnjaZadanaTemp : tank.zadanaTemp
+                hladjenjeIskljuceno ? tank.zadnjaZadanaTemp ?? tank.zadanaTemp : zadanaStvarna
               )}
               unit="°C"
             />
@@ -1089,7 +1096,7 @@ const izvrseniZadaci = tankJePrazan
             </div>
           ) : null}
 
-          <HladjenjeGraf tankId={tank.id} zadanaPocetna={uBroj(tank.zadanaTemp)} />
+          <HladjenjeGraf tankId={tank.id} zadanaPocetna={zadanaStvarna} />
 
           <div style={{ fontSize: 11, color: "#999" }}>
             Zadana temperatura i pragovi alarma mijenjaju se na{" "}

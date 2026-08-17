@@ -91,6 +91,23 @@ export function uBroj(x: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Stvarna zadana temperatura tanka = ona koju je gateway zadnji put pročitao
+ * S KONTROLERA (OcitanjeTemperature.zadanaTemperatura).
+ *
+ * Tank.zadanaTemp je samo želja: aplikacija je upiše čim korisnik pošalje
+ * komandu, pa ako komanda propadne baza tvrdi jedno, a kontroler radi drugo.
+ * Za prikaz zato uvijek ide očitanje, a polje na Tanku tek kad očitanja nema.
+ * (Gateway svaki ciklus i sam vraća Tank.zadanaTemp na stvarnu vrijednost kad
+ * za taj tank nema komande na čekanju — vidi gateway/gateway.py.)
+ */
+export function stvarnaZadana(
+  ocitanjeZadana: unknown,
+  tankZadana: unknown
+): number | null {
+  return uBroj(ocitanjeZadana) ?? uBroj(tankZadana);
+}
+
 // Prikaz temperature s jednom decimalom (hr-HR), npr. "12,4".
 export function formatTemp(x: unknown): string {
   const n = uBroj(x);

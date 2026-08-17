@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
-import { uBroj } from "@/lib/temperatura";
+import { stvarnaZadana, uBroj } from "@/lib/temperatura";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -53,7 +53,8 @@ export async function GET() {
         brojZadataka: t.zadaci.length,
         // Nadzor temperature
         zadnjaTemp: o ? uBroj(o.temperatura) : null,
-        zadanaTemp: uBroj(t.zadanaTemp),
+        // Stvarna zadana s kontrolera (zadnje očitanje), a ne želja iz baze.
+        zadanaTemp: stvarnaZadana(o?.zadanaTemperatura, t.zadanaTemp),
         hladjenjeAktivno: o ? o.hladjenjeAktivno : null,
         mjerenoU: o ? o.mjerenoU.toISOString() : null,
         imaAktivanAlarm: alarmSet.has(t.id),
