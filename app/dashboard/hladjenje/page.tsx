@@ -227,16 +227,18 @@ export default async function HladjenjeDashboard() {
         .hlad-sazetak { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:10px; min-width:0; }
         @media (max-width: 639px){ .hlad-sazetak { grid-template-columns: repeat(2, minmax(0,1fr)); width:100%; } }
 
-        /* Broj stupaca se racuna iz STVARNE sirine kontejnera, ne iz media upita:
-           minmax(min(100%, 300px), 1fr) znaci "stupac je najmanje 300 px, osim ako
-           toliko nema - tada je siroko koliko i kontejner". Na uspravnom mobitelu
-           tako uvijek ispadne jedan stupac pune sirine, cak i ako media upiti ne
-           okinu (npr. kad preglednik prijavi 980 px layout viewporta).
-           Media upiti ispod su samo dodatna kontrola gustoce na velikim ekranima. */
-        .hlad-grid { display:grid; gap:12px;
-                     grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+        /* Broj stupaca je EKSPLICITAN po sirini, bez auto-fill/minmax racunice.
+           Potvrdeno na iPhoneu (viewport 402 px): auto-fill je znao staviti dvije
+           kartice u red, jer sam odlucuje koliko ih stane - a "koliko stane" i
+           "koliko je citljivo" nije isto. Na uspravnom mobitelu mora biti tocno
+           jedan stupac, i to se ovdje kaze doslovno. */
+        .hlad-grid { display:grid; gap:12px; grid-template-columns: 1fr; }
+        @media (min-width: 640px){ .hlad-grid{ grid-template-columns: repeat(2, minmax(0,1fr));} }
         @media (min-width: 900px){ .hlad-grid{ grid-template-columns: repeat(4, minmax(0,1fr));} }
         @media (min-width: 1300px){ .hlad-grid{ grid-template-columns: repeat(5, minmax(0,1fr));} }
+        /* Zadnja rijec za mobitel: ovo pravilo dolazi iza svih min-width upita, pa
+           ni redoslijed ni jednaka specificnost ne mogu vratiti dva stupca. */
+        @media (max-width: 639px){ .hlad-grid{ grid-template-columns: 1fr;} }
         .hlad-grid > * { min-width: 0; box-sizing: border-box; }
 
         .hlad-kartica { padding:12px; display:grid; gap:10px; min-width:0; box-sizing:border-box; }
@@ -259,10 +261,9 @@ export default async function HladjenjeDashboard() {
                        align-items:center; gap:6px; flex-wrap:wrap; min-width:0; }
         .hlad-kontrole { display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
         .hlad-napomena { font-size:11px; min-width:0; overflow-wrap:anywhere; }
-        /* Isti trik kao kod .hlad-grid: na uskoj kartici Alarm − i Alarm + padnu
-           jedan ispod drugog sami od sebe, bez media upita. */
-        .hlad-alarmi { display:grid; gap:10px;
-                       grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); }
+        /* Alarm − i Alarm +: dva stupca kad ima mjesta, jedan na mobitelu (dolje
+           u max-width upitu). Bez auto-fit racunice, iz istog razloga kao gore. */
+        .hlad-alarmi { display:grid; gap:10px; grid-template-columns: repeat(2, minmax(0,1fr)); }
         .hlad-onoff { display:flex; gap:8px; flex-wrap:wrap; min-width:0; }
         .hlad-onoff > button { flex:1 1 110px; min-height:42px; }
 
@@ -292,7 +293,7 @@ export default async function HladjenjeDashboard() {
           .hlad-kartica { padding:14px; gap:12px; }
           .hlad-red { padding:10px; }
           .hlad-oznaka { font-size:13px; }
-          .hlad-alarmi { grid-template-columns: minmax(0,1fr); }
+          .hlad-alarmi { grid-template-columns: 1fr; }
           .hlad-stepper { justify-content:flex-start; }
           .hlad-korak { min-width:52px; min-height:48px; font-size:22px; }
           .hlad-vrijednost { min-width:64px; font-size:20px; }
