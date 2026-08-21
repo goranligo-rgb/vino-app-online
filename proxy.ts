@@ -37,17 +37,12 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", req.url));
   }
 
-  // Preparati: uredivanje je ADMIN + ENOLOG. PODRUM ovdje SAMO gleda — smije
-  // pregled stanja skladista, ne i /preparat (uredivanje i brzi unos zalihe).
-  if (
-    role === "PODRUM" &&
-    jePreparat(pathname) &&
-    pathname !== "/preparat/stanje"
-  ) {
-    return NextResponse.redirect(new URL("/dashboard", req.url));
-  }
+  // Preparati: PODRUM ima sve stranice — /preparat, /preparat/stanje i
+  // /statistika/preparati. On fizicki radi inventuru pa upisuje i ispravlja.
+  // Jedina zabrana je brisanje, a ono se cuva u API ruti (DELETE /api/preparat)
+  // i skrivanjem gumba "Obriši" na stranici, ne ovdje.
 
-  // LEVEL 2 sve osim reset, korisnika i uredivanja preparata
+  // LEVEL 2 sve osim reseta i korisnika
   if (role === "PODRUM") {
     return NextResponse.next();
   }

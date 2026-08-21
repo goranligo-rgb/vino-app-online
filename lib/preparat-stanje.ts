@@ -60,8 +60,8 @@ export type StanjeSkladista = {
 /**
  * Tko smije vidjeti pregled i izvesti ga: ADMIN, ENOLOG i PODRUM.
  *
- * PODRUM je ovdje samo gledatelj — pregled, filteri, izvoz i promet da;
- * uredivanje, unos zalihe i brisanje ne. PREGLED (L4) nema nista.
+ * PODRUM ima pregled, filtere, izvoz i promet, a uz to i upis (uredivanje,
+ * unos zalihe, ispravak stanja) — sve osim brisanja. PREGLED (L4) nema nista.
  *
  * Mora se poklapati s pravilom u proxy.ts. Proxy stiti STRANICU, a /api/*
  * uopce nije u njegovom matcheru — za API rute ova funkcija je jedini cuvar,

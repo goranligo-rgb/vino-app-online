@@ -9,10 +9,15 @@ async function getAuthUser(): Promise<AuthUser | null> {
   return citajSesiju();
 }
 
-// Unos ulaza zalihe na skladište: ADMIN i ENOLOG.
-// PODRUM NIJE ovdje — brzi unos skladišta mu je zatvoren, samo gleda.
+// Unos ulaza zalihe na skladište: ADMIN, ENOLOG i PODRUM.
+// PODRUM je ovdje jer on fizicki zaprima robu i broji skladiste — brzi unos
+// zalihe je njegov posao.
 function smijeUredjivati(user: AuthUser | null) {
-  return user?.role === "ADMIN" || user?.role === "ENOLOG";
+  return (
+    user?.role === "ADMIN" ||
+    user?.role === "ENOLOG" ||
+    user?.role === "PODRUM"
+  );
 }
 
 function toNumber(value: unknown): number | null {

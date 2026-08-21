@@ -9,13 +9,19 @@ async function getAuthUser(): Promise<AuthUser | null> {
   return citajSesiju();
 }
 
-// Dodavanje / uređivanje / zalihe preparata: ADMIN i ENOLOG.
-// PODRUM NIJE ovdje — on preparate samo gleda (/preparat/stanje, promet).
+// Dodavanje / uređivanje / zalihe preparata: ADMIN, ENOLOG i PODRUM.
+// PODRUM je ovdje jer fizicki radi inventuru — otvara novi preparat, uredjuje
+// ga i ispravlja stanje. Jedino mu brisanje ostaje zatvoreno (smijeBrisati).
 function smijeUredjivati(user: AuthUser | null) {
-  return user?.role === "ADMIN" || user?.role === "ENOLOG";
+  return (
+    user?.role === "ADMIN" ||
+    user?.role === "ENOLOG" ||
+    user?.role === "PODRUM"
+  );
 }
 
-// Brisanje preparata iz sustava: ADMIN i ENOLOG.
+// Brisanje preparata iz sustava: ADMIN i ENOLOG. PODRUM NIJE ovdje — to je
+// jedina radnja nad preparatima koju L2 ne smije.
 function smijeBrisati(user: AuthUser | null) {
   return user?.role === "ADMIN" || user?.role === "ENOLOG";
 }
