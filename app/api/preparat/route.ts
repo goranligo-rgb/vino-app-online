@@ -31,6 +31,88 @@ function toNumber(value: unknown): number | null {
   return Number(String(value).trim().replace(",", "."));
 }
 
+// --- Citanje polja: razlika izmedu "kljuc nije poslan" i "poslan prazan / nula" ---
+//
+// Citaci ispod vracaju undefined kad kljuc uopce ne postoji u body-ju. Prisma polja
+// s vrijednoscu undefined preskace, pa zatecena vrijednost u bazi ostaje netaknuta.
+// Ako je kljuc poslan (makar prazan ili 0), vrijednost se upisuje - to je namjerna
+// korekcija s ekrana /preparat, sekcija "Pregled preparata".
+
+function imaKljuc(body: unknown, kljuc: string) {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    Object.prototype.hasOwnProperty.call(body, kljuc)
+  );
+}
+
+// Cita se tek nakon imaKljuc(), koji je vec potvrdio da je body objekt.
+function polje(body: unknown, kljuc: string): unknown {
+  return (body as Record<string, unknown>)[kljuc];
+}
+
+// Brojcano polje koje u bazi smije ostati prazno (npr. dozaOd): prazno -> null.
+function citajBrojIliNull(
+  body: unknown,
+  kljuc: string
+): number | null | undefined {
+  if (!imaKljuc(body, kljuc)) return undefined;
+  return toNumber(polje(body, kljuc));
+}
+
+// Brojcano polje koje se vodi kao nula kad je poslano prazno
+// (stanjeNaSkladistu, minimalnaKolicina): prazno ili 0 -> 0.
+function citajBrojIliNulu(body: unknown, kljuc: string): number | undefined {
+  if (!imaKljuc(body, kljuc)) return undefined;
+  return toNumber(polje(body, kljuc)) ?? 0;
+}
+
+// Tekstualno polje: prazno -> null.
+function citajTekstIliNull(
+  body: unknown,
+  kljuc: string
+): string | null | undefined {
+  if (!imaKljuc(body, kljuc)) return undefined;
+  return String(polje(body, kljuc) ?? "").trim() || null;
+}
+
+// aktivan: sve osim eksplicitnog false znaci "aktivan" (zateceno ponasanje).
+function citajAktivan(body: unknown, kljuc: string): boolean | undefined {
+  if (!imaKljuc(body, kljuc)) return undefined;
+  const v = polje(body, kljuc);
+  return v === false || v === "false" ? false : true;
+}
+
+// isKorekcijski: samo eksplicitni true znaci "korekcijski" (zateceno ponasanje).
+function citajIsKorekcijski(
+  body: unknown,
+  kljuc: string
+): boolean | undefined {
+  if (!imaKljuc(body, kljuc)) return undefined;
+  const v = polje(body, kljuc);
+  return v === true || v === "true" || v === 1;
+}
+
+function citajKorekcijaTip(
+  body: unknown,
+  kljuc: string
+): string | null | undefined {
+  if (!imaKljuc(body, kljuc)) return undefined;
+  return parseKorekcijaTip(polje(body, kljuc));
+}
+
+// Polja formule korekcijskog preparata; izostavljena polja se ne upisuju.
+type KorekcijaPolja = {
+  korekcijaTip?: any;
+  korekcijaJedinica?: string | null;
+  ucinakPoJedinici?: number | null;
+  povecanjeParametra?: number | null;
+  referentnaKolicina?: number | null;
+  referentnaKolicinaJedinica?: string | null;
+  referentniVolumen?: number | null;
+  referentniVolumenJedinica?: string | null;
+};
+
 function parseKorekcijaTip(value: unknown) {
   const v = String(value ?? "").trim().toUpperCase();
 
@@ -208,39 +290,40 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
+    // Kod kreiranja izostavljen kljuc znaci "pusti default iz sheme"
+    // (stanje 0, minimalna kolicina 0, aktivan true, isKorekcijski false).
     const naziv = String(body?.naziv ?? "").trim();
-    const opis = String(body?.opis ?? "").trim() || null;
-    const strucnoIme = String(body?.strucnoIme ?? "").trim() || null;
-    const unitId = String(body?.unitId ?? "").trim() || null;
+    const opis = citajTekstIliNull(body, "opis");
+    const strucnoIme = citajTekstIliNull(body, "strucnoIme");
+    const unitId = citajTekstIliNull(body, "unitId");
 
-    const dozaOd = toNumber(body?.dozaOd);
-    const dozaDo = toNumber(body?.dozaDo);
+    const dozaOd = citajBrojIliNull(body, "dozaOd");
+    const dozaDo = citajBrojIliNull(body, "dozaDo");
 
-    const stanjeNaSkladistu = toNumber(body?.stanjeNaSkladistu) ?? 0;
-    const minimalnaKolicina = toNumber(body?.minimalnaKolicina) ?? 0;
-    const skladisnaJedinicaId =
-      String(body?.skladisnaJedinicaId ?? "").trim() || null;
-    const aktivan =
-      body?.aktivan === false || body?.aktivan === "false" ? false : true;
+    const stanjeNaSkladistu = citajBrojIliNulu(body, "stanjeNaSkladistu");
+    const minimalnaKolicina = citajBrojIliNulu(body, "minimalnaKolicina");
+    const skladisnaJedinicaId = citajTekstIliNull(body, "skladisnaJedinicaId");
+    const aktivan = citajAktivan(body, "aktivan");
 
-    const isKorekcijski =
-      body?.isKorekcijski === true ||
-      body?.isKorekcijski === "true" ||
-      body?.isKorekcijski === 1;
+    const isKorekcijski = citajIsKorekcijski(body, "isKorekcijski") ?? false;
 
-    const korekcijaTip = parseKorekcijaTip(body?.korekcijaTip);
+    const korekcijaTip = citajKorekcijaTip(body, "korekcijaTip") ?? null;
     const korekcijaJedinica =
-      String(body?.korekcijaJedinica ?? "").trim() || null;
+      citajTekstIliNull(body, "korekcijaJedinica") ?? null;
 
-    const povecanjeParametra = toNumber(body?.povecanjeParametra);
-    const referentnaKolicina = toNumber(body?.referentnaKolicina);
-    const referentniVolumen = toNumber(body?.referentniVolumen);
+    const povecanjeParametra =
+      citajBrojIliNull(body, "povecanjeParametra") ?? null;
+    const referentnaKolicina =
+      citajBrojIliNull(body, "referentnaKolicina") ?? null;
+    const referentniVolumen =
+      citajBrojIliNull(body, "referentniVolumen") ?? null;
     const referentnaKolicinaJedinica =
-      String(body?.referentnaKolicinaJedinica ?? "").trim() || null;
+      citajTekstIliNull(body, "referentnaKolicinaJedinica") ?? null;
     const referentniVolumenJedinica =
-      String(body?.referentniVolumenJedinica ?? "").trim() || null;
+      citajTekstIliNull(body, "referentniVolumenJedinica") ?? null;
 
-    const ucinakPoJediniciIzravno = toNumber(body?.ucinakPoJedinici);
+    const ucinakPoJediniciIzravno =
+      citajBrojIliNull(body, "ucinakPoJedinici") ?? null;
 
     if (!naziv) {
       return NextResponse.json(
@@ -270,14 +353,14 @@ export async function POST(req: Request) {
       );
     }
 
-    if (stanjeNaSkladistu < 0) {
+    if (stanjeNaSkladistu != null && stanjeNaSkladistu < 0) {
       return NextResponse.json(
         { error: "Stanje na skladištu ne može biti manje od 0." },
         { status: 400 }
       );
     }
 
-    if (minimalnaKolicina < 0) {
+    if (minimalnaKolicina != null && minimalnaKolicina < 0) {
       return NextResponse.json(
         { error: "Minimalna količina ne može biti manja od 0." },
         { status: 400 }
@@ -403,39 +486,41 @@ export async function PUT(req: Request) {
     const body = await req.json();
 
     const id = String(body?.id ?? "").trim();
-    const naziv = String(body?.naziv ?? "").trim();
-    const opis = String(body?.opis ?? "").trim() || null;
-    const strucnoIme = String(body?.strucnoIme ?? "").trim() || null;
-    const unitId = String(body?.unitId ?? "").trim() || null;
 
-    const dozaOd = toNumber(body?.dozaOd);
-    const dozaDo = toNumber(body?.dozaDo);
+    // Izostavljen kljuc = polje se ne mijenja i ostaje kako je u bazi.
+    const naziv = imaKljuc(body, "naziv")
+      ? String(body?.naziv ?? "").trim()
+      : undefined;
+    const opis = citajTekstIliNull(body, "opis");
+    const strucnoIme = citajTekstIliNull(body, "strucnoIme");
+    const unitId = citajTekstIliNull(body, "unitId");
 
-    const stanjeNaSkladistu = toNumber(body?.stanjeNaSkladistu) ?? 0;
-    const minimalnaKolicina = toNumber(body?.minimalnaKolicina) ?? 0;
-    const skladisnaJedinicaId =
-      String(body?.skladisnaJedinicaId ?? "").trim() || null;
-    const aktivan =
-      body?.aktivan === false || body?.aktivan === "false" ? false : true;
+    const dozaOd = citajBrojIliNull(body, "dozaOd");
+    const dozaDo = citajBrojIliNull(body, "dozaDo");
 
-    const isKorekcijski =
-      body?.isKorekcijski === true ||
-      body?.isKorekcijski === "true" ||
-      body?.isKorekcijski === 1;
+    const stanjeNaSkladistu = citajBrojIliNulu(body, "stanjeNaSkladistu");
+    const minimalnaKolicina = citajBrojIliNulu(body, "minimalnaKolicina");
+    const skladisnaJedinicaId = citajTekstIliNull(body, "skladisnaJedinicaId");
+    const aktivan = citajAktivan(body, "aktivan");
 
-    const korekcijaTip = parseKorekcijaTip(body?.korekcijaTip);
-    const korekcijaJedinica =
-      String(body?.korekcijaJedinica ?? "").trim() || null;
+    const isKorekcijski = citajIsKorekcijski(body, "isKorekcijski");
 
-    const povecanjeParametra = toNumber(body?.povecanjeParametra);
-    const referentnaKolicina = toNumber(body?.referentnaKolicina);
-    const referentniVolumen = toNumber(body?.referentniVolumen);
-    const referentnaKolicinaJedinica =
-      String(body?.referentnaKolicinaJedinica ?? "").trim() || null;
-    const referentniVolumenJedinica =
-      String(body?.referentniVolumenJedinica ?? "").trim() || null;
+    const korekcijaTip = citajKorekcijaTip(body, "korekcijaTip");
+    const korekcijaJedinica = citajTekstIliNull(body, "korekcijaJedinica");
 
-    const ucinakPoJediniciIzravno = toNumber(body?.ucinakPoJedinici);
+    const povecanjeParametra = citajBrojIliNull(body, "povecanjeParametra");
+    const referentnaKolicina = citajBrojIliNull(body, "referentnaKolicina");
+    const referentniVolumen = citajBrojIliNull(body, "referentniVolumen");
+    const referentnaKolicinaJedinica = citajTekstIliNull(
+      body,
+      "referentnaKolicinaJedinica"
+    );
+    const referentniVolumenJedinica = citajTekstIliNull(
+      body,
+      "referentniVolumenJedinica"
+    );
+
+    const ucinakPoJediniciIzravno = citajBrojIliNull(body, "ucinakPoJedinici");
 
     if (!id) {
       return NextResponse.json(
@@ -444,9 +529,9 @@ export async function PUT(req: Request) {
       );
     }
 
-    if (!naziv) {
+    if (naziv !== undefined && !naziv) {
       return NextResponse.json(
-        { error: "Naziv preparata je obavezan." },
+        { error: "Naziv preparata ne može biti prazan." },
         { status: 400 }
       );
     }
@@ -472,40 +557,82 @@ export async function PUT(req: Request) {
       );
     }
 
-    if (stanjeNaSkladistu < 0) {
+    if (stanjeNaSkladistu != null && stanjeNaSkladistu < 0) {
       return NextResponse.json(
         { error: "Stanje na skladištu ne može biti manje od 0." },
         { status: 400 }
       );
     }
 
-    if (minimalnaKolicina < 0) {
+    if (minimalnaKolicina != null && minimalnaKolicina < 0) {
       return NextResponse.json(
         { error: "Minimalna količina ne može biti manja od 0." },
         { status: 400 }
       );
     }
 
+    const postojeci = await prisma.preparation.findUnique({
+      where: { id },
+    });
+
+    if (!postojeci) {
+      return NextResponse.json(
+        { error: "Preparat nije pronađen." },
+        { status: 404 }
+      );
+    }
+
+    // Efektivna vrijednost = poslana ako je kljuc tu, inace zatecena u bazi.
+    // Bez ovoga bi djelomicni PUT racunao formulu iz praznih vrijednosti.
+    const efIsKorekcijski = isKorekcijski ?? postojeci.isKorekcijski;
+    const efUnitId = unitId === undefined ? postojeci.unitId : unitId;
+    const efKorekcijaTip =
+      korekcijaTip === undefined ? postojeci.korekcijaTip : korekcijaTip;
+    const efKorekcijaJedinica =
+      korekcijaJedinica === undefined
+        ? postojeci.korekcijaJedinica
+        : korekcijaJedinica;
+    const efPovecanjeParametra =
+      povecanjeParametra === undefined
+        ? postojeci.povecanjeParametra
+        : povecanjeParametra;
+    const efReferentnaKolicina =
+      referentnaKolicina === undefined
+        ? postojeci.referentnaKolicina
+        : referentnaKolicina;
+    const efReferentnaKolicinaJedinica =
+      referentnaKolicinaJedinica === undefined
+        ? postojeci.referentnaKolicinaJedinica
+        : referentnaKolicinaJedinica;
+    const efReferentniVolumen =
+      referentniVolumen === undefined
+        ? postojeci.referentniVolumen
+        : referentniVolumen;
+    const efReferentniVolumenJedinica =
+      referentniVolumenJedinica === undefined
+        ? postojeci.referentniVolumenJedinica
+        : referentniVolumenJedinica;
+
     let unit = null;
-    if (unitId) {
+    if (efUnitId) {
       unit = await prisma.unit.findUnique({
-        where: { id: unitId },
+        where: { id: efUnitId },
       });
     }
 
     const izracunatiUcinak =
       ucinakPoJediniciIzravno ??
       izracunajUcinakPoJediniciIzFormule({
-        povecanjeParametra,
-        referentnaKolicina,
-        referentnaKolicinaJedinica,
-        referentniVolumen,
-        referentniVolumenJedinica,
+        povecanjeParametra: efPovecanjeParametra,
+        referentnaKolicina: efReferentnaKolicina,
+        referentnaKolicinaJedinica: efReferentnaKolicinaJedinica,
+        referentniVolumen: efReferentniVolumen,
+        referentniVolumenJedinica: efReferentniVolumenJedinica,
         ciljnaJedinicaPreparata: unit?.naziv ?? null,
       });
 
-    if (isKorekcijski) {
-      if (!korekcijaTip) {
+    if (efIsKorekcijski) {
+      if (!efKorekcijaTip) {
         return NextResponse.json(
           { error: "Za korekcijski preparat moraš odabrati vrstu korekcije." },
           { status: 400 }
@@ -513,11 +640,11 @@ export async function PUT(req: Request) {
       }
 
       if (
-        povecanjeParametra == null ||
-        referentnaKolicina == null ||
-        referentniVolumen == null ||
-        !referentnaKolicinaJedinica ||
-        !referentniVolumenJedinica
+        efPovecanjeParametra == null ||
+        efReferentnaKolicina == null ||
+        efReferentniVolumen == null ||
+        !efReferentnaKolicinaJedinica ||
+        !efReferentniVolumenJedinica
       ) {
         return NextResponse.json(
           { error: "Za korekcijski preparat moraš upisati kompletnu formulu." },
@@ -537,6 +664,35 @@ export async function PUT(req: Request) {
       }
     }
 
+    // Korekcijski preparat: formula se preracunava iz efektivnih vrijednosti.
+    // Eksplicitno ugasena korekcija (isKorekcijski: false): formula se brise.
+    // Kljuc nije poslan, a preparat nije korekcijski: ne dira se nista.
+    let korekcijaPolja: KorekcijaPolja = {};
+
+    if (efIsKorekcijski) {
+      korekcijaPolja = {
+        korekcijaTip: efKorekcijaTip,
+        korekcijaJedinica: efKorekcijaJedinica,
+        ucinakPoJedinici: izracunatiUcinak,
+        povecanjeParametra: efPovecanjeParametra,
+        referentnaKolicina: efReferentnaKolicina,
+        referentnaKolicinaJedinica: efReferentnaKolicinaJedinica,
+        referentniVolumen: efReferentniVolumen,
+        referentniVolumenJedinica: efReferentniVolumenJedinica,
+      };
+    } else if (isKorekcijski === false) {
+      korekcijaPolja = {
+        korekcijaTip: null,
+        korekcijaJedinica: null,
+        ucinakPoJedinici: null,
+        povecanjeParametra: null,
+        referentnaKolicina: null,
+        referentnaKolicinaJedinica: null,
+        referentniVolumen: null,
+        referentniVolumenJedinica: null,
+      };
+    }
+
     const updated = await prisma.preparation.update({
       where: { id },
       data: {
@@ -550,21 +706,9 @@ export async function PUT(req: Request) {
         minimalnaKolicina,
         skladisnaJedinicaId,
         aktivan,
-
         isKorekcijski,
-        korekcijaTip: isKorekcijski ? (korekcijaTip as any) : null,
-        korekcijaJedinica: isKorekcijski ? korekcijaJedinica : null,
-        ucinakPoJedinici: isKorekcijski ? izracunatiUcinak : null,
 
-        povecanjeParametra: isKorekcijski ? povecanjeParametra : null,
-        referentnaKolicina: isKorekcijski ? referentnaKolicina : null,
-        referentnaKolicinaJedinica: isKorekcijski
-          ? referentnaKolicinaJedinica
-          : null,
-        referentniVolumen: isKorekcijski ? referentniVolumen : null,
-        referentniVolumenJedinica: isKorekcijski
-          ? referentniVolumenJedinica
-          : null,
+        ...korekcijaPolja,
       },
       include: {
         unit: true,
