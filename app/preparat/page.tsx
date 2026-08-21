@@ -215,8 +215,9 @@ export default function PreparatPage() {
 
   // Uloga prijavljenog korisnika — samo radi vidljivosti gumba "Obriši".
   // Stvarna prava su na serveru (app/api/preparat/route.ts); ovo je kozmetika.
+  // Mora pratiti smijeBrisati iz te rute: ADMIN i ENOLOG.
   const [userRole, setUserRole] = useState<string | null>(null);
-  const jeAdmin = userRole === "ADMIN";
+  const smijeBrisati = userRole === "ADMIN" || userRole === "ENOLOG";
 
   const nazivRef = useRef<HTMLInputElement | null>(null);
   const dozaOdRef = useRef<HTMLInputElement | null>(null);
@@ -310,9 +311,12 @@ export default function PreparatPage() {
         return;
       }
 
+      // Ruta vraca objekt { preparat, promet }, a ne goli niz. Dok je ovdje
+      // stajalo Array.isArray(data), uvjet je uvijek bio false i promet se
+      // punio praznim nizom — "Prikazi promet" nikad nije pokazao ni redak.
       setPrometMap((prev) => ({
         ...prev,
-        [preparatId]: Array.isArray(data) ? data : [],
+        [preparatId]: Array.isArray(data?.promet) ? data.promet : [],
       }));
     } catch (error) {
       console.error(error);
@@ -347,6 +351,28 @@ export default function PreparatPage() {
       setUserRole(null);
     }
   }, []);
+
+  // Dubinski link s /preparat/stanje: ?promet=<id> otvara promet tog preparata.
+  // Pretraga se suzi na njegov naziv da kartica bude odmah vidljiva. Radi samo
+  // jednom, nakon prvoga ucitavanja popisa — dalje korisnik upravlja sam.
+  const dubinskiObradjen = useRef(false);
+
+  useEffect(() => {
+    if (dubinskiObradjen.current) return;
+    if (preparati.length === 0) return;
+
+    dubinskiObradjen.current = true;
+
+    const id = new URLSearchParams(window.location.search).get("promet");
+    if (!id) return;
+
+    const preparat = preparati.find((p) => p.id === id);
+    if (!preparat) return;
+
+    setPretraga(preparat.naziv);
+    setOtvorenPrometId(id);
+    void ucitajPrometPreparata(id);
+  }, [preparati]);
 
   const formulaPreview = useMemo(() => {
     if (!novi.isKorekcijski) return "";
@@ -833,6 +859,14 @@ export default function PreparatPage() {
               className="inline-flex h-11 items-center justify-center border border-emerald-300 bg-white px-4 text-sm font-semibold text-stone-800 shadow-sm transition hover:bg-emerald-50"
             >
               📊 Statistika
+            </Link>
+
+            <Link
+              href="/preparat/stanje"
+              title="Pregled stanja svih preparata na skladištu i izvoz u Excel"
+              className="inline-flex h-11 items-center justify-center border border-emerald-300 bg-white px-4 text-sm font-semibold text-stone-800 shadow-sm transition hover:bg-emerald-50"
+            >
+              📦 Stanje skladišta
             </Link>
           </div>
 
@@ -1631,7 +1665,7 @@ export default function PreparatPage() {
                               Spremi
                             </button>
 
-                            {jeAdmin && (
+                            {smijeBrisati && (
                               <button
                                 onClick={() => obrisi(p.id)}
                                 disabled={loading}

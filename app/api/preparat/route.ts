@@ -9,14 +9,24 @@ async function getAuthUser(): Promise<AuthUser | null> {
   return citajSesiju();
 }
 
-// Dodavanje / uređivanje / zalihe preparata: Level 1 (ADMIN) + Level 2 (PODRUM).
+// Dodavanje / uređivanje / zalihe preparata: ADMIN i ENOLOG.
+// PODRUM NIJE ovdje — on preparate samo gleda (/preparat/stanje, promet).
 function smijeUredjivati(user: AuthUser | null) {
-  return user?.role === "ADMIN" || user?.role === "PODRUM";
+  return user?.role === "ADMIN" || user?.role === "ENOLOG";
 }
 
-// Brisanje preparata iz sustava: samo Level 1 (ADMIN).
+// Brisanje preparata iz sustava: ADMIN i ENOLOG.
 function smijeBrisati(user: AuthUser | null) {
-  return user?.role === "ADMIN";
+  return user?.role === "ADMIN" || user?.role === "ENOLOG";
+}
+
+// Citanje popisa preparata: ADMIN, ENOLOG i PODRUM. PREGLED (L4) ne.
+function smijeGledati(user: AuthUser | null) {
+  return (
+    user?.role === "ADMIN" ||
+    user?.role === "ENOLOG" ||
+    user?.role === "PODRUM"
+  );
 }
 
 function isValidNumber(value: unknown) {
@@ -250,6 +260,25 @@ function izracunajUcinakPoJediniciIzFormule(input: {
 
 export async function GET() {
   try {
+    // Ova ruta do sad NIJE provjeravala ni prijavu — popis svih preparata sa
+    // stanjima vracao je i neprijavljenom zahtjevu. Proxy je ne stiti jer
+    // /api/* nije u njegovom matcheru.
+    const user = await getAuthUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "Niste prijavljeni." },
+        { status: 401 }
+      );
+    }
+
+    if (!smijeGledati(user)) {
+      return NextResponse.json(
+        { error: "Nemate pravo pregleda preparata." },
+        { status: 403 }
+      );
+    }
+
     const data = await prisma.preparation.findMany({
       include: {
         unit: true,

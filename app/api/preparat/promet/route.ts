@@ -9,6 +9,15 @@ async function getAuthUser(): Promise<AuthUser | null> {
   return citajSesiju();
 }
 
+// Promet preparata je citanje: ADMIN, ENOLOG i PODRUM. PREGLED (L4) ne.
+function smijeGledati(user: AuthUser | null) {
+  return (
+    user?.role === "ADMIN" ||
+    user?.role === "ENOLOG" ||
+    user?.role === "PODRUM"
+  );
+}
+
 export async function GET(req: Request) {
   try {
     const user = await getAuthUser();
@@ -17,6 +26,13 @@ export async function GET(req: Request) {
       return NextResponse.json(
         { error: "Niste prijavljeni." },
         { status: 401 }
+      );
+    }
+
+    if (!smijeGledati(user)) {
+      return NextResponse.json(
+        { error: "Nemate pravo pregleda prometa preparata." },
+        { status: 403 }
       );
     }
 

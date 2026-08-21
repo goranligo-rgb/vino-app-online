@@ -11,6 +11,11 @@ async function getRole(req: NextRequest): Promise<Role | null> {
   return user?.role ?? null;
 }
 
+/** /preparat i sve ispod njega. Ne hvata /statistika/preparati. */
+function jePreparat(pathname: string): boolean {
+  return pathname === "/preparat" || pathname.startsWith("/preparat/");
+}
+
 export async function proxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   const role = await getRole(req);
@@ -32,7 +37,17 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", req.url));
   }
 
-  // LEVEL 2 sve osim reset i korisnici
+  // Preparati: uredivanje je ADMIN + ENOLOG. PODRUM ovdje SAMO gleda — smije
+  // pregled stanja skladista, ne i /preparat (uredivanje i brzi unos zalihe).
+  if (
+    role === "PODRUM" &&
+    jePreparat(pathname) &&
+    pathname !== "/preparat/stanje"
+  ) {
+    return NextResponse.redirect(new URL("/dashboard", req.url));
+  }
+
+  // LEVEL 2 sve osim reset, korisnika i uredivanja preparata
   if (role === "PODRUM") {
     return NextResponse.next();
   }
@@ -44,6 +59,13 @@ export async function proxy(req: NextRequest) {
     const allowed =
       pathname === "/dashboard" ||
       pathname === "/dashboard/hladjenje" ||
+      // Preparati u cijelosti: enolog ih uredjuje, unosi zalihu i brise.
+      // Prefiks, a ne tocan match — za razliku od hladjenja, ovdje rola ima
+      // puna prava pa joj pripada i sve buduce pod /preparat.
+      jePreparat(pathname) ||
+      // Statistika potrosnje preparata ide uz ta prava. Tocan match: ostatak
+      // /statistika (npr. sam indeks) enologu i dalje nije otvoren.
+      pathname === "/statistika/preparati" ||
       pathname.startsWith("/zadaci") ||
       pathname.startsWith("/monitor") ||
       pathname.startsWith("/putnik") ||

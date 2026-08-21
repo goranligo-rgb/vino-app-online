@@ -1,8 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { VrstaRadnje } from "@prisma/client";
+import { citajSesiju } from "@/lib/auth-sesija";
+import type { AuthUser } from "@/lib/auth-token";
 
 export const dynamic = "force-dynamic";
+
+// Statistika potrosnje preparata je citanje: ADMIN, ENOLOG i PODRUM.
+// PREGLED (L4) ne. Ista prava kao pristup stranici /statistika/preparati —
+// proxy stiti stranicu, a /api/* nije u njegovom matcheru, pa je ovo jedini
+// cuvar rute.
+function smijeGledati(user: AuthUser | null) {
+  return (
+    user?.role === "ADMIN" ||
+    user?.role === "ENOLOG" ||
+    user?.role === "PODRUM"
+  );
+}
 
 type StavkaResponse = {
   id: string;
@@ -72,6 +86,24 @@ function round(value: number, decimals = 2): number {
 
 export async function GET(req: NextRequest) {
   try {
+    // Ova ruta do sad NIJE provjeravala ni prijavu — cijela statistika
+    // potrosnje vracala se i neprijavljenom zahtjevu.
+    const user = await citajSesiju();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "Niste prijavljeni." },
+        { status: 401 }
+      );
+    }
+
+    if (!smijeGledati(user)) {
+      return NextResponse.json(
+        { error: "Nemate pravo pregleda statistike preparata." },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
 
     const datumOd = searchParams.get("datumOd");

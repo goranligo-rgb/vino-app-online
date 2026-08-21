@@ -9,9 +9,10 @@ async function getAuthUser(): Promise<AuthUser | null> {
   return citajSesiju();
 }
 
-// Unos ulaza zalihe na skladište: Level 1 (ADMIN) + Level 2 (PODRUM).
+// Unos ulaza zalihe na skladište: ADMIN i ENOLOG.
+// PODRUM NIJE ovdje — brzi unos skladišta mu je zatvoren, samo gleda.
 function smijeUredjivati(user: AuthUser | null) {
-  return user?.role === "ADMIN" || user?.role === "PODRUM";
+  return user?.role === "ADMIN" || user?.role === "ENOLOG";
 }
 
 function toNumber(value: unknown): number | null {
