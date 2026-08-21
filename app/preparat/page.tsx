@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import NatragHome from "@/components/NatragHome";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 type Unit = {
   id: string;
@@ -35,9 +42,20 @@ type StockEntry = {
   } | null;
 };
 
+type TipZaliheZapisa =
+  | "ULAZ"
+  | "IZLAZ"
+  | "KOREKCIJA"
+  | "POCETNO_STANJE"
+  | "OTPIS";
+
 type PrometPreparata = {
   id: string;
-  tip: "ULAZ" | "IZLAZ";
+  tip: TipZaliheZapisa;
+  // false = zapis od prije uvodenja knjige; prikazuje se sivo i ne zbraja se.
+  uKnjizi?: boolean;
+  promjenaSkladisna?: number | null;
+  korisnik?: string | null;
   datum: string;
   kolicina: number | null;
   jedinicaNaziv?: string | null;
@@ -1442,6 +1460,12 @@ export default function PreparatPage() {
                   const promet = prometMap[p.id] ?? [];
                   const otvoren = otvorenPrometId === p.id;
 
+                  // Predknjizni zapisi su svi stariji od uvodenja dnevnika,
+                  // pa se pri sortiranju silazno grupiraju na dnu - crta
+                  // ide iznad prvoga takvog.
+                  const prviPredknjizniId =
+                    promet.find((s) => s.uKnjizi === false)?.id ?? null;
+
                   return (
                     <div
                       key={p.id}
@@ -1645,70 +1669,115 @@ export default function PreparatPage() {
                                 Nema prometa za prikaz.
                               </div>
                             ) : (
-                              promet.map((stavka) => (
-                                <div
-                                  key={stavka.id}
-                                  className="grid gap-1 border border-blue-100 bg-white px-4 py-3"
-                                >
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span
-                                      className={`inline-flex px-2.5 py-1 text-xs font-semibold ${
-                                        stavka.tip === "ULAZ"
-                                          ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-                                          : "border border-amber-200 bg-amber-50 text-amber-700"
+                              promet.map((stavka) => {
+                                const predknjiga = stavka.uKnjizi === false;
+
+                                // U knjizi se prikazuje knjizeni iznos s
+                                // predznakom; predknjizni zapisi nemaju ga,
+                                // pa se prikazuje uneseno s predznakom tipa.
+                                const iznos = predknjiga
+                                  ? stavka.kolicina
+                                  : stavka.promjenaSkladisna ??
+                                    stavka.kolicina;
+
+                                const predznak =
+                                  iznos == null
+                                    ? ""
+                                    : predknjiga
+                                    ? stavka.tip === "ULAZ"
+                                      ? "+"
+                                      : "-"
+                                    : Number(iznos) > 0
+                                    ? "+"
+                                    : "";
+
+                                return (
+                                  <Fragment key={stavka.id}>
+                                    {stavka.id === prviPredknjizniId ? (
+                                      <div className="mt-1 flex items-center gap-2 border-t border-dashed border-stone-300 pt-3 text-xs text-stone-500">
+                                        prije uvođenja knjige — ne ulazi u
+                                        zbroj
+                                      </div>
+                                    ) : null}
+
+                                    <div
+                                      className={`grid gap-1 border px-4 py-3 ${
+                                        predknjiga
+                                          ? "border-stone-200 bg-stone-50"
+                                          : "border-blue-100 bg-white"
                                       }`}
                                     >
-                                      {stavka.tip}
-                                    </span>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span
+                                          className={`inline-flex px-2.5 py-1 text-xs font-semibold ${
+                                            predknjiga
+                                              ? "border border-stone-200 bg-white text-stone-500"
+                                              : stavka.tip === "ULAZ" ||
+                                                stavka.tip === "POCETNO_STANJE"
+                                              ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                                              : stavka.tip === "KOREKCIJA"
+                                              ? "border border-sky-200 bg-sky-50 text-sky-700"
+                                              : "border border-amber-200 bg-amber-50 text-amber-700"
+                                          }`}
+                                        >
+                                          {stavka.tip}
+                                        </span>
 
-                                    <span className="text-sm font-semibold text-stone-800">
-                                      {stavka.kolicina != null
-                                        ? `${stavka.tip === "ULAZ" ? "+" : "-"}${fmtBroj(
-                                            stavka.kolicina
-                                          )} ${stavka.jedinicaNaziv ?? ""}`
-                                        : "-"}
-                                    </span>
-                                  </div>
+                                        <span
+                                          className={`text-sm font-semibold ${
+                                            predknjiga
+                                              ? "text-stone-500"
+                                              : "text-stone-800"
+                                          }`}
+                                        >
+                                          {iznos != null
+                                            ? `${predznak}${fmtBroj(iznos)} ${
+                                                stavka.jedinicaNaziv ?? ""
+                                              }`
+                                            : "-"}
+                                        </span>
 
-                                  <div className="text-xs text-stone-500">
-                                    {fmtDatum(stavka.datum)}
-                                  </div>
+                                        {predknjiga ? (
+                                          <span className="text-[11px] text-stone-400">
+                                            prije uvođenja knjige
+                                          </span>
+                                        ) : null}
+                                      </div>
 
-                                  {stavka.tip === "IZLAZ" && (
-                                    <div className="text-sm text-stone-700">
-                                      {stavka.tankBroj != null ? (
-                                        <>
-                                          Tank {stavka.tankBroj}
-                                          {stavka.nazivVina
-                                            ? ` — ${stavka.nazivVina}`
-                                            : stavka.sorta
-                                            ? ` — ${stavka.sorta}`
-                                            : ""}
-                                        </>
-                                      ) : (
-                                        stavka.opis ?? "Izlaz preparata"
-                                      )}
+                                      <div className="text-xs text-stone-500">
+                                        {fmtDatum(stavka.datum)}
+                                        {stavka.korisnik
+                                          ? ` · ${stavka.korisnik}`
+                                          : ""}
+                                      </div>
+
+                                      {stavka.opis ? (
+                                        <div
+                                          className={`text-sm ${
+                                            predknjiga
+                                              ? "text-stone-500"
+                                              : "text-stone-700"
+                                          }`}
+                                        >
+                                          {stavka.opis}
+                                        </div>
+                                      ) : null}
+
+                                      {stavka.brojDokumenta ? (
+                                        <div className="text-xs text-stone-500">
+                                          Dokument: {stavka.brojDokumenta}
+                                        </div>
+                                      ) : null}
+
+                                      {stavka.napomena ? (
+                                        <div className="text-xs text-stone-500">
+                                          {stavka.napomena}
+                                        </div>
+                                      ) : null}
                                     </div>
-                                  )}
-
-                                  {stavka.tip === "ULAZ" && (
-                                    <div className="text-sm text-stone-700">
-                                      {stavka.dobavljac
-                                        ? `Dobavljač: ${stavka.dobavljac}`
-                                        : "Ulaz u skladište"}
-                                      {stavka.brojDokumenta
-                                        ? ` · Dokument: ${stavka.brojDokumenta}`
-                                        : ""}
-                                    </div>
-                                  )}
-
-                                  {stavka.napomena ? (
-                                    <div className="text-xs text-stone-500">
-                                      {stavka.napomena}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              ))
+                                  </Fragment>
+                                );
+                              })
                             )}
                           </div>
                         </div>

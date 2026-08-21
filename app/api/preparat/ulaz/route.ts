@@ -70,6 +70,9 @@ export async function GET() {
     }
 
     const ulazi = await prisma.preparationStockEntry.findMany({
+      // Samo stvarne primke: dnevnik sada sadrzi i izlaze, korekcije i
+      // pocetna stanja, a ova sekcija prikazuje iskljucivo ulaze.
+      where: { tip: "ULAZ" },
       include: {
         unit: true,
         preparation: {
@@ -181,6 +184,12 @@ export async function POST(req: Request) {
           dobavljac,
           brojDokumenta,
           napomena,
+
+          tip: "ULAZ",
+          // Knjizi se PRETVORENA kolicina, u skladisnoj jedinici preparata -
+          // ista vrijednost koja se pribraja stanju nekoliko redaka nize.
+          promjenaSkladisna: Number(potrebnoZaStanje),
+          korisnikId: user.id,
         },
         include: {
           unit: true,

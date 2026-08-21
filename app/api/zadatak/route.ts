@@ -263,6 +263,22 @@ export async function PUT(req: Request) {
                 (s) => s.preparatId && s.izracunataKolicina != null
               );
 
+        // Dnevnik zaliha: izlaz se knjizi tek uz radnju, jer redak nosi
+        // radnjaId. Kljuc je preparatId, vrijednost red cekanja - isti
+        // preparat moze biti u vise stavki, a svaka dobiva svoju radnju i
+        // svoj redak dnevnika.
+        const izlaziZaKnjizenje = new Map<
+          string,
+          { potrebno: number; unitId: string | null }[]
+        >();
+
+        function uzmiIzlaz(preparatId: string | null | undefined) {
+          if (!preparatId) return null;
+          const red = izlaziZaKnjizenje.get(preparatId);
+          if (!red || red.length === 0) return null;
+          return red.shift() ?? null;
+        }
+
         for (const stavka of stavkeZaSkladiste) {
           if (!stavka.preparatId || stavka.izracunataKolicina == null) continue;
 
@@ -311,12 +327,20 @@ export async function PUT(req: Request) {
               },
             },
           });
+
+          const red = izlaziZaKnjizenje.get(stavka.preparatId) ?? [];
+          red.push({
+            potrebno,
+            unitId:
+              preparation.skladisnaJedinicaId ?? preparation.unitId ?? null,
+          });
+          izlaziZaKnjizenje.set(stavka.preparatId, red);
         }
 
         // Ako zadatak ima više stavki, upiši radnju za SVAKU stavku
         if (zadatak.stavke.length > 0) {
           for (const stavka of zadatak.stavke) {
-            await tx.radnja.create({
+            const radnja = await tx.radnja.create({
               data: {
                 tankId: zadatak.tankId,
                 korisnikId: String(stvarniIzvrsioKorisnikId),
@@ -333,10 +357,27 @@ export async function PUT(req: Request) {
                   stavka.izlaznaJedinicaId ?? stavka.jedinicaId ?? null,
               },
             });
+
+            const izlaz = uzmiIzlaz(stavka.preparatId);
+
+            if (izlaz && stavka.preparatId) {
+              await tx.preparationStockEntry.create({
+                data: {
+                  preparationId: stavka.preparatId,
+                  tip: "IZLAZ",
+                  kolicina: Math.abs(izlaz.potrebno),
+                  promjenaSkladisna: -izlaz.potrebno,
+                  unitId: izlaz.unitId,
+                  korisnikId: String(stvarniIzvrsioKorisnikId),
+                  radnjaId: radnja.id,
+                  napomena: zadatak.napomena ?? null,
+                },
+              });
+            }
           }
         } else {
           // Stari način za zadatke koji imaju samo jedan preparat
-          await tx.radnja.create({
+          const radnja = await tx.radnja.create({
             data: {
               tankId: zadatak.tankId,
               korisnikId: String(stvarniIzvrsioKorisnikId),
@@ -353,6 +394,23 @@ export async function PUT(req: Request) {
                 zadatak.izlaznaJedinicaId ?? zadatak.jedinicaId ?? null,
             },
           });
+
+          const izlaz = uzmiIzlaz(zadatak.preparatId);
+
+          if (izlaz && zadatak.preparatId) {
+            await tx.preparationStockEntry.create({
+              data: {
+                preparationId: zadatak.preparatId,
+                tip: "IZLAZ",
+                kolicina: Math.abs(izlaz.potrebno),
+                promjenaSkladisna: -izlaz.potrebno,
+                unitId: izlaz.unitId,
+                korisnikId: String(stvarniIzvrsioKorisnikId),
+                radnjaId: radnja.id,
+                napomena: zadatak.napomena ?? null,
+              },
+            });
+          }
         }
 
         const datumIzvrsenja = new Date();

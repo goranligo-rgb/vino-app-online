@@ -27,6 +27,7 @@ model User {
   tankKomande    TankKomanda[]
   radnePrijave       RadnaPrijava[] @relation("RadnaPrijavaKorisnik")
   radnePrijaveUredio RadnaPrijava[] @relation("RadnaPrijavaUredio")
+  zaliheZapisi       PreparationStockEntry[]
 }
 
 model Tank {
@@ -462,21 +463,55 @@ model Preparation {
   zadatakStavke              ZadatakStavka[]
 }
 
+/// Dnevnik zaliha preparata: svaka promjena stanja ostavlja zapis.
+/// Ulaz, izlaz (izvrsenje zadatka), rucna korekcija i pocetno stanje.
 model PreparationStockEntry {
-  id            String      @id @default(uuid())
+  id            String          @id @default(uuid())
   preparationId String
+
+  /// Kako je uneseno, u jedinici unitId. Uvijek pozitivno.
+  /// NIJE knjizeni iznos - vidi promjenaSkladisna.
   kolicina      Float
-  unitId        String
-  datum         DateTime?   @default(now()) @db.Timestamp(6)
+  unitId        String?
+
+  datum         DateTime?       @default(now()) @db.Timestamp(6)
   dobavljac     String?
   brojDokumenta String?
   napomena      String?
-  createdAt     DateTime?   @default(now()) @db.Timestamp(6)
-  preparation   Preparation @relation(fields: [preparationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  unit          Unit        @relation(fields: [unitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt     DateTime?       @default(now()) @db.Timestamp(6)
+
+  tip           TipZaliheZapisa @default(ULAZ)
+
+  /// Knjizeni iznos: s predznakom, UVIJEK u skladisnoj jedinici preparata.
+  ///
+  /// Stanje preparata racuna se ISKLJUCIVO kao SUM(promjenaSkladisna),
+  /// NIKAD kao SUM(kolicina). Razlog: kolicina je zapisana u jedinici unosa
+  /// (uneseno 2 kg), a stanje se pomice u skladisnoj jedinici (2000 g), pa
+  /// su jedinice po retcima izmijesane i njihov zbroj nema znacenje.
+  ///
+  /// Invarijanta: SUM(promjenaSkladisna) po preparatu == Preparation.stanjeNaSkladistu
+  promjenaSkladisna Float       @default(0)
+
+  /// false = zapis je od prije uvodenja dnevnika. Takav redak ima
+  /// promjenaSkladisna = 0: vidi se u prometu, ali ne ulazi u zbroj.
+  /// Cuva ga i CHECK ogranicenje PreparationStockEntry_uKnjizi_chk u bazi.
+  uKnjizi       Boolean         @default(true)
+
+  /// Tko je proveo promjenu. Null za zatecene ulaze - podatak nije postojao.
+  korisnikId    String?
+
+  /// Izlaz nastaje izvrsenjem zadatka; radnja nosi tank i vino.
+  radnjaId      String?
+
+  preparation   Preparation     @relation(fields: [preparationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  unit          Unit?           @relation(fields: [unitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  korisnik      User?           @relation(fields: [korisnikId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  radnja        Radnja?         @relation(fields: [radnjaId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([preparationId])
   @@index([datum])
+  @@index([korisnikId])
+  @@index([radnjaId])
 }
 
 model Mjerenje {
@@ -606,6 +641,7 @@ model Radnja {
   preparat   Preparation? @relation(fields: [preparatId], references: [id])
   tank       Tank         @relation(fields: [tankId], references: [id])
   zadatak    Zadatak?     @relation(fields: [zadatakId], references: [id])
+  zaliheZapisi PreparationStockEntry[]
 }
 
 model ArhivaVina {
@@ -932,6 +968,16 @@ enum KorekcijaTip {
   PH
   ALKOHOL
   SECER
+}
+
+/// Vrsta zapisa u dnevniku zaliha preparata.
+/// OTPIS zasad postoji samo kao vrijednost - nema ni rute ni ekrana.
+enum TipZaliheZapisa {
+  ULAZ
+  IZLAZ
+  KOREKCIJA
+  POCETNO_STANJE
+  OTPIS
 }
 
 enum TipPretokaDb {

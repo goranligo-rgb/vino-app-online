@@ -421,38 +421,62 @@ export async function POST(req: Request) {
       }
     }
 
-    const created = await prisma.preparation.create({
-      data: {
-        naziv,
-        opis,
-        strucnoIme,
-        unitId,
-        dozaOd,
-        dozaDo,
-        stanjeNaSkladistu,
-        minimalnaKolicina,
-        skladisnaJedinicaId,
-        aktivan,
+    const created = await prisma.$transaction(async (tx) => {
+      const noviPreparat = await tx.preparation.create({
+        data: {
+          naziv,
+          opis,
+          strucnoIme,
+          unitId,
+          dozaOd,
+          dozaDo,
+          stanjeNaSkladistu,
+          minimalnaKolicina,
+          skladisnaJedinicaId,
+          aktivan,
 
-        isKorekcijski,
-        korekcijaTip: isKorekcijski ? (korekcijaTip as any) : null,
-        korekcijaJedinica: isKorekcijski ? korekcijaJedinica : null,
-        ucinakPoJedinici: isKorekcijski ? izracunatiUcinak : null,
+          isKorekcijski,
+          korekcijaTip: isKorekcijski ? (korekcijaTip as any) : null,
+          korekcijaJedinica: isKorekcijski ? korekcijaJedinica : null,
+          ucinakPoJedinici: isKorekcijski ? izracunatiUcinak : null,
 
-        povecanjeParametra: isKorekcijski ? povecanjeParametra : null,
-        referentnaKolicina: isKorekcijski ? referentnaKolicina : null,
-        referentnaKolicinaJedinica: isKorekcijski
-          ? referentnaKolicinaJedinica
-          : null,
-        referentniVolumen: isKorekcijski ? referentniVolumen : null,
-        referentniVolumenJedinica: isKorekcijski
-          ? referentniVolumenJedinica
-          : null,
-      },
-      include: {
-        unit: true,
-        skladisnaJedinica: true,
-      },
+          povecanjeParametra: isKorekcijski ? povecanjeParametra : null,
+          referentnaKolicina: isKorekcijski ? referentnaKolicina : null,
+          referentnaKolicinaJedinica: isKorekcijski
+            ? referentnaKolicinaJedinica
+            : null,
+          referentniVolumen: isKorekcijski ? referentniVolumen : null,
+          referentniVolumenJedinica: isKorekcijski
+            ? referentniVolumenJedinica
+            : null,
+        },
+        include: {
+          unit: true,
+          skladisnaJedinica: true,
+        },
+      });
+
+      // Preparat unesen s pocetnom zalihom mora odmah uci u dnevnik. Bez
+      // ovoga stanje postoji bez ijednog zapisa i knjiga se razilazi - bas
+      // to se dogodilo preparatu unesenom neposredno nakon migracije.
+      const pocetnoStanje = Number(noviPreparat.stanjeNaSkladistu ?? 0);
+
+      if (Math.abs(pocetnoStanje) > 0.0001) {
+        await tx.preparationStockEntry.create({
+          data: {
+            preparationId: noviPreparat.id,
+            tip: "POCETNO_STANJE",
+            kolicina: Math.abs(pocetnoStanje),
+            promjenaSkladisna: pocetnoStanje,
+            unitId:
+              noviPreparat.skladisnaJedinicaId ?? noviPreparat.unitId,
+            korisnikId: user.id,
+            napomena: "Pocetno stanje kod unosa preparata",
+          },
+        });
+      }
+
+      return noviPreparat;
     });
 
     return NextResponse.json(created);
@@ -693,32 +717,81 @@ export async function PUT(req: Request) {
       };
     }
 
-    const updated = await prisma.preparation.update({
-      where: { id },
-      data: {
-        naziv,
-        opis,
-        strucnoIme,
-        unitId,
-        dozaOd,
-        dozaDo,
-        stanjeNaSkladistu,
-        minimalnaKolicina,
-        skladisnaJedinicaId,
-        aktivan,
-        isKorekcijski,
+    const updated = await prisma.$transaction(async (tx) => {
+      // Stanje se cita PONOVNO unutar transakcije: razlika za dnevnik mora
+      // se racunati iz vrijednosti koja vrijedi u trenutku upisa, ne iz one
+      // procitane prije validacija.
+      const prije = await tx.preparation.findUnique({
+        where: { id },
+        select: {
+          stanjeNaSkladistu: true,
+          skladisnaJedinicaId: true,
+          unitId: true,
+        },
+      });
 
-        ...korekcijaPolja,
-      },
-      include: {
-        unit: true,
-        skladisnaJedinica: true,
-      },
+      if (!prije) {
+        throw new Error("PREPARAT_NIJE_PRONADEN");
+      }
+
+      const noviPreparat = await tx.preparation.update({
+        where: { id },
+        data: {
+          naziv,
+          opis,
+          strucnoIme,
+          unitId,
+          dozaOd,
+          dozaDo,
+          stanjeNaSkladistu,
+          minimalnaKolicina,
+          skladisnaJedinicaId,
+          aktivan,
+          isKorekcijski,
+
+          ...korekcijaPolja,
+        },
+        include: {
+          unit: true,
+          skladisnaJedinica: true,
+        },
+      });
+
+      // Rucna korekcija zalihe: knjizi se RAZLIKA, nikad novo stanje.
+      // Ako stanje nije poslano ili se nije promijenilo, zapisa nema.
+      if (stanjeNaSkladistu !== undefined) {
+        const razlika =
+          Number(stanjeNaSkladistu) - Number(prije.stanjeNaSkladistu ?? 0);
+
+        if (Math.abs(razlika) > 0.0001) {
+          await tx.preparationStockEntry.create({
+            data: {
+              preparationId: id,
+              tip: "KOREKCIJA",
+              kolicina: Math.abs(razlika),
+              promjenaSkladisna: razlika,
+              unitId: prije.skladisnaJedinicaId ?? prije.unitId,
+              korisnikId: user.id,
+              napomena: "Rucna korekcija stanja",
+            },
+          });
+        }
+      }
+
+      return noviPreparat;
     });
 
     return NextResponse.json(updated);
   } catch (error) {
     console.error("PUT /api/preparat error:", error);
+
+    if (error instanceof Error && error.message === "PREPARAT_NIJE_PRONADEN") {
+      return NextResponse.json(
+        { error: "Preparat nije pronađen." },
+        { status: 404 }
+      );
+    }
+
     return NextResponse.json(
       { error: "Greška kod uređivanja preparata." },
       { status: 500 }

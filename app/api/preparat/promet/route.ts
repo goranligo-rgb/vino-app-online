@@ -57,107 +57,81 @@ export async function GET(req: Request) {
       );
     }
 
-    const [ulazi, radnje] = await Promise.all([
-      prisma.preparationStockEntry.findMany({
-        where: {
-          preparationId,
-        },
-        include: {
-          unit: {
-            select: {
-              id: true,
-              naziv: true,
-            },
+    // JEDAN izvor istine. Izlazi se vise NE citaju iz tablice Radnja: od
+    // uvodenja dnevnika svaki izlaz ima svoj redak ovdje, pa bi citanje iz
+    // oba izvora svaki izlaz prikazalo dvaput.
+    const zapisi = await prisma.preparationStockEntry.findMany({
+      where: {
+        preparationId,
+      },
+      include: {
+        unit: {
+          select: {
+            id: true,
+            naziv: true,
           },
         },
-        orderBy: {
-          datum: "desc",
-        },
-        take: 100,
-      }),
-
-      prisma.radnja.findMany({
-        where: {
-          preparatId: preparationId,
-          kolicina: {
-            not: null,
+        korisnik: {
+          select: {
+            id: true,
+            ime: true,
           },
         },
-        include: {
-          jedinica: {
-            select: {
-              id: true,
-              naziv: true,
-            },
-          },
-          tank: {
-            select: {
-              id: true,
-              broj: true,
-              nazivVina: true,
-              sorta: true,
-            },
-          },
-          preparat: {
-            select: {
-              id: true,
-              naziv: true,
-              unit: {
-                select: {
-                  id: true,
-                  naziv: true,
-                },
+        radnja: {
+          select: {
+            id: true,
+            opis: true,
+            tank: {
+              select: {
+                id: true,
+                broj: true,
+                nazivVina: true,
+                sorta: true,
               },
             },
           },
         },
-        orderBy: {
-          createdAt: "desc",
-        },
-        take: 100,
-      }),
-    ]);
+      },
+      orderBy: {
+        datum: "desc",
+      },
+      take: 200,
+    });
 
-    const promet = [
-      ...ulazi.map((u) => ({
-        id: `ULAZ_${u.id}`,
-        tip: "ULAZ" as const,
-        datum: u.datum.toISOString(),
-        kolicina: u.kolicina ?? null,
+    const promet = zapisi
+      .map((z) => ({
+        id: z.id,
+        tip: z.tip,
+        // false = zapis od prije uvodenja knjige; vidi se, ne ulazi u zbroj.
+        uKnjizi: z.uKnjizi,
+        datum: (z.datum ?? z.createdAt ?? new Date()).toISOString(),
+        kolicina: z.kolicina ?? null,
+        promjenaSkladisna: z.promjenaSkladisna,
         jedinicaNaziv:
-          u.unit?.naziv ??
+          z.unit?.naziv ??
           preparat.skladisnaJedinica?.naziv ??
           preparat.unit?.naziv ??
           null,
-        tankBroj: null as number | null,
-        nazivVina: null as string | null,
-        sorta: null as string | null,
-        dobavljac: u.dobavljac ?? null,
-        brojDokumenta: u.brojDokumenta ?? null,
-        napomena: u.napomena ?? null,
-        opis: u.dobavljac
-          ? `Ulaz od dobavljača ${u.dobavljac}`
-          : "Ulaz na skladište",
-      })),
-
-      ...radnje.map((r) => ({
-        id: `IZLAZ_${r.id}`,
-        tip: "IZLAZ" as const,
-        datum: r.createdAt.toISOString(),
-        kolicina: r.kolicina ?? null,
-        jedinicaNaziv:
-          r.jedinica?.naziv ?? r.preparat?.unit?.naziv ?? null,
-        tankBroj: r.tank?.broj ?? null,
-        nazivVina: r.tank?.nazivVina ?? null,
-        sorta: r.tank?.sorta ?? null,
-        dobavljac: null as string | null,
-        brojDokumenta: null as string | null,
-        napomena: r.napomena ?? null,
-        opis: r.tank
-          ? `Tank ${r.tank.broj} — ${r.tank.nazivVina ?? r.tank.sorta ?? ""}`
-          : r.opis ?? null,
-      })),
-    ].sort((a, b) => new Date(b.datum).getTime() - new Date(a.datum).getTime());
+        tankBroj: z.radnja?.tank?.broj ?? null,
+        nazivVina: z.radnja?.tank?.nazivVina ?? null,
+        sorta: z.radnja?.tank?.sorta ?? null,
+        dobavljac: z.dobavljac ?? null,
+        brojDokumenta: z.brojDokumenta ?? null,
+        napomena: z.napomena ?? null,
+        korisnik: z.korisnik?.ime ?? null,
+        opis: z.radnja?.tank
+          ? `Tank ${z.radnja.tank.broj} — ${
+              z.radnja.tank.nazivVina ?? z.radnja.tank.sorta ?? ""
+            }`
+          : z.tip === "ULAZ"
+          ? z.dobavljac
+            ? `Ulaz od dobavljača ${z.dobavljac}`
+            : "Ulaz na skladište"
+          : z.radnja?.opis ?? z.napomena ?? null,
+      }))
+      .sort(
+        (a, b) => new Date(b.datum).getTime() - new Date(a.datum).getTime()
+      );
 
     return NextResponse.json({
       preparat,

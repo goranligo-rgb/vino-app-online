@@ -160,6 +160,10 @@ export async function POST(req: Request) {
       }
 
       if (options.nulirajKolicinePreparata) {
+        // Dnevnik mora pratiti stanje: ako se stanje nulira, brise se i
+        // knjiga, inace bi SUM(promjenaSkladisna) ostao razlicit od nule.
+        await tx.preparationStockEntry.deleteMany();
+
         await tx.preparation.updateMany({
           data: {
             stanjeNaSkladistu: 0,
