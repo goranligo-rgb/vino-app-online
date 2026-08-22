@@ -1,10 +1,21 @@
 import { Prisma } from "@prisma/client";
 import { osigurajRedoslijed } from "@/lib/zadatak-redoslijed";
+import {
+  genitivVrste,
+  jePrijenosVina,
+  nazivVrste,
+} from "@/lib/vrste-prijenosa";
 
 /**
- * Filtracija povlaci pretok vina.
+ * Prijenos vina: FILTRACIJA, FLOTACIJA i TALOZENJE.
  *
- * Zadatak vrste FILTRACIJA nosi jedan IZLAZ iz izvornog tanka (Zadatak.kolicinaIzlaz)
+ * Sve tri su fizicki ista radnja — tekucina izlazi iz jednog tanka i ulazi u
+ * jedan ili vise drugih, talog ostaje, razlika je kalo — pa dijele ovaj modul.
+ * U podrumu NISU ista stvar: flotacija i talozenje idu na mostu odmah nakon
+ * berbe, filtracija na vinu dva mjeseca kasnije. Koja je vrsta u pitanju cita
+ * se iz Zadatak.vrsta; imena su u lib/vrste-prijenosa.ts.
+ *
+ * Zadatak takve vrste nosi jedan IZLAZ iz izvornog tanka (Zadatak.kolicinaIzlaz)
  * i 1..n ULAZA u ciljne tankove (ZadatakTankStavka). Pri izvrsenju se sve primjenjuje
  * u JEDNOJ transakciji: ili izlaz i svi ulazi, ili nista.
  *
@@ -39,6 +50,112 @@ export function uMl(litre: number | null | undefined): number {
 export function uLitre(ml: number): number {
   return Number((ml / 1000).toFixed(3));
 }
+
+// ---------------------------------------------------------------------------
+// Ponderirano mjerenje
+// ---------------------------------------------------------------------------
+// Vino koje prijenosom udje u tank mora ponijeti svoje parametre. Prije ovoga
+// nije: pretok je ciljnom tanku racunao novo mjerenje (app/api/pretok/route.ts
+// :968 i :1126), a prijenos nije, pa je vino u praznom ciljnom tanku stajalo
+// bez alkohola, kiselina i SO2 dok ga netko ne izmjeri rucno.
+//
+// Formula je NAMJERNO ista kao u pretoku, do zadnje decimale:
+//   - null se filtrira PO POLJU, a ne po cijelom mjerenju (izvor bez upisanog
+//     pH i dalje doprinosi alkoholu),
+//   - rezultat se zaokruzuje na 3 decimale.
+//
+// Razlika je samo u jedinici tezine: ovdje mililitri, u pretoku litre. Rezultat
+// je identican jer je rijec o omjeru — jedinica se dijeljenjem skrati. Ovdje su
+// mililitri zato sto cijeli modul racuna u njima; to drzi test-ponderirano.ts.
+
+/** Osam polja koja se ponderiraju. Bentotest i napomena se NE prenose. */
+export const POLJA_MJERENJA = [
+  "alkohol",
+  "ukupneKiseline",
+  "hlapiveKiseline",
+  "slobodniSO2",
+  "ukupniSO2",
+  "secer",
+  "ph",
+  "temperatura",
+] as const;
+
+export type VrijednostiMjerenja = {
+  [K in (typeof POLJA_MJERENJA)[number]]: number | null;
+};
+
+/** Jedan ulaz u prosjek: koliko ga ima (ml) i s kojim vrijednostima. */
+export type UlazMjerenja = {
+  kolicinaMl: number;
+  vrijednosti: VrijednostiMjerenja;
+};
+
+export function ponderiraniProsjek(
+  stavke: Array<{ kolicinaMl: number; vrijednost: number | null | undefined }>
+): number | null {
+  const valjane = stavke.filter(
+    (s) =>
+      s.vrijednost !== null && s.vrijednost !== undefined && s.kolicinaMl > 0
+  );
+
+  if (valjane.length === 0) return null;
+
+  const ukupno = valjane.reduce((sum, s) => sum + s.kolicinaMl, 0);
+  if (ukupno <= 0) return null;
+
+  const ponderirano = valjane.reduce(
+    (sum, s) => sum + s.kolicinaMl * Number(s.vrijednost),
+    0
+  );
+
+  return Number((ponderirano / ukupno).toFixed(3));
+}
+
+/** Ponderira svih osam polja odjednom. Prazan popis ulaza daje sve null. */
+export function ponderirajMjerenja(ulazi: UlazMjerenja[]): VrijednostiMjerenja {
+  const rezultat = {} as VrijednostiMjerenja;
+
+  for (const polje of POLJA_MJERENJA) {
+    rezultat[polje] = ponderiraniProsjek(
+      ulazi.map((u) => ({
+        kolicinaMl: u.kolicinaMl,
+        vrijednost: u.vrijednosti[polje],
+      }))
+    );
+  }
+
+  return rezultat;
+}
+
+/**
+ * Ima li mjerenje ijedan podatak?
+ *
+ * Redak u kojem je svih osam polja null NE SMIJE se upisati. Postao bi "zadnje
+ * mjerenje" tanka i sakrio prethodno pravo mjerenje svakom iducem prijenosu i
+ * pretoku — oba citaju samo najnovije (orderBy izmjerenoAt desc, take 1) — a u
+ * sucelju bi izgledao kao da je netko izmjerio i dobio prazno.
+ */
+export function jeMjerenjePrazno(v: VrijednostiMjerenja): boolean {
+  return POLJA_MJERENJA.every((polje) => v[polje] == null);
+}
+
+/** Izvlaci osam polja iz retka Mjerenje (koji nosi i bentotest, napomenu...). */
+export function vrijednostiIzMjerenja(
+  m: Partial<Record<(typeof POLJA_MJERENJA)[number], unknown>>
+): VrijednostiMjerenja {
+  const rezultat = {} as VrijednostiMjerenja;
+
+  for (const polje of POLJA_MJERENJA) {
+    const v = m[polje];
+    rezultat[polje] = v == null ? null : Number(v);
+  }
+
+  return rezultat;
+}
+
+/** Napomena radnje kad izvorni tank nema mjerenje pa parametri nisu preneseni. */
+export const NAPOMENA_BEZ_PARAMETARA =
+  "Parametri nisu preneseni: izvorni tank nema mjerenje.";
 
 // ---------------------------------------------------------------------------
 // Tipovi
@@ -107,6 +224,15 @@ export type FiltracijaSnapshot = {
   stvarno: BrojkeFiltracije;
   prije: TankOtisak[];
   poslije: TankOtisak[];
+  /**
+   * Id-evi automatskih mjerenja koja je ovaj prijenos upisao ciljnim tankovima.
+   * Ponistavanje ih mora znati: da ih ne prepozna, sloj 1 bi ih vidio kao
+   * "kasnija mjerenja" i prijenos bi blokirao sam sebe.
+   *
+   * Neobavezno: zapisi nastali prije uvodjenja ponderiranog mjerenja ga nemaju
+   * i citaju se kao prazan popis.
+   */
+  autoMjerenjaIds?: string[];
 };
 
 type TankSaSastavom = {
@@ -777,8 +903,8 @@ export async function izvrsiFiltraciju(
     throw new FiltracijaGreska("Zadatak nije pronaden.");
   }
 
-  if (zadatak.vrsta !== "FILTRACIJA") {
-    throw new FiltracijaGreska("Zadatak nije filtracija.");
+  if (!jePrijenosVina(zadatak.vrsta)) {
+    throw new FiltracijaGreska("Zadatak ne prenosi vino.");
   }
 
   if (zadatak.status === "IZVRSEN") {
@@ -911,6 +1037,35 @@ export async function izvrsiFiltraciju(
   const zbrojUlazaMl = unos.stavke.reduce((s, v) => s + v.kolicinaMl, 0);
   const gubitakMl = unos.kolicinaIzlazMl - zbrojUlazaMl;
 
+  // Zadnje mjerenje IZVORA — cita se JEDNOM, prije petlje po ciljevima. Vino
+  // koje izlazi iz tanka je homogeno, pa svaki ciljni tank dobiva vino istih
+  // parametara; citanje po cilju bio bi cist visak upita.
+  const zadnjeMjerenjeIzvora = await tx.mjerenje.findFirst({
+    where: { tankId: izvor.id },
+    orderBy: { izmjerenoAt: "desc" },
+  });
+
+  const vrijednostiIzvora = zadnjeMjerenjeIzvora
+    ? vrijednostiIzMjerenja(zadnjeMjerenjeIzvora)
+    : null;
+
+  // Izvor bez ijednog mjerenja — ili s mjerenjem u kojem su sva polja prazna —
+  // ciljnim tankovima NE upisuje nista. Racun bi dao ili prazan redak (prazan
+  // cilj), ili doslovan prijepis onoga sto je u cilju vec bilo (pun cilj, jer
+  // izvor ne doprinosi nicim). Oboje bi bio lazan zapis izmjereno bez ijednog
+  // izmjerenog podatka. Umjesto toga se to kaze u napomeni radnje.
+  const parametriPreneseni =
+    vrijednostiIzvora != null && !jeMjerenjePrazno(vrijednostiIzvora);
+
+  // Automatska mjerenja koja ce ovaj prijenos stvoriti; zavrsavaju u
+  // snapshotJson (vidi FiltracijaSnapshot.autoMjerenjaIds).
+  const autoMjerenjaIds: string[] = [];
+
+  // JEDAN trenutak za sve: izvrsenoAt zadatka i izmjerenoAt svih automatskih
+  // mjerenja. Time granica u ponistavanju (izmjerenoAt > izvrsenoAt) ne moze
+  // uhvatiti nasa mjerenja ni kad se satovi baze i aplikacije razidju.
+  const datumIzvrsenja = new Date();
+
   // 6) Izvorni tank.
   if (izvorPaoNaNulu) {
     // F1: tank je ostao prazan pa mu se brise identitet vina.
@@ -919,13 +1074,35 @@ export async function izvrsiFiltraciju(
     // NE dira se: broj, kapacitet, tip, opis, modbusAdresa, grana, temperaturne
     // postavke, mjerenja, dokumenti, povijest zadataka.
     //
-    // NAMJERNO se NE arhivira automatski, iako pretok to radi
-    // (arhivirajPotroseniTank u app/api/pretok/route.ts). Razlog: pretok je
-    // zavrsni cin nad vinom pa je arhiva ocekivana; filtracija je medjukorak
-    // koji se cesto radi vise puta nad istim vinom, a svako auto-arhiviranje
-    // stvorilo bi ArhivaVina zapis koji korisnik nije trazio i koji se ne moze
-    // jednostavno maknuti. Stanje prije filtracije ostaje u snapshotJson, pa se
-    // arhiviranje iz njega moze dodati kasnije.
+    // ZA SADA se NE arhivira. To je PRIVREMENO STANJE, ne trajna odluka.
+    //
+    // ODLUCENO: izvorni tank ce se arhivirati kao kod pretoka — mjerenja,
+    // zadaci, dokumenti i punjenja u ArhivaVina, tank ostaje potpuno cist, a
+    // BlendIzvor pokazivaci se preusmjere na arhivu da Porijeklo vina na
+    // ciljnom tanku i dalje vodi do povijesti. Ponistavanje ce arhivu VRACATI
+    // natrag na tank.
+    //
+    // CEKA SE KRAJ BERBE. Zahvat trazi izdvajanje arhiviranja iz
+    // app/api/pretok/route.ts u zajednicku funkciju (ne kopiju), dakle izmjenu
+    // pretoka — najprometnijeg puta pisanja usred sezone.
+    //
+    // Sto taj zahvat mora rijesiti (nalazi iz analize, kolovoz 2026):
+    //   - arhivirajPotroseniTank na :413 brise SVE zadatke tanka, ukljucujuci
+    //     onaj koji se upravo izvrsava — kod prijenosa zadatak zivi na izvornom
+    //     tanku, pa bi ga arhiviranje obrisalo i sljedeci zadatak.update pao bi
+    //     na P2025. Treba mu parametar preskociZadatkeIds;
+    //   - ista funkcija na :250 dohvati punjenja, NIKAD ih ne upise u arhivu, a
+    //     originale obrise (:418, :426) — zatecen bug koji pri svakom pretoku
+    //     trajno unisti zapis berbe (parcela, vinograd, oznaka berbe, kg
+    //     grozdja, secer/kiseline/pH berbe);
+    //   - Radnja se uopce ne arhivira, pa joj zadatakId ode na NULL i veza se
+    //     vise ne moze rekonstruirati — parovi (radnjaId, zadatakId) moraju u
+    //     snapshotJson da ih ponistavanje vrati;
+    //   - petlja create po zadatku je O(N) round tripova (tank s cijelom
+    //     sezonom = +40-80 upita); treba dva createMany s id-evima iz koda.
+    //
+    // Do tada stanje prije prijenosa ostaje u snapshotJson, pa se arhiviranje
+    // moze izvesti i unatrag ako zatreba.
     await tx.tank.update({
       where: { id: izvor.id },
       data: {
@@ -1037,6 +1214,59 @@ export async function izvrsiFiltraciju(
     await upisiSastav(tx, cilj.tank.id, udjeliIzMape(mapa));
     await upisiBlend(tx, cilj.tank.id, blend);
 
+    // Ponderirano mjerenje ciljnog tanka: zateceno + dolazno, tezine u ml.
+    //   prazan cilj -> jedini ulaz je izvor, pa je rezultat doslovna kopija
+    //                  njegovih vrijednosti;
+    //   pun cilj    -> pravi ponderirani prosjek po kolicini.
+    if (parametriPreneseni && vrijednostiIzvora) {
+      const ulaziMjerenja: UlazMjerenja[] = [];
+
+      if (ciljPrijeMl > 0) {
+        const zadnjeMjerenjeCilja = await tx.mjerenje.findFirst({
+          where: { tankId: cilj.tank.id },
+          orderBy: { izmjerenoAt: "desc" },
+        });
+
+        // Cilj koji ima vina ali nema svoje mjerenje ne doprinosi nicim, pa
+        // rezultat opisuje samo dolazni dio, a upisuje se kao mjerenje cijelog
+        // tanka. Ista netocnost postoji i u pretoku (app/api/pretok/route.ts
+        // :645) i namjerno se preslikava — bolje isto ponasanje na oba puta
+        // nego dva razlicita.
+        if (zadnjeMjerenjeCilja) {
+          ulaziMjerenja.push({
+            kolicinaMl: ciljPrijeMl,
+            vrijednosti: vrijednostiIzMjerenja(zadnjeMjerenjeCilja),
+          });
+        }
+      }
+
+      ulaziMjerenja.push({
+        kolicinaMl: cilj.kolicinaMl,
+        vrijednosti: vrijednostiIzvora,
+      });
+
+      const novoMjerenje = ponderirajMjerenja(ulaziMjerenja);
+
+      // Pojas i tregeri: izvor ovdje sigurno ima barem jedno polje (inace
+      // parametriPreneseni ne bi bio true), pa prazno ne bi smjelo nastati.
+      if (!jeMjerenjePrazno(novoMjerenje)) {
+        const stvoreno = await tx.mjerenje.create({
+          data: {
+            tankId: cilj.tank.id,
+            korisnikId: null,
+            ...novoMjerenje,
+            izmjerenoAt: datumIzvrsenja,
+            jeRucno: false,
+            napomena: `Automatski izračunato nakon ${genitivVrste(
+              zadatak.vrsta
+            )} iz tanka ${izvor.broj}.`,
+          },
+        });
+
+        autoMjerenjaIds.push(stvoreno.id);
+      }
+    }
+
     rezultatCiljeva.push({
       ciljTankId: cilj.tank.id,
       brojTanka: cilj.tank.broj,
@@ -1099,9 +1329,8 @@ export async function izvrsiFiltraciju(
     stvarno,
     prije,
     poslije,
+    autoMjerenjaIds,
   };
-
-  const datumIzvrsenja = new Date();
 
   await tx.zadatak.update({
     where: { id: zadatak.id },
@@ -1119,11 +1348,22 @@ export async function izvrsiFiltraciju(
       tankId: izvor.id,
       korisnikId: args.izvrsioKorisnikId,
       zadatakId: zadatak.id,
-      vrsta: "FILTRACIJA",
+      // Radnja nosi vrstu zadatka, ne fiksnu FILTRACIJA — inace bi flotacija i
+      // talozenje u povijesti tanka izgledale kao filtracija.
+      vrsta: zadatak.vrsta,
       opis:
         zadatak.naslov?.trim() ||
-        `Filtracija ${uLitre(unos.kolicinaIzlazMl)} L u ${ciljevi.length} tank(ov)a`,
-      napomena: zadatak.napomena ?? null,
+        `${nazivVrste(zadatak.vrsta)} ${uLitre(unos.kolicinaIzlazMl)} L u ${
+          ciljevi.length
+        } tank(ov)a`,
+      // Zadatak.napomena se NAMJERNO ne dira — to je tekst koji je netko upisao
+      // pri planiranju. Radnja je zapis o tome sto se stvarno dogodilo, pa se
+      // podatak o neprenesenim parametrima dopisuje ovdje.
+      napomena: parametriPreneseni
+        ? zadatak.napomena ?? null
+        : [zadatak.napomena?.trim() || null, NAPOMENA_BEZ_PARAMETARA]
+            .filter(Boolean)
+            .join(" • "),
       kolicina: uLitre(unos.kolicinaIzlazMl),
     },
   });
@@ -1200,8 +1440,8 @@ export async function ponistiFiltraciju(
     throw new FiltracijaGreska("Zadatak nije pronaden.");
   }
 
-  if (zadatak.vrsta !== "FILTRACIJA") {
-    throw new FiltracijaGreska("Zadatak nije filtracija.");
+  if (!jePrijenosVina(zadatak.vrsta)) {
+    throw new FiltracijaGreska("Zadatak ne prenosi vino.");
   }
 
   if (zadatak.status !== "IZVRSEN") {
@@ -1217,6 +1457,11 @@ export async function ponistiFiltraciju(
   }
 
   const granica = zadatak.izvrsenoAt ?? zadatak.updatedAt;
+
+  // Automatska mjerenja koja je ovaj prijenos sam upisao. Stari zapisi — oni od
+  // prije uvodjenja ponderiranog mjerenja — to polje nemaju, pa se citaju kao
+  // prazan popis i ponasaju tocno kao prije.
+  const autoMjerenjaIds = snapshot.autoMjerenjaIds ?? [];
   const tankIds = snapshot.prije.map((o) => o.tankId);
 
   await zakljucajTankove(tx, tankIds);
@@ -1237,7 +1482,17 @@ export async function ponistiFiltraciju(
   // --- SLOJ 1: nikakvih kasnijih promjena na ukljucenim tankovima ---
 
   const kasnijeMjerenje = await tx.mjerenje.findFirst({
-    where: { tankId: { in: tankIds }, izmjerenoAt: { gt: granica } },
+    where: {
+      tankId: { in: tankIds },
+      izmjerenoAt: { gt: granica },
+      // Vlastita automatska mjerenja NISU kasnija promjena. Bez ovog uvjeta bi
+      // svaki prijenos blokirao sam sebe i nijedno ponistavanje ne bi proslo.
+      // Prazan popis namjerno ne dodaje uvjet — stari zapisi ostaju na tocno
+      // istom upitu kao prije.
+      ...(autoMjerenjaIds.length > 0
+        ? { id: { notIn: autoMjerenjaIds } }
+        : {}),
+    },
     select: { id: true },
   });
 
@@ -1336,6 +1591,14 @@ export async function ponistiFiltraciju(
   }
 
   // --- Vracanje ---
+
+  // Automatska mjerenja nestaju zajedno s prijenosom koji ih je stvorio. Da
+  // ostanu, na ciljnom tanku bi visjelo mjerenje vina koje u njemu vise nema —
+  // i, gore, bilo bi mu najnovije, pa bi ga iduci pretok ili prijenos uzeo kao
+  // polaznu vrijednost.
+  if (autoMjerenjaIds.length > 0) {
+    await tx.mjerenje.deleteMany({ where: { id: { in: autoMjerenjaIds } } });
+  }
 
   for (const otisak of snapshot.prije) {
     await tx.tank.update({

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { nazivVrste } from "@/lib/vrste-prijenosa";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -788,7 +789,17 @@ export default async function TankIzvjestajPage({
                     </div>
 
                     <div style={gridTwoStyle}>
-                      <Row label="Vrsta" value={z.vrsta ?? "—"} />
+                      <Row label="Vrsta" value={z.vrsta ? nazivVrste(z.vrsta) : "—"} />
+                      {z.maceracija != null && (
+                        <Row
+                          label="Maceracija"
+                          value={`${z.maceracija ? "da" : "ne"}${
+                            z.maceracijaOpis?.trim()
+                              ? ` — ${z.maceracijaOpis.trim()}`
+                              : ""
+                          }`}
+                        />
+                      )}
                       <Row label="Tip zadatka" value={tipZadatkaLabel(z)} />
                       <Row label="Sažetak" value={sazetakZadatka(z)} />
                       <Row
@@ -925,7 +936,17 @@ export default async function TankIzvjestajPage({
                     </div>
 
                     <div style={gridTwoStyle}>
-                      <Row label="Vrsta" value={z.vrsta ?? "—"} />
+                      <Row label="Vrsta" value={z.vrsta ? nazivVrste(z.vrsta) : "—"} />
+                      {z.maceracija != null && (
+                        <Row
+                          label="Maceracija"
+                          value={`${z.maceracija ? "da" : "ne"}${
+                            z.maceracijaOpis?.trim()
+                              ? ` — ${z.maceracijaOpis.trim()}`
+                              : ""
+                          }`}
+                        />
+                      )}
                       <Row label="Tip zadatka" value={tipZadatkaLabel(z)} />
                       <Row label="Sažetak" value={sazetakZadatka(z)} />
                       {dolazakIzDrugogTanka && (

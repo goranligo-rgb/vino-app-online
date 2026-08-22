@@ -2,9 +2,14 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
+import { akuzativVrste, genitivVrste, nazivVrste } from "@/lib/vrste-prijenosa";
 
 /**
- * Forma za IZVRSENJE filtracije.
+ * Forma za IZVRSENJE prijenosa vina: FILTRACIJA, FLOTACIJA ili TALOZENJE.
+ *
+ * Sve tri su fizicki ista radnja (tekucina iz tanka A u tank B, talog ostaje)
+ * pa dijele ovu formu. Ime radnje NIJE ugradjeno u tekst — dolazi iz
+ * lib/vrste-prijenosa.ts na temelju zadatak.vrsta.
  *
  * Zadatak se zadaje na /zadaci bez brojki — kad se filtracija planira, litre se
  * jos ne znaju. Ovdje se upisuje STVARNO stanje: koliko je izaslo iz izvornog
@@ -24,6 +29,11 @@ export type TankIzbor = {
 
 export type ZadatakZaFormu = {
   id: string;
+  /** FILTRACIJA | FLOTACIJA | TALOZENJE — odredjuje samo nazivlje u sucelju. */
+  vrsta: string;
+  /** null = nije se pitalo; false = izricito nije bilo; true = bilo je. */
+  maceracija: boolean | null;
+  maceracijaOpis: string | null;
   naslov: string | null;
   napomena: string | null;
   zadanoAt: string;
@@ -210,7 +220,9 @@ export default function FiltracijaForma({
       const data = await res.json();
 
       if (!res.ok) {
-        setGreska(data?.error ?? "Greška kod izvršenja filtracije.");
+        setGreska(
+          data?.error ?? `Greška kod izvršenja ${genitivVrste(zadatak.vrsta)}.`
+        );
         setSalje(false);
         return;
       }
@@ -229,7 +241,7 @@ export default function FiltracijaForma({
         <div style={zaglavljeStyle}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 700 }}>
-              {zadatak.naslov?.trim() || "Filtracija"}
+              {zadatak.naslov?.trim() || nazivVrste(zadatak.vrsta)}
             </div>
             <div style={prigusenoStyle}>
               Tank {zadatak.izvorTank.broj}
@@ -245,6 +257,18 @@ export default function FiltracijaForma({
 
         {zadatak.napomena?.trim() && (
           <div style={napomenaStyle}>{zadatak.napomena}</div>
+        )}
+
+        {/* Maceracija se prikazuje SAMO ako se o njoj izjasnilo pri zadavanju.
+            null (nije se pitalo) ne prikazuje ništa. */}
+        {zadatak.maceracija != null && (
+          <div style={napomenaStyle}>
+            <strong>Maceracija:</strong>{" "}
+            {zadatak.maceracija ? "da" : "ne"}
+            {zadatak.maceracijaOpis?.trim()
+              ? ` — ${zadatak.maceracijaOpis.trim()}`
+              : ""}
+          </div>
         )}
 
         <label style={oznakaStyle}>
@@ -385,7 +409,7 @@ export default function FiltracijaForma({
               cursor: smijeSlati ? "pointer" : "not-allowed",
             }}
           >
-            {salje ? "Izvršavam..." : "Izvrši filtraciju"}
+            {salje ? "Izvršavam..." : `Izvrši ${akuzativVrste(zadatak.vrsta)}`}
           </button>
         </div>
       </div>

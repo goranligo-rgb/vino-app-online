@@ -15,15 +15,23 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, smijeRaditiUPodrumu } from "@/lib/zadatak-auth";
 import { FiltracijaGreska, izvrsiFiltraciju } from "@/lib/filtracija";
+import { jePrijenosVina, oblikAscii } from "@/lib/vrste-prijenosa";
 
 /**
- * Izvrsenje filtracije.
+ * Izvrsenje prijenosa vina: FILTRACIJA, FLOTACIJA ili TALOZENJE.
+ *
+ * NAPOMENA O PRAVOPISU: ova je datoteka pisana bez dijakritike, pa imena vrsta
+ * dolaze iz oblikAscii() (lib/vrste-prijenosa.ts), a ne iz nazivVrste().
  *
  * Cijeli posao ide u JEDNOJ transakciji: zakljucavanje tankova, sve provjere,
  * izlaz iz izvornog tanka i svi ulazi u ciljne. Ako bilo sto padne, ne ostaje
  * nista — nema stanja u kojem je vino izaslo, a nije nikamo uslo.
  */
 export async function POST(req: Request) {
+  // Vrsta se pamti izvan try bloka da je i catch moze upotrijebiti u poruci.
+  // Dok se ne procita, oblikAscii() vraca neutralan oblik ("prijenos vina").
+  let vrstaZadatka: string | null = null;
+
   try {
     const user = await getAuthUser();
 
@@ -33,7 +41,9 @@ export async function POST(req: Request) {
 
     if (!smijeRaditiUPodrumu(user)) {
       return NextResponse.json(
-        { error: "Nemate pravo izvrsiti filtraciju." },
+        // Vrsta se ovdje jos ne zna — tijelo zahtjeva nije ni procitano — pa
+        // poruka mora vrijediti za sve tri.
+        { error: "Nemate pravo izvrsiti prijenos vina." },
         { status: 403 }
       );
     }
@@ -98,9 +108,11 @@ export async function POST(req: Request) {
           throw new FiltracijaGreska("Zadatak nije pronaden.");
         }
 
-        if (zadatak.vrsta !== "FILTRACIJA") {
+        vrstaZadatka = zadatak.vrsta;
+
+        if (!jePrijenosVina(zadatak.vrsta)) {
           throw new FiltracijaGreska(
-            "Ovaj zadatak nije filtracija — izvrsi ga kroz obicno izvrsenje zadatka."
+            "Ovaj zadatak ne prenosi vino — izvrsi ga kroz obicno izvrsenje zadatka."
           );
         }
 
@@ -119,7 +131,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      message: "Filtracija je izvrsena.",
+      message: `${oblikAscii(vrstaZadatka).naziv} je ${
+        oblikAscii(vrstaZadatka).izvrsen
+      }.`,
       ...rezultat,
     });
   } catch (error) {
@@ -137,7 +151,9 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            "Filtracija je predugo trajala pa je prekinuta. Nista nije promijenjeno — zadatak je i dalje otvoren, pokusaj ponovno.",
+            `Izvrsenje ${
+              oblikAscii(vrstaZadatka).genitiv
+            } je predugo trajalo pa je prekinuto. Nista nije promijenjeno — zadatak je i dalje otvoren, pokusaj ponovno.`,
         },
         { status: 503 }
       );
@@ -146,7 +162,7 @@ export async function POST(req: Request) {
     console.error("POST /api/zadatak/filtracija/izvrsi error:", error);
 
     return NextResponse.json(
-      { error: "Greska kod izvrsenja filtracije." },
+      { error: `Greska kod izvrsenja ${oblikAscii(vrstaZadatka).genitiv}.` },
       { status: 500 }
     );
   }

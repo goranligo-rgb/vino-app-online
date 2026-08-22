@@ -9,6 +9,11 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { osigurajRedoslijed } from "@/lib/zadatak-redoslijed";
+import {
+  jePrijenosVina,
+  porukaVlastitiEkran,
+  PORUKE_VLASTITI_EKRAN,
+} from "@/lib/vrste-prijenosa";
 
 export async function POST(req: Request) {
   try {
@@ -39,8 +44,6 @@ export async function POST(req: Request) {
           zakljucanDo: true,
           zadanoAt: true,
           createdAt: true,
-          kolicinaIzlaz: true,
-          _count: { select: { tankStavke: true } },
         },
       });
 
@@ -48,20 +51,25 @@ export async function POST(req: Request) {
         throw new Error("Zadatak nije pronađen.");
       }
 
-      // Filtracija KOJA PRENOSI VINO (ima upisan izlaz i ciljne tankove) ne
-      // smije se izvršiti ovim putem — ovdje bi se promijenio samo status, a
-      // količine bi ostale krive. Cijeli posao (zaključavanje tankova,
-      // izlaz + svi ulazi) radi /api/zadatak/filtracija/izvrsi.
+      // Zadatak KOJI PRENOSI VINO (filtracija, flotacija ili taloženje) ne smije
+      // se izvršiti ovim putem — ovdje bi se promijenio samo status, a količine
+      // bi ostale krive. Cijeli posao (zaključavanje tankova, izlaz + svi
+      // ulazi) radi /api/zadatak/filtracija/izvrsi.
       //
-      // Stara, "gola" Filtracija bez tih podataka je samo bilješka da je posao
-      // odrađen i dalje radi kao prije — takvih zadataka ima u produkciji.
-      if (
-        zadatak.vrsta === "FILTRACIJA" &&
-        (zadatak.kolicinaIzlaz != null || zadatak._count.tankStavke > 0)
-      ) {
-        throw new Error(
-          "Filtracija se izvršava kroz vlastiti ekran jer prenosi vino u druge tankove."
-        );
+      // Uvjet je ČISTA VRSTA. Ranije je tražio i upisan izlaz ili ciljne
+      // tankove, kako bi stara "gola" filtracija — puka bilješka da je posao
+      // odrađen — i dalje prolazila golim klikom. To je namjerno maknuto:
+      // prijenosni zadatak bez brojki nije završen posao nego neispunjen
+      // obrazac, i mora proći kroz formu koja te brojke traži. Prije promjene
+      // provjereno u bazi: 5 filtracija ukupno, nijedna OTVORENA, pa nijedan
+      // zadatak nije ostao zaglavljen.
+      //
+      // OVO JE NAJOPASNIJI GUARD U APLIKACIJI. Da propusti prijenosnu vrstu,
+      // zadatak bi otišao u IZVRSEN bez ijedne greške, a vino bi ostalo u
+      // izvornom tanku — tiho, bez traga i bez mogućnosti poništavanja
+      // (snapshotJson ne bi ni postojao).
+      if (jePrijenosVina(zadatak.vrsta)) {
+        throw new Error(porukaVlastitiEkran(zadatak.vrsta));
       }
 
       if (zadatak.status === "IZVRSEN") {
@@ -104,7 +112,9 @@ export async function POST(req: Request) {
         "Zadatak nije pronađen.",
         "Zadatak je već izvršen.",
         "Vezani zadatak još nije dostupan za izvršenje.",
-        "Filtracija se izvršava kroz vlastiti ekran jer prenosi vino u druge tankove.",
+        // Iz istog izvora kao i sama poruka — inače bi promjena teksta tiho
+        // pretvorila jasan HTTP 400 u generički 500.
+        ...PORUKE_VLASTITI_EKRAN,
       ].includes(error.message)
     ) {
       return NextResponse.json({ error: error.message }, { status: 400 });

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
+import { VRSTE_PRIJENOSA } from "@/lib/vrste-prijenosa";
 
 /**
  * Zadatak vrste FILTRACIJA — samo dohvat.
@@ -31,7 +32,7 @@ export async function GET(req: Request) {
 
     const filtracije = await prisma.zadatak.findMany({
       where: {
-        vrsta: "FILTRACIJA",
+        vrsta: { in: [...VRSTE_PRIJENOSA] },
         ...(tankId
           ? {
               OR: [

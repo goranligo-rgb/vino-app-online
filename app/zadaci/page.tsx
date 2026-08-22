@@ -3,6 +3,14 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import KorekcijaModal from "@/components/KorekcijaModal";
+import {
+  akuzativVrste,
+  jeMaceracijskaVrsta,
+  jePrijenosVina,
+  naslovNovogZadatka,
+  naslovVezanogZadatka,
+  nazivVrste,
+} from "@/lib/vrste-prijenosa";
 
 type AuthUser = {
   id: string;
@@ -343,18 +351,6 @@ function formatirajDatum(v?: string | null) {
   return new Date(v).toLocaleString("hr-HR");
 }
 
-function nazivVrste(vrsta: string) {
-  if (vrsta === "DODAVANJE") return "Dodavanje";
-  if (vrsta === "MIJESANJE") return "Miješanje";
-  if (vrsta === "PRETOK") return "Pretok";
-  if (vrsta === "FILTRACIJA") return "Filtracija";
-  if (vrsta === "MJERENJE") return "Mjerenje";
-  if (vrsta === "KOREKCIJA") return "Korekcija";
-  if (vrsta === "PUNJENJE") return "Punjenje";
-  if (vrsta === "NAPOMENA") return "Napomena";
-  return vrsta;
-}
-
 function nazivKorekcije(v?: KorekcijaTip | null) {
   if (v === "SLOBODNI_SO2") return "Slobodni SO2";
   if (v === "SECER") return "Šećer";
@@ -433,6 +429,15 @@ export default function ZadaciPage() {
   const [napomena, setNapomena] = useState("");
 
   const [tipZadatka, setTipZadatka] = useState("STANDARDNI");
+
+  // Maceracija — samo za flotaciju i taloženje. TRI stanja, ne dva:
+  //   null  = kvačica nije dirana (tako i ostaje u bazi)
+  //   false = korisnik je svjesno rekao da maceracije nije bilo
+  //   true  = bilo je maceracije
+  // Zato useState<boolean | null>(null), a ne useState(false): nedirnuta
+  // kvačica ne smije postati "izričito ne". Vidi prisma/schema.prisma.
+  const [maceracija, setMaceracija] = useState<boolean | null>(null);
+  const [maceracijaOpis, setMaceracijaOpis] = useState("");
   const [vezanaVrsta, setVezanaVrsta] = useState("PRETOK");
   const [vezaniBrojDana, setVezaniBrojDana] = useState("");
   const [vezaniNaslov, setVezaniNaslov] = useState("Pretok");
@@ -527,26 +532,20 @@ export default function ZadaciPage() {
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (vrstaZadatka === "DODAVANJE") setNaslov("Dodavanje preparata");
-    else if (vrstaZadatka === "PRETOK") setNaslov("Pretok");
-    else if (vrstaZadatka === "MIJESANJE") setNaslov("Miješanje");
-    else if (vrstaZadatka === "MJERENJE") setNaslov("Mjerenje");
-    else if (vrstaZadatka === "KOREKCIJA") setNaslov("Korekcija");
-    else if (vrstaZadatka === "FILTRACIJA") setNaslov("Filtracija");
-    else if (vrstaZadatka === "PUNJENJE") setNaslov("Punjenje");
-    else if (vrstaZadatka === "NAPOMENA") setNaslov("Napomena");
-    else setNaslov("Novi zadatak");
+    setNaslov(naslovNovogZadatka(vrstaZadatka));
+  }, [vrstaZadatka]);
+
+  // Prebacivanje na vrstu koja maceraciju ne poznaje vraća polja na "nije se
+  // pitalo" — inače bi filtracija tiho ponijela vrijednost upisanu za flotaciju.
+  useEffect(() => {
+    if (!jeMaceracijskaVrsta(vrstaZadatka)) {
+      setMaceracija(null);
+      setMaceracijaOpis("");
+    }
   }, [vrstaZadatka]);
 
   useEffect(() => {
-    if (vezanaVrsta === "PRETOK") setVezaniNaslov("Pretok");
-    else if (vezanaVrsta === "MIJESANJE") setVezaniNaslov("Miješanje");
-    else if (vezanaVrsta === "MJERENJE") setVezaniNaslov("Mjerenje");
-    else if (vezanaVrsta === "FILTRACIJA") setVezaniNaslov("Filtracija");
-    else if (vezanaVrsta === "KOREKCIJA") setVezaniNaslov("Korekcija");
-    else if (vezanaVrsta === "PUNJENJE") setVezaniNaslov("Punjenje");
-    else if (vezanaVrsta === "NAPOMENA") setVezaniNaslov("Napomena");
-    else setVezaniNaslov("Vezani zadatak");
+    setVezaniNaslov(naslovVezanogZadatka(vezanaVrsta));
   }, [vezanaVrsta]);
 
   const trebaPreparat = vrstaZadatka === "DODAVANJE";
@@ -870,6 +869,11 @@ export default function ZadaciPage() {
           naslov,
           napomena,
           tipZadatka,
+          // null se šalje kao null — server ga tako i zapisuje.
+          maceracija: jeMaceracijskaVrsta(vrstaZadatka) ? maceracija : null,
+          maceracijaOpis: jeMaceracijskaVrsta(vrstaZadatka)
+            ? maceracijaOpis
+            : null,
           vezanaVrsta: tipZadatka === "VEZANI" ? vezanaVrsta : null,
           vezaniBrojDana:
             tipZadatka === "VEZANI" ? Number(vezaniBrojDana) : null,
@@ -1090,6 +1094,8 @@ export default function ZadaciPage() {
                     <option value="MIJESANJE">Miješanje</option>
                     <option value="PRETOK">Pretok</option>
                     <option value="FILTRACIJA">Filtracija</option>
+                    <option value="FLOTACIJA">Flotacija</option>
+                    <option value="TALOZENJE">Taloženje</option>
                     <option value="MJERENJE">Mjerenje</option>
                     <option value="KOREKCIJA">Korekcija</option>
                     <option value="PUNJENJE">Punjenje</option>
@@ -1097,6 +1103,46 @@ export default function ZadaciPage() {
                     <option value="OSTALO">Ostalo</option>
                   </select>
                 </div>
+
+                {jeMaceracijskaVrsta(vrstaZadatka) && (
+                  <div style={subSectionStyle}>
+                    <div style={subSectionTitleStyle}>Maceracija</div>
+
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        fontSize: 14,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={maceracija === true}
+                        onChange={(e) => setMaceracija(e.target.checked)}
+                        style={{ width: 18, height: 18 }}
+                      />
+                      Bilo je maceracije
+                    </label>
+
+                    <div>
+                      <label style={labelStyle}>Trajanje / opis</label>
+                      <input
+                        type="text"
+                        value={maceracijaOpis}
+                        onChange={(e) => setMaceracijaOpis(e.target.value)}
+                        placeholder="npr. 12 sati"
+                        style={inputStyle}
+                      />
+                    </div>
+
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      Bilješka uz zadatak — ne ulazi ni u jedan izračun. Ako
+                      kvačicu ne dirneš, ostaje zapisano da se nije pitalo.
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label style={labelStyle}>Tip zadatka</label>
@@ -1142,6 +1188,8 @@ export default function ZadaciPage() {
                         <option value="PRETOK">Pretok</option>
                         <option value="MIJESANJE">Miješanje</option>
                         <option value="FILTRACIJA">Filtracija</option>
+                        <option value="FLOTACIJA">Flotacija</option>
+                        <option value="TALOZENJE">Taloženje</option>
                         <option value="MJERENJE">Mjerenje</option>
                         <option value="KOREKCIJA">Korekcija</option>
                         <option value="PUNJENJE">Punjenje</option>
@@ -1928,10 +1976,11 @@ export default function ZadaciPage() {
                           </>
                         )}
 
-                        {zadatak.vrsta === "FILTRACIJA" ? (
-                          // Filtracija prenosi vino, pa se ne izvršava jednim
-                          // klikom — ide na vlastiti ekran gdje se upisuju
-                          // stvarne litre i ciljni tankovi.
+                        {jePrijenosVina(zadatak.vrsta) ? (
+                          // Filtracija, flotacija i taloženje prenose vino, pa
+                          // se ne izvršavaju jednim klikom — idu na vlastiti
+                          // ekran gdje se upisuju stvarne litre i ciljni
+                          // tankovi. Ruta je zajednička za sve tri.
                           <button
                             type="button"
                             onClick={() =>
@@ -1944,7 +1993,7 @@ export default function ZadaciPage() {
                               cursor: zakljucan ? "not-allowed" : "pointer",
                             }}
                           >
-                            Izvrši filtraciju…
+                            Izvrši {akuzativVrste(zadatak.vrsta)}…
                           </button>
                         ) : (
                           <button

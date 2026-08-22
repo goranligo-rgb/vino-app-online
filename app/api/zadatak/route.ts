@@ -16,6 +16,11 @@ import { Prisma } from "@prisma/client";
 import { citajSesiju } from "@/lib/auth-sesija";
 import type { AuthUser } from "@/lib/auth-token";
 import { osigurajRedoslijed } from "@/lib/zadatak-redoslijed";
+import {
+  jePrijenosVina,
+  porukaVlastitiEkran,
+  PORUKE_VLASTITI_EKRAN,
+} from "@/lib/vrste-prijenosa";
 
 async function getAuthUser(): Promise<AuthUser | null> {
   return citajSesiju();
@@ -192,8 +197,6 @@ export async function PUT(req: Request) {
             jedinica: true,
             izlaznaJedinica: true,
             tank: true,
-            // Samo da se prepozna filtracija koja stvarno prenosi vino.
-            tankStavke: { select: { id: true } },
             stavke: {
               include: {
                 preparat: {
@@ -220,19 +223,14 @@ export async function PUT(req: Request) {
           throw new Error("Zadatak je već izvršen.");
         }
 
-        // Filtracija KOJA PRENOSI VINO (ima upisan izlaz i ciljne tankove) —
-        // ova ruta to ne radi, promijenila bi samo status a količine bi ostale
+        // Zadatak KOJI PRENOSI VINO (filtracija, flotacija ili taloženje) — ova
+        // ruta to ne radi, promijenila bi samo status a količine bi ostale
         // krive. Izvršava se kroz /api/zadatak/filtracija/izvrsi.
         //
-        // Stara, "gola" Filtracija bez tih podataka je samo bilješka da je
-        // posao odrađen i dalje radi kao prije — takvih ima u produkciji.
-        if (
-          zadatak.vrsta === "FILTRACIJA" &&
-          (zadatak.kolicinaIzlaz != null || zadatak.tankStavke.length > 0)
-        ) {
-          throw new Error(
-            "Filtracija se izvršava kroz vlastiti ekran jer prenosi vino u druge tankove."
-          );
+        // Blizanac guarda iz app/api/zadatak/izvrsi/route.ts — ondje piše zašto
+        // je uvjet sada ČISTA VRSTA, bez dodatnog uvjeta o upisanim brojkama.
+        if (jePrijenosVina(zadatak.vrsta)) {
+          throw new Error(porukaVlastitiEkran(zadatak.vrsta));
         }
 
         if (zadatak.zakljucanDo && new Date() < new Date(zadatak.zakljucanDo)) {
@@ -571,7 +569,9 @@ export async function PUT(req: Request) {
         "Zadatak je već izvršen.",
         "Vezani zadatak još nije dostupan za izvršenje.",
         "Preparat nije pronađen.",
-        "Filtracija se izvršava kroz vlastiti ekran jer prenosi vino u druge tankove.",
+        // Iz istog izvora kao i sama poruka — inače bi promjena teksta tiho
+        // pretvorila jasan HTTP 400 u generički 500.
+        ...PORUKE_VLASTITI_EKRAN,
       ].includes(error.message)
     ) {
       return NextResponse.json({ error: error.message }, { status: 400 });

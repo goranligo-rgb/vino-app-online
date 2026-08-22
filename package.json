@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "test:filtracija": "tsx scripts/test-filtracija.ts",
-    "postinstall": "prisma generate"
+    "test:vrste": "tsx scripts/test-vrste-prijenosa.ts",
+    "postinstall": "prisma generate",
+    "test:ponderirano": "tsx scripts/test-ponderirano.ts",
+    "test:filtracija:baza": "tsx scripts/test-filtracija-baza.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
