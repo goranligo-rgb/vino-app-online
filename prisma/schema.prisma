@@ -573,6 +573,15 @@ model Zadatak {
   gubitakLitara      Float?
   snapshotJson       Json?
   vezaniCiljTankId   String?
+  // --- Maceracija: biljeska na zadatku, samo za FLOTACIJA i TALOZENJE ---
+  // NULL  = nije se pitalo (svi zateceni zadaci, i sve vrste koje maceraciju
+  //         ne prikazuju). Forma NE smije nedirnutu kvacicu poslati kao false.
+  // false = izricito nije bilo maceracije
+  // true  = bilo je maceracije
+  // Cista biljeska: ne ulazi ni u jedan izracun (kalo, sastav, ponderirano
+  // mjerenje, snapshot za ponistavanje).
+  maceracija         Boolean?
+  maceracijaOpis     String?
   radnjas            Radnja[]
   izlaznaJedinica    Unit?               @relation("ZadatakIzlaznaJedinica", fields: [izlaznaJedinicaId], references: [id])
   izvrsioKorisnik    User?               @relation("ZadatakIzvrsio", fields: [izvrsioKorisnikId], references: [id])
@@ -933,6 +942,8 @@ enum VrstaZadatka {
   PUNJENJE
   NAPOMENA
   OSTALO
+  FLOTACIJA
+  TALOZENJE
 }
 
 enum StatusZadatka {
@@ -951,6 +962,8 @@ enum VrstaRadnje {
   PUNJENJE
   NAPOMENA
   OSTALO
+  FLOTACIJA
+  TALOZENJE
 }
 
 enum VrstaDokumentaVina {
