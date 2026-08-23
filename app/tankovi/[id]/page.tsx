@@ -428,6 +428,21 @@ function sloziZadnjeMjerenjePoPoljima(
   };
 }
 
+/**
+ * Jedan redak koji kaze da kartica pokazuje samo ono poslije zadnjeg
+ * arhiviranja. Bez njega prazna kartica izgleda kao da povijesti nema, a
+ * zapravo pripada prethodnom vinu i vidi se u arhivi.
+ */
+function OdZadnjeArhive({ granica }: { granica: Date | null }) {
+  if (!granica) return null;
+  return (
+    <div style={odArhiveStyle}>
+      Prikazano od zadnjeg arhiviranja ({formatDatumBezVremena(granica)})
+      nadalje — starije pripada prethodnom vinu i vidi se u arhivi.
+    </div>
+  );
+}
+
 /** Jedno polje berbe. Prazno se prikazuje blijedo, ne skriva se. */
 function BerbaPolje({ label, value }: { label: string; value?: string | null }) {
   const prazno = !value;
@@ -710,7 +725,7 @@ export default async function TankPregledPage({
 
   // Prazan tank NE skriva povijest: izlazi, punjenja, zadaci i radnje postoje
   // i kad u tanku trenutno nema vina, i upravo su tada najzanimljiviji.
-  const izlaziZaPrikaz = tank.izlaziVina ?? [];
+  // (Izlazi se filtriraju granicom arhive nize, kad je granica poznata.)
 
   // Upiti idu u DVA VALA umjesto sest uzastopnih koraka.
   //
@@ -723,7 +738,7 @@ export default async function TankPregledPage({
   // prikazu znaci da dva istovremena posjetitelja pojedu budzet i baza pocne
   // odbijati veze (EMAXCONNSESSION -> 500). Izmjereno, ne pretpostavljeno.
   // Cetiri po valu daju gotovo istu dobit uz upola manji vrsni pritisak.
-  const [zadnjeOcitanje, aktivniAlarmi, mjerenja] = await Promise.all([
+  const [zadnjeOcitanje, aktivniAlarmi, mjerenja, arhive] = await Promise.all([
     prisma.ocitanjeTemperature.findFirst({
       where: { tankId: id },
       orderBy: { mjerenoU: "desc" },
@@ -741,7 +756,43 @@ export default async function TankPregledPage({
       orderBy: { izmjerenoAt: "desc" },
       take: 200,
     }),
+
+    // Arhive u PRVOM valu, iako se prikazuju medju povijesnim karticama:
+    // iz njih dolazi granica arhive, a po njoj se filtriraju svi upiti u
+    // drugom i trecem valu.
+    prisma.arhivaVina.findMany({
+      where: { tankId: id },
+      orderBy: { arhiviranoAt: "desc" },
+      select: {
+        id: true,
+        nazivVina: true,
+        sorta: true,
+        kolicinaVina: true,
+        arhiviranoAt: true,
+      },
+    }),
   ]);
+
+  // GRANICA ARHIVE — jedna crta za cijelu stranicu.
+  //
+  // Arhiviranje znaci da je u tanku bilo DRUGO vino. Mjerenja, zadatke,
+  // punjenja i izlaze arhiviranje i brise, pa oni ionako ne mogu biti stariji.
+  // ALI Radnja se ne arhivira ni ne brise, a Pretok i ZadatakTankStavka zive
+  // na drugim tankovima — pa bi bez ove granice monitor novog vina pokazivao
+  // radnje i pretoke prethodnoga. Izmjereno 23.08.2026: 71 takva radnja na 12
+  // tankova.
+  //
+  // Filtar se stavlja i na ono sto se danas ionako brise (punjenja, izlazi,
+  // mjerenja), da prikaz ostane tocan i ako se to ponasanje promijeni.
+  const granicaArhive = arhive[0]?.arhiviranoAt ?? null;
+  const odGranice = granicaArhive ? { gte: granicaArhive } : undefined;
+
+  // Izlazi dolaze ugnijezdjeni iz glavnog upita, prije nego je granica poznata,
+  // pa se filtriraju ovdje. Danas je to prazan hod jer arhiviranje brise
+  // IzlazVina — ali ostaje tocno ako se to promijeni.
+  const izlaziZaPrikaz = (tank.izlaziVina ?? []).filter(
+    (x) => !granicaArhive || x.datum >= granicaArhive
+  );
 
   // Ne cekaj — samo pokreni. Ceka se nize, kad rezultat stvarno zatreba.
   const blendUTijeku =
@@ -752,10 +803,11 @@ export default async function TankPregledPage({
   // Drugi val. Prazan tank i dalje NE cita punjenja ni zadatke — uvjet je isti,
   // samo je preseljen u izraz; `Promise.all` prima i obicne vrijednosti, pa
   // `[]` prolazi bez upita.
-  const [punjenja, otvoreniZadaci, izvrseniZadaci, arhive] = await Promise.all([
+  const [punjenja, otvoreniZadaci, izvrseniZadaci] = await Promise.all([
     prisma.punjenjeTanka.findMany({
       where: {
         tankId: id,
+        datumPunjenja: odGranice,
         stavke: {
           some: {
             obrisano: false,
@@ -870,25 +922,15 @@ export default async function TankPregledPage({
       take: 30,
     }),
 
-    // Arhive ovog tanka — s monitora dosad nije bilo puta do arhive.
-    prisma.arhivaVina.findMany({
-      where: { tankId: id },
-      orderBy: { arhiviranoAt: "desc" },
-      select: {
-        id: true,
-        nazivVina: true,
-        sorta: true,
-        kolicinaVina: true,
-        arhiviranoAt: true,
-      },
-    }),
   ]);
 
   // Treci val — cetiri tablice koje postojeci monitor uopce nije citao.
   const [radnje, pretociUlaz, pretociIzlaz, dolasciPrijenosom] =
     await Promise.all([
       prisma.radnja.findMany({
-        where: { tankId: id },
+        // Radnja se pri arhiviranju NE brise, pa bez granice ovdje vise radnji
+        // prethodnog vina. To je bio vidljiv bug na produkciji.
+        where: { tankId: id, createdAt: odGranice },
         orderBy: { createdAt: "desc" },
         include: {
           korisnik: { select: { ime: true, email: true } },
@@ -898,17 +940,17 @@ export default async function TankPregledPage({
       }),
       // Pretok se dosad nije citao ni s jedne strane.
       prisma.pretok.findMany({
-        where: { ciljTankId: id },
+        where: { ciljTankId: id, datum: odGranice },
         orderBy: { datum: "desc" },
         include: { izvori: { include: { tank: { select: { broj: true } } } } },
       }),
       prisma.pretokIzvor.findMany({
-        where: { tankId: id },
+        where: { tankId: id, pretok: { datum: odGranice } },
         include: { pretok: { include: { ciljTank: { select: { broj: true } } } } },
       }),
       // Prijenos vina zivi na IZVORNOM tanku; ciljni ga vidi samo ovuda.
       prisma.zadatakTankStavka.findMany({
-        where: { ciljTankId: id },
+        where: { ciljTankId: id, zadatak: { izvrsenoAt: odGranice } },
         include: {
           zadatak: {
             include: {
@@ -947,7 +989,6 @@ export default async function TankPregledPage({
   //
   // Brana na arhiviranju: ne poseze se ispred zadnjeg `arhiviranoAt`, jer
   // starija mjerenja pripadaju PRETHODNOM vinu u istom tanku.
-  const granicaArhive = arhive[0]?.arhiviranoAt ?? null;
   const mjerenjaZaParametre = (
     granicaArhive
       ? mjerenja.filter((m) => m.izmjerenoAt >= granicaArhive)
@@ -1060,7 +1101,13 @@ export default async function TankPregledPage({
     dolasciPrijenosom.length;
 
   const mjerenjaZaTop = mjerenja;
-  const svaMjerenja = mjerenja.slice(0, 100);
+  // Popis mjerenja poštuje istu granicu kao mreža parametara. Ne koristi
+  // mjerenjaZaParametre jer je ono suženo na tip RedakMjerenja, bez napomene.
+  const svaMjerenja = (
+    granicaArhive
+      ? mjerenja.filter((m) => m.izmjerenoAt >= granicaArhive)
+      : mjerenja
+  ).slice(0, 100);
 
 
   // Zadana koja se prikazuje je STVARNA - ona koju je gateway zadnji put procitao
@@ -1940,6 +1987,7 @@ export default async function TankPregledPage({
         pod="NOVO — dosad se nisu prikazivale"
         sklopljena
       >
+        <OdZadnjeArhive granica={granicaArhive} />
         {radnje.length === 0 ? (
           <div style={mutedTextStyle}>Nema radnji.</div>
         ) : (
@@ -1979,6 +2027,7 @@ export default async function TankPregledPage({
         pod="NOVO — dosad se nisu prikazivali"
         sklopljena
       >
+        <OdZadnjeArhive granica={granicaArhive} />
         {pretociUlaz.length + pretociIzlaz.length === 0 ? (
           <div style={mutedTextStyle}>Nema pretoka.</div>
         ) : (
@@ -2023,6 +2072,7 @@ export default async function TankPregledPage({
         pod="NOVO — prijenos živi na izvornom tanku"
         sklopljena
       >
+        <OdZadnjeArhive granica={granicaArhive} />
         {dolasciPrijenosom.length === 0 ? (
           <div style={mutedTextStyle}>Nema dolazaka prijenosom.</div>
         ) : (
@@ -2080,6 +2130,7 @@ export default async function TankPregledPage({
         pod="SVA — prije se prikazivalo samo najnovije"
         sklopljena
       >
+        <OdZadnjeArhive granica={granicaArhive} />
         <div style={{ display: "grid", gap: 8 }}>
           {punjenja.map((p) => {
             const ukupnoLitara = p.stavke.reduce(
@@ -2160,6 +2211,7 @@ export default async function TankPregledPage({
       </Card>
 
       <Card title="Izlazi" broj={izlaziZaPrikaz.length} sklopljena>
+        <OdZadnjeArhive granica={granicaArhive} />
         <div style={izlazSummaryWrapStyle}>
           <div style={izlazSummaryBadgeStyle}>
             Ukupno izašlo: <strong>{formatBroj(ukupnoIzlazLitara, 0)} L</strong>
@@ -2320,6 +2372,7 @@ export default async function TankPregledPage({
         pod="napomena i bentotest po zapisu"
         sklopljena
       >
+        <OdZadnjeArhive granica={granicaArhive} />
         {svaMjerenja.length === 0 ? (
           <div style={mutedTextStyle}>Nema mjerenja.</div>
         ) : (
@@ -2697,6 +2750,13 @@ const obavijestPrazanStyle: React.CSSProperties = {
   padding: "9px 11px",
   fontSize: 13,
   lineHeight: 1.5,
+};
+
+const odArhiveStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#6b7280",
+  padding: "6px 10px 0 10px",
+  lineHeight: 1.45,
 };
 
 const berbaKarticaStyle: React.CSSProperties = {
