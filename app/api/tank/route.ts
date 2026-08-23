@@ -1,11 +1,21 @@
+// Provjera prijave. Ove rute do 23.08.2026. nisu imale nikakvu — `proxy.ts`
+// svojim matcherom pokriva stranice, ali ne i `/api/*`, pa su odgovarale
+// svakome tko zna URL. Bez uvjeta na rolu: aplikacija to vec radi drugdje.
 export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
+import { getAuthUser } from "@/lib/zadatak-auth";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
 // GET - dohvat svih tankova
 export async function GET() {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   try {
     const tankovi = await prisma.tank.findMany({
       orderBy: { broj: "asc" },
@@ -23,6 +33,12 @@ export async function GET() {
 
 // POST - dodavanje novog tanka
 export async function POST(req: Request) {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
 
@@ -84,6 +100,12 @@ export async function POST(req: Request) {
 
 // PUT - update cijelog tanka
 export async function PUT(req: Request) {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
 
@@ -154,6 +176,16 @@ export async function PUT(req: Request) {
 
 // DELETE - brisanje tanka
 export async function DELETE(req: Request) {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
+  if (user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Nemaš pravo pristupa." }, { status: 403 });
+  }
+
   try {
     const body = await req.json();
     const { id } = body;

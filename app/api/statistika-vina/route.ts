@@ -1,7 +1,11 @@
+// Provjera prijave. Ove rute do 23.08.2026. nisu imale nikakvu — `proxy.ts`
+// svojim matcherom pokriva stranice, ali ne i `/api/*`, pa su odgovarale
+// svakome tko zna URL. Bez uvjeta na rolu: aplikacija to vec radi drugdje.
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getAuthUser } from "@/lib/zadatak-auth";
 
 function round(value: number, decimals = 2) {
   const factor = 10 ** decimals;
@@ -9,6 +13,12 @@ function round(value: number, decimals = 2) {
 }
 
 export async function GET() {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   try {
     const [tankovi, izlazi] = await Promise.all([
       prisma.tank.findMany({

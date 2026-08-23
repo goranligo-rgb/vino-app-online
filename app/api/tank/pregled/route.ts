@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getAuthUser } from "@/lib/zadatak-auth";
 import { NextResponse } from "next/server";
 
 function spojiZadnjeMjerenje(
@@ -47,6 +48,12 @@ function spojiZadnjeMjerenje(
 }
 
 export async function GET(req: Request) {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   const { searchParams } = new URL(req.url);
   const tankId = searchParams.get("id");
 

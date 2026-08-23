@@ -1,7 +1,11 @@
+// Provjera prijave. Ove rute do 23.08.2026. nisu imale nikakvu — `proxy.ts`
+// svojim matcherom pokriva stranice, ali ne i `/api/*`, pa su odgovarale
+// svakome tko zna URL. Bez uvjeta na rolu: aplikacija to vec radi drugdje.
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getAuthUser } from "@/lib/zadatak-auth";
 
 function brojIliNull(v: unknown): number | null {
   if (v === "" || v === null || v === undefined) return null;
@@ -16,6 +20,12 @@ function datumIliNull(v: unknown): Date | null {
 }
 
 export async function GET(req: Request) {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const tankId = searchParams.get("tankId");
@@ -49,6 +59,12 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
 
@@ -160,6 +176,12 @@ export async function POST(req: Request) {
 }
 
 export async function PUT(req: Request) {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
 
@@ -265,6 +287,12 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const { id } = body;

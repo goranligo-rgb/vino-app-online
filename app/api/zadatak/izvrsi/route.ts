@@ -1,3 +1,6 @@
+// Provjera prijave. Ove rute do 23.08.2026. nisu imale nikakvu — `proxy.ts`
+// svojim matcherom pokriva stranice, ali ne i `/api/*`, pa su odgovarale
+// svakome tko zna URL. Bez uvjeta na rolu: aplikacija to vec radi drugdje.
 export const dynamic = "force-dynamic";
 
 // Ista granica kao u PUT /api/zadatak: Prisma (maxWait 5 s + timeout 20 s =
@@ -8,6 +11,7 @@ export const maxDuration = 60;
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getAuthUser } from "@/lib/zadatak-auth";
 import { osigurajRedoslijed } from "@/lib/zadatak-redoslijed";
 import {
   jePrijenosVina,
@@ -16,6 +20,12 @@ import {
 } from "@/lib/vrste-prijenosa";
 
 export async function POST(req: Request) {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const { zadatakId } = body;

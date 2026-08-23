@@ -64,6 +64,11 @@ export async function proxy(req: NextRequest) {
       pathname.startsWith("/zadaci") ||
       pathname.startsWith("/monitor") ||
       pathname.startsWith("/putnik") ||
+      // Dodane uz matcher, da ova izmjena nikome ne oduzme pravo koje je imao:
+      // dosad su bile izvan matchera pa ih je otvarao svatko. Jedina promjena
+      // koja se ovdje zeli je da neprijavljeni ide na /login.
+      pathname.startsWith("/sadrzaj-tanka") ||
+      pathname.startsWith("/dodavanje") ||
       /^\/tankovi\/[^/]+$/.test(pathname);
 
     if (!allowed) {
@@ -77,7 +82,10 @@ export async function proxy(req: NextRequest) {
   if (role === "PREGLED") {
     const allowed =
       pathname === "/dashboard" ||
-      pathname.startsWith("/putnik");
+      pathname.startsWith("/putnik") ||
+      // Isti razlog kao kod enologa — vidi gore.
+      pathname.startsWith("/sadrzaj-tanka") ||
+      pathname.startsWith("/dodavanje");
 
     if (!allowed) {
       return NextResponse.redirect(new URL("/dashboard", req.url));
@@ -104,5 +112,10 @@ export const config = {
     "/statistika/:path*",
     "/berba/:path*",
     "/arhiva/:path*",
+    // Ove dvije su nedostajale, pa su bile otvorene bez prijave — jednako kao
+    // API rute koje zovu. Bez njih bi neprijavljeni posjetitelj dobio praznu
+    // stranicu (jer API sad vraca 401) umjesto poziva na prijavu.
+    "/sadrzaj-tanka/:path*",
+    "/dodavanje/:path*",
   ],
 };

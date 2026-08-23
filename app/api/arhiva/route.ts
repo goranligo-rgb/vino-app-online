@@ -1,9 +1,19 @@
+// Provjera prijave. Ove rute do 23.08.2026. nisu imale nikakvu — `proxy.ts`
+// svojim matcherom pokriva stranice, ali ne i `/api/*`, pa su odgovarale
+// svakome tko zna URL. Bez uvjeta na rolu: aplikacija to vec radi drugdje.
 export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
+import { getAuthUser } from "@/lib/zadatak-auth";
 import { NextResponse } from "next/server";
 
 export async function GET() {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   try {
     const arhiva = await prisma.arhivaVina.findMany({
       orderBy: {
@@ -22,6 +32,12 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const tankId = String(body?.tankId ?? "").trim();
@@ -257,6 +273,16 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
+  if (user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Nemaš pravo pristupa." }, { status: 403 });
+  }
+
   try {
     const body = await req.json();
     const id = String(body?.id ?? "").trim();
@@ -283,6 +309,12 @@ export async function DELETE(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const user = await getAuthUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const tankId = String(body?.tankId ?? "").trim();
