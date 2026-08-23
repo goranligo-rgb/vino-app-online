@@ -469,6 +469,9 @@ export async function POST(req: Request) {
           kolicinaLitara,
           brojBoca,
           volumenBoce,
+          // Tko je izdao vino. Ruta vec ima korisnika; dosad je zavrsavao samo
+          // na pripadnoj Radnja.
+          korisnikId: user.id,
           napomena:
             novoStanje <= PRAZNO_PRAG
               ? `${izlazNapomena} • završni izlaz • tank ispražnjen • arhivirano`

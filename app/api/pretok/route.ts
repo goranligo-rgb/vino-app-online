@@ -17,6 +17,7 @@ export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getAuthUser, smijeRaditiUPodrumu } from "@/lib/zadatak-auth";
 import { izracunajNoviSastavPretoka } from "@/lib/pretok-sastav";
 import {
   blendKojiOstaje,
@@ -639,6 +640,27 @@ export async function arhivirajPotroseniTank(
 
 export async function POST(req: Request) {
   try {
+    // PROVJERA PRIJAVE. Ove rute do 23.08.2026. NIJE BILO — `proxy.ts` svojim
+    // matcherom pokriva stranicu `/pretok`, ali ne i `/api/pretok`, pa je
+    // `POST` bio otvoren svakome tko zna URL. Provjereno na produkciji: prazno
+    // tijelo vracalo je 400 (pala validacija), ne 401. Pretok premjesta vino i
+    // moze pokrenuti arhiviranje, koje brise mjerenja i zadatke.
+    //
+    // Isti obrazac kao app/api/zadatak/filtracija/izvrsi/route.ts: 401 kad nije
+    // prijavljen, 403 kad nema pravo. Provjera ide PRIJE citanja tijela.
+    const user = await getAuthUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+    }
+
+    if (!smijeRaditiUPodrumu(user)) {
+      return NextResponse.json(
+        { error: "Nemate pravo raditi pretok." },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
 
     const tipPretoka: TipPretokaDb =
@@ -933,6 +955,9 @@ export async function POST(req: Request) {
         data: {
           ciljTankId,
           tip: tipPretoka,
+          // Tko je pretocio. Zateceni pretoci ostaju NULL — vidi migraciju
+          // 20260823_korisnik_na_pretok_punjenje_izlaz.
+          korisnikId: user.id,
           // Pretok, za razliku od filtracije, ne stvara `Radnja` — pa se podatak
           // o neprenesenim parametrima dopisuje ovdje. Korisnikov tekst ostaje
           // netaknut ispred, isti spoj " • " kao u filtraciji.

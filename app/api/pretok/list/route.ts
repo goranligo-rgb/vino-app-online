@@ -2,9 +2,18 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getAuthUser } from "@/lib/zadatak-auth";
 
 export async function GET() {
   try {
+    // Citanje, ali i dalje podaci podruma — bez prijave je vracalo 200 svakome.
+    // Bez uvjeta na rolu: tko je prijavljen, smije vidjeti popis pretoka.
+    const user = await getAuthUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+    }
+
     const pretoci = await prisma.pretok.findMany({
       orderBy: [{ createdAt: "desc" }, { datum: "desc" }],
       take: 12,

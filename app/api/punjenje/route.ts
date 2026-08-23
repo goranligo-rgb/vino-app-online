@@ -344,6 +344,10 @@ export async function POST(req: Request) {
       const created = await tx.punjenjeTanka.create({
         data: {
           tankId,
+          // Tko je punio. Ruta vec cita sesiju; dosad je korisnik zavrsavao samo
+          // na pripadnoj Radnja, pa se iz samog punjenja nije znalo tko ga je
+          // napravio.
+          korisnikId,
           nazivVina,
           datumPunjenja,
           napomena,

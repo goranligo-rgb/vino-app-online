@@ -8,6 +8,7 @@ export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getAuthUser, smijeUpravljati } from "@/lib/zadatak-auth";
 
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.filter(Boolean))) as string[];
@@ -15,6 +16,25 @@ function uniqueStrings(values: Array<string | null | undefined>) {
 
 export async function POST(req: Request) {
   try {
+    // Ista rupa kao na POST /api/pretok — vidi tamosnji komentar.
+    //
+    // Ovdje je granica STROZA: `smijeUpravljati` (ADMIN, ENOLOG), ne
+    // `smijeRaditiUPodrumu`. Ponistavanje vraca tankove na staro stanje i brise
+    // pretok; to se tesko vraca, pa ide uz isto pravilo kao ponistavanje
+    // filtracije (app/api/zadatak/filtracija/ponisti/route.ts).
+    const user = await getAuthUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+    }
+
+    if (!smijeUpravljati(user)) {
+      return NextResponse.json(
+        { error: "Nemate pravo poništiti pretok." },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const pretokId = String(body?.pretokId ?? "").trim();
 
