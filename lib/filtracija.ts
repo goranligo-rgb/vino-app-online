@@ -35,7 +35,7 @@ export type { VrijednostiMjerenja };
  * parsiranje tijela i mapiranje gresaka na statuse.
  */
 
-type Tx = Prisma.TransactionClient;
+export type Tx = Prisma.TransactionClient;
 
 /**
  * Greska koju rute mapiraju na HTTP 400 i ciju poruku pokazuju korisniku.
@@ -234,7 +234,7 @@ export type FiltracijaSnapshot = {
   autoMjerenjaIds?: string[];
 };
 
-type TankSaSastavom = {
+export type TankSaSastavom = {
   id: string;
   broj: number;
   kapacitet: number;
@@ -269,7 +269,7 @@ function postotak2(n: number): number {
   return Number(n.toFixed(2));
 }
 
-function nazivZaBlend(tank: { broj: number; nazivVina: string | null; sorta: string | null }) {
+export function nazivZaBlend(tank: { broj: number; nazivVina: string | null; sorta: string | null }) {
   return tank.nazivVina ?? tank.sorta ?? `Tank ${tank.broj}`;
 }
 
@@ -382,7 +382,14 @@ export async function zakljucajTankove(tx: Tx, tankIds: string[]): Promise<strin
 // Citanje i otisak
 // ---------------------------------------------------------------------------
 
-async function ucitajTank(tx: Tx, tankId: string): Promise<TankSaSastavom> {
+/**
+ * IZVEZENO ZA lib/pretok-motor.ts.
+ *
+ * Ovo je isti motor, ne kopija: pretok i prijenos vina dijele mililitarsku
+ * matematiku koju pokriva scripts/test-filtracija.ts (900.006 invarijanti).
+ * Nista se pri izvozu nije promijenilo — dodana je samo rijec `export`.
+ */
+export async function ucitajTank(tx: Tx, tankId: string): Promise<TankSaSastavom> {
   const tank = await tx.tank.findUnique({
     where: { id: tankId },
     select: {
@@ -416,7 +423,7 @@ async function ucitajTank(tx: Tx, tankId: string): Promise<TankSaSastavom> {
   return tank as TankSaSastavom;
 }
 
-function napraviOtisak(tank: TankSaSastavom): TankOtisak {
+export function napraviOtisak(tank: TankSaSastavom): TankOtisak {
   return {
     tankId: tank.id,
     brojTanka: tank.broj,
@@ -495,7 +502,7 @@ export function istiIdentitet(a: TankOtisak, b: TankOtisak): boolean {
  * Sastav tanka razlozen na mililitre po sorti. Ako tank nema upisane udjele,
  * pada na Tank.sorta = 100% (isti fallback koji koristi lib/pretok-sastav.ts).
  */
-function sastavUMl(tank: TankSaSastavom, ukupnoMl: number): Map<string, number> {
+export function sastavUMl(tank: TankSaSastavom, ukupnoMl: number): Map<string, number> {
   const mapa = new Map<string, number>();
 
   if (ukupnoMl <= 0) return mapa;
@@ -527,7 +534,7 @@ function sastavUMl(tank: TankSaSastavom, ukupnoMl: number): Map<string, number> 
   return mapa;
 }
 
-function udjeliIzMape(mapa: Map<string, number>): SortaUdio[] {
+export function udjeliIzMape(mapa: Map<string, number>): SortaUdio[] {
   const stavke = Array.from(mapa.entries()).filter(([, ml]) => ml > 0);
 
   if (stavke.length === 0) return [];
@@ -544,7 +551,7 @@ function udjeliIzMape(mapa: Map<string, number>): SortaUdio[] {
  * Spaja blend stavke istog porijekla i preracunava postotke.
  * Isti obrazac kao normalizirajBlendStavke u app/api/pretok/route.ts, samo u ml.
  */
-function normalizirajBlend(stavke: BlendStavka[]): BlendStavka[] {
+export function normalizirajBlend(stavke: BlendStavka[]): BlendStavka[] {
   const mapa = new Map<string, BlendStavka>();
 
   for (const s of stavke) {
@@ -576,7 +583,7 @@ function normalizirajBlend(stavke: BlendStavka[]): BlendStavka[] {
  * Dio blenda izvornog tanka koji putuje s prenesenom kolicinom.
  * Ako izvor nema blend zapisa, sam izvorni tank je jedini "izvor" te kolicine.
  */
-function blendKojiOdlazi(
+export function blendKojiOdlazi(
   izvor: TankSaSastavom,
   prenosMl: number,
   ukupnoPrijeMl: number
@@ -650,7 +657,7 @@ export function blendKojiOstaje(
   );
 }
 
-async function upisiSastav(tx: Tx, tankId: string, udjeli: SortaUdio[]) {
+export async function upisiSastav(tx: Tx, tankId: string, udjeli: SortaUdio[]) {
   await tx.tankSortaUdio.deleteMany({ where: { tankId } });
 
   if (udjeli.length > 0) {
@@ -664,7 +671,7 @@ async function upisiSastav(tx: Tx, tankId: string, udjeli: SortaUdio[]) {
   }
 }
 
-async function upisiBlend(tx: Tx, ciljTankId: string, blend: BlendStavka[]) {
+export async function upisiBlend(tx: Tx, ciljTankId: string, blend: BlendStavka[]) {
   await tx.blendIzvor.deleteMany({ where: { ciljTankId } });
 
   if (blend.length > 0) {

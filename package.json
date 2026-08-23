@@ -14,7 +14,8 @@
     "test:filtracija:baza": "tsx scripts/test-filtracija-baza.ts",
     "test:berba": "tsx scripts/test-berba-polja.ts",
     "test:fallback": "tsx scripts/test-mjerenja-fallback.ts",
-    "test:arhiviranje:baza": "tsx scripts/test-arhiviranje-baza.ts"
+    "test:arhiviranje:baza": "tsx scripts/test-arhiviranje-baza.ts",
+    "test:pretok:motor": "tsx scripts/test-pretok-motor.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
