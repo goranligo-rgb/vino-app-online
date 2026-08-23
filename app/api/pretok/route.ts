@@ -18,24 +18,14 @@ export const maxDuration = 60;
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, smijeRaditiUPodrumu } from "@/lib/zadatak-auth";
-import { izracunajNoviSastavPretoka } from "@/lib/pretok-sastav";
-import {
-  blendKojiOstaje,
-  jeMjerenjePrazno,
-  uLitre,
-  uMl,
-  NAPOMENA_BEZ_PARAMETARA,
-} from "@/lib/filtracija";
+import { jeMjerenjePrazno, NAPOMENA_BEZ_PARAMETARA } from "@/lib/filtracija";
 import {
   vrijednostiTankaPoPolju,
   rasponDatumaIzvora,
   type IzvorPolja,
 } from "@/lib/mjerenja";
 import { Prisma, TipPretokaDb } from "@prisma/client";
-import {
-  arhivirajPotroseniTank,
-  preusmjeriNaArhivu,
-} from "@/lib/pretok-arhiviranje";
+import { izvrsiPretok } from "@/lib/pretok-motor";
 
 type UlazPretoka = {
   tankId: string;
@@ -78,14 +68,6 @@ type TankZaSnapshot = {
   }[];
 };
 
-type BlendStavkaCalc = {
-  izvorTankId: string | null;
-  izvorArhivaVinaId: string | null;
-  nazivVina: string | null;
-  sorta: string | null;
-  kolicina: number;
-  postotak: number;
-};
 
 function weightedAverage(
   stavke: { kolicina: number; value: number | null | undefined }[]
@@ -107,9 +89,6 @@ function weightedAverage(
   return Number((ponderirano / ukupno).toFixed(3));
 }
 
-function round6(n: number) {
-  return Number(n.toFixed(6));
-}
 
 /**
  * Vrijednosti tanka PO POLJU, ne "zadnji redak mjerenja".
@@ -124,104 +103,6 @@ async function dohvatiVrijednostiZaTank(tankId: string) {
   return vrijednostiTankaPoPolju(prisma, tankId);
 }
 
-function nazivTanka(
-  tank: {
-    broj: number;
-    nazivVina: string | null;
-    sorta: string | null;
-  }
-) {
-  return tank.nazivVina ?? tank.sorta ?? `Tank ${tank.broj}`;
-}
-
-function normalizirajBlendStavke(
-  stavke: Array<{
-    izvorTankId: string | null;
-    izvorArhivaVinaId: string | null;
-    nazivVina: string | null;
-    sorta: string | null;
-    kolicina: number;
-  }>
-): BlendStavkaCalc[] {
-  const mapa = new Map<string, BlendStavkaCalc>();
-
-  for (const s of stavke) {
-    const key = [
-      s.izvorTankId ?? "",
-      s.izvorArhivaVinaId ?? "",
-      s.nazivVina ?? "",
-      s.sorta ?? "",
-    ].join("||");
-
-    const postojeci = mapa.get(key);
-
-    if (postojeci) {
-      postojeci.kolicina = round6(postojeci.kolicina + Number(s.kolicina || 0));
-    } else {
-      mapa.set(key, {
-        izvorTankId: s.izvorTankId ?? null,
-        izvorArhivaVinaId: s.izvorArhivaVinaId ?? null,
-        nazivVina: s.nazivVina ?? null,
-        sorta: s.sorta ?? null,
-        kolicina: round6(Number(s.kolicina || 0)),
-        postotak: 0,
-      });
-    }
-  }
-
-  const rezultat = Array.from(mapa.values()).filter((s) => s.kolicina > 0);
-  const ukupno = rezultat.reduce((sum, s) => sum + s.kolicina, 0);
-
-  return rezultat.map((s) => ({
-    ...s,
-    postotak: ukupno > 0 ? Number(((s.kolicina / ukupno) * 100).toFixed(2)) : 0,
-  }));
-}
-
-
-function proporcionalniBlendIzvori(
-  sourceTank: {
-    id: string;
-    broj: number;
-    sorta: string | null;
-    nazivVina: string | null;
-    blendIzvori: Array<{
-      izvorTankId: string | null;
-      izvorArhivaVinaId: string | null;
-      nazivVina: string | null;
-      sorta: string | null;
-      kolicina: number;
-      postotak: number;
-    }>;
-  },
-  kolicinaKojaSePrenosi: number,
-  ukupnoPrije: number
-): BlendStavkaCalc[] {
-  if (kolicinaKojaSePrenosi <= 0 || ukupnoPrije <= 0) return [];
-
-  if (sourceTank.blendIzvori.length > 0) {
-    return normalizirajBlendStavke(
-      sourceTank.blendIzvori.map((b) => ({
-        izvorTankId: b.izvorTankId ?? null,
-        izvorArhivaVinaId: b.izvorArhivaVinaId ?? null,
-        nazivVina: b.nazivVina ?? null,
-        sorta: b.sorta ?? null,
-        kolicina: round6((Number(b.kolicina || 0) / ukupnoPrije) * kolicinaKojaSePrenosi),
-      }))
-    );
-  }
-
-  return [
-    {
-      izvorTankId: sourceTank.id,
-      izvorArhivaVinaId: null,
-      nazivVina: nazivTanka(sourceTank),
-      sorta: sourceTank.sorta ?? null,
-      kolicina: round6(kolicinaKojaSePrenosi),
-      postotak: 100,
-    },
-  ];
-}
 
 async function spremiSnapshotTanka(
   tx: Prisma.TransactionClient,
@@ -484,11 +365,6 @@ export async function POST(req: Request) {
       }
     }
 
-    const noviSastav = await izracunajNoviSastavPretoka({
-      izvori,
-      ciljTankId,
-    });
-
     const vrijednostiCilja = await dohvatiVrijednostiZaTank(ciljTankId);
     const vrijednostiIzvora = await Promise.all(
       izvori.map((i) => dohvatiVrijednostiZaTank(i.tankId))
@@ -496,7 +372,6 @@ export async function POST(req: Request) {
 
     const trenutnoUCilju = Number(ciljTank.kolicinaVinaUTanku ?? 0);
     const ukupnoDodano = izvori.reduce((sum, i) => sum + Number(i.kolicina), 0);
-    const finalnaKolicina = Number((trenutnoUCilju + ukupnoDodano).toFixed(3));
 
     const weightedInputs: MjerenjeWeighted[] = [];
 
@@ -691,387 +566,56 @@ export async function POST(req: Request) {
         );
       }
 
-      if (tipPretoka === TipPretokaDb.OBICNI) {
-        const izvor = izvori[0];
-        const sourceTank = tankById.get(izvor.tankId)!;
-        const kolicinaIzvora = Number(izvor.kolicina);
-        const stanjeIzvoraPrije = Number(sourceTank.kolicinaVinaUTanku ?? 0);
-        const preostalo = Number((stanjeIzvoraPrije - kolicinaIzvora).toFixed(6));
-        const ciljJeBioPrazan = Number(ciljTank.kolicinaVinaUTanku ?? 0) <= 0;
-        const trenutnoUCiljuPrije = Number(ciljTank.kolicinaVinaUTanku ?? 0);
-
-        const preneseniBlend = proporcionalniBlendIzvori(
-          sourceTank,
-          kolicinaIzvora,
-          stanjeIzvoraPrije
-        );
-
-        let postojeciCiljniBlend: BlendStavkaCalc[] = [];
-
-        if (trenutnoUCiljuPrije > 0) {
-          if (ciljTank.blendIzvori.length > 0) {
-            postojeciCiljniBlend = normalizirajBlendStavke(
-              ciljTank.blendIzvori.map((b) => ({
-                izvorTankId: b.izvorTankId ?? null,
-                izvorArhivaVinaId: b.izvorArhivaVinaId ?? null,
-                nazivVina: b.nazivVina ?? null,
-                sorta: b.sorta ?? null,
-                kolicina: Number(b.kolicina || 0),
-              }))
-            );
-          } else {
-            postojeciCiljniBlend = [
-              {
-                izvorTankId: ciljTank.id,
-                izvorArhivaVinaId: null,
-                nazivVina: nazivTanka(ciljTank),
-                sorta: ciljTank.sorta ?? null,
-                kolicina: round6(trenutnoUCiljuPrije),
-                postotak: 100,
-              },
-            ];
-          }
-        }
-
-        await tx.tank.update({
-          where: { id: sourceTank.id },
-          data: {
-            kolicinaVinaUTanku: {
-              decrement: kolicinaIzvora,
-            },
-          },
-        });
-
-        await tx.tank.update({
-          where: { id: ciljTankId },
-          data: {
-            kolicinaVinaUTanku: {
-              increment: kolicinaIzvora,
-            },
-            nazivVina:
-              ciljJeBioPrazan && !ciljTank.nazivVina
-                ? sourceTank.nazivVina
-                : undefined,
-            sorta:
-              ciljJeBioPrazan && !ciljTank.sorta ? sourceTank.sorta : undefined,
-            godiste:
-              ciljJeBioPrazan && ciljTank.godiste == null
-                ? sourceTank.godiste
-                : undefined,
-          },
-        });
-
-        await tx.tankSortaUdio.deleteMany({
-          where: { tankId: ciljTankId },
-        });
-
-        if (noviSastav.length > 0) {
-          await tx.tankSortaUdio.createMany({
-            data: noviSastav.map((s) => ({
-              tankId: ciljTankId,
-              nazivSorte: s.nazivSorte,
-              postotak: s.postotak,
-            })),
-          });
-        }
-
-        if (sourceTank.blendIzvori.length > 0) {
-          await tx.blendIzvor.deleteMany({
-            where: { ciljTankId: sourceTank.id },
-          });
-
-          if (preostalo > 0) {
-            const preostaliBlend = proporcionalniBlendIzvori(
-              sourceTank,
-              preostalo,
-              stanjeIzvoraPrije
-            );
-
-            if (preostaliBlend.length > 0) {
-              await tx.blendIzvor.createMany({
-                data: preostaliBlend.map((b) => ({
-                  ciljTankId: sourceTank.id,
-                  izvorTankId: b.izvorTankId,
-                  izvorArhivaVinaId: b.izvorArhivaVinaId,
-                  nazivVina: b.nazivVina,
-                  sorta: b.sorta,
-                  kolicina: b.kolicina,
-                  postotak: b.postotak,
-                })),
-              });
+      // ---------------------------------------------------------------------
+      // MOTOR. Dvije grane po vrsti (obicna i cuvée) su nestale — vrste se
+      // razlikuju samo u identitetu vina, a to motor rjesava jednim korakom.
+      //
+      // Sto je ostalo ruti: zapis `Pretok`, snapshoti, automatsko mjerenje i
+      // HTTP. Sto je preuzeo motor: sve sto se dogada s vinom.
+      //
+      // Povratak ako nesto pukne: `git revert` OVOG commita. Baza se ne dira —
+      // faza 4 je aditivna, `ciljTankId` i `PretokCilj` pise i stara grana.
+      // ---------------------------------------------------------------------
+      const rezultatMotora = await izvrsiPretok(tx, {
+        izvori: izvori.map((i) => ({
+          tankId: i.tankId,
+          kolicina: Number(i.kolicina),
+        })),
+        // Forma jos salje jedan cilj; motor ih prima vise od faze 4. Prosirenje
+        // forme na N→M je faza 5e.
+        ciljevi: [{ tankId: ciljTankId, kolicina: ukupnoDodano }],
+        vrsta:
+          tipPretoka === TipPretokaDb.CUVEE
+            ? "CUVEE"
+            : tipPretoka === TipPretokaDb.BLEND_ISTE_SORTE
+            ? "ISTA_SORTA"
+            : "OBICNI",
+        // Nacin jos ne dolazi iz forme — dodaje ga faza 5e. Do tada "BEZ", sto
+        // je i istina za sve dosadasnje pretoke.
+        nacin: "BEZ",
+        napomena,
+        korisnikId: user.id,
+        noviIdentitet: trebaNovoVino
+          ? {
+              nazivVina: nazivNovogVina,
+              sorta: sortaNovogVina,
+              godiste: godisteNovo ?? null,
             }
-          }
-        }
+          : null,
+      });
 
-        // Arhiviranje ide PRIJE upisa ciljnog blenda, jer tek tada postoji
-        // arhiva na koju se pokazivaci mogu preusmjeriti. Redoslijed je bio
-        // obrnut, pa je blend ostajao vezan na tank koji je vec bio slobodan za
-        // novo vino.
-        const arhivaIzvora =
-          preostalo <= 0
-            ? await arhivirajPotroseniTank(
-                tx,
-                {
-                  id: sourceTank.id,
-                  broj: sourceTank.broj,
-                  sorta: sourceTank.sorta ?? null,
-                  nazivVina: sourceTank.nazivVina ?? null,
-                  godiste: sourceTank.godiste ?? null,
-                  kapacitet: sourceTank.kapacitet,
-                  tip: sourceTank.tip ?? null,
-                },
-                stanjeIzvoraPrije,
-                `Automatski arhivirano nakon običnog pretoka u tank ${ciljTank.broj}.`
-              )
-            : null;
-
-        // Preusmjeravanje ide PRIJE normalizacije da se stari i novi redak
-        // istog porijekla spoje u jedan umjesto da ostanu dva ista.
-        const noviCiljniBlend = normalizirajBlendStavke(
-          preusmjeriNaArhivu(
-            [
-              ...postojeciCiljniBlend.map((b) => ({
-                izvorTankId: b.izvorTankId,
-                izvorArhivaVinaId: b.izvorArhivaVinaId,
-                nazivVina: b.nazivVina,
-                sorta: b.sorta,
-                kolicina: b.kolicina,
-              })),
-              ...preneseniBlend.map((b) => ({
-                izvorTankId: b.izvorTankId,
-                izvorArhivaVinaId: b.izvorArhivaVinaId,
-                nazivVina: b.nazivVina,
-                sorta: b.sorta,
-                kolicina: b.kolicina,
-              })),
-            ],
-            sourceTank.id,
-            arhivaIzvora?.id ?? null
-          )
-        );
-
-        await tx.blendIzvor.deleteMany({
-          where: { ciljTankId },
-        });
-
-        if (noviCiljniBlend.length > 0) {
-          await tx.blendIzvor.createMany({
-            data: noviCiljniBlend.map((b) => ({
-              ciljTankId,
-              izvorTankId: b.izvorTankId,
-              izvorArhivaVinaId: b.izvorArhivaVinaId,
-              nazivVina: b.nazivVina,
-              sorta: b.sorta,
-              kolicina: b.kolicina,
-              postotak: b.postotak,
-            })),
-          });
-        }
-
-        // Prazno mjerenje se NE upisuje. `pretokMjerenje.create` mora biti pod
-        // istim uvjetom — inace bi veza pokazivala na mjerenje koje ne postoji.
-        // Prazan popis auto-mjerenja pretok/undo vec podnosi (uvjet `notIn` se
-        // tada ne dodaje), pa ondje nema sto mijenjati.
-        if (parametriPreneseni) {
-          const createdMjerenje = await tx.mjerenje.create({
-            data: {
-              tankId: ciljTankId,
-              korisnikId: null,
-              alkohol: novoMjerenje.alkohol,
-              ukupneKiseline: novoMjerenje.ukupneKiseline,
-              hlapiveKiseline: novoMjerenje.hlapiveKiseline,
-              slobodniSO2: novoMjerenje.slobodniSO2,
-              ukupniSO2: novoMjerenje.ukupniSO2,
-              secer: novoMjerenje.secer,
-              ph: novoMjerenje.ph,
-              temperatura: novoMjerenje.temperatura,
-              napomena:
-                "Automatski izračunato novo mjerenje nakon običnog pretoka." +
-                dodatakONastanku,
-              jeRucno: false,
-            },
-          });
-
-          await tx.pretokMjerenje.create({
-            data: {
-              pretokId: pretok.id,
-              mjerenjeId: createdMjerenje.id,
-              tankId: ciljTankId,
-            },
-          });
-        }
-
-        return {
-          pretok,
-          noviBlendIzvori: noviCiljniBlend,
-        };
-      }
-
-      const noviBlendIzvori: {
-        ciljTankId: string;
-        izvorTankId: string | null;
-        izvorArhivaVinaId: string | null;
-        nazivVina: string | null;
-        sorta: string | null;
-        kolicina: number;
-        postotak: number;
-      }[] = [];
-
-      if (trenutnoUCilju > 0) {
-        if (ciljTank.blendIzvori.length > 0) {
-          for (const postojeci of ciljTank.blendIzvori) {
-            const postotak = Number(
-              ((Number(postojeci.kolicina) / finalnaKolicina) * 100).toFixed(2)
-            );
-
-            noviBlendIzvori.push({
-              ciljTankId,
-              izvorTankId: postojeci.izvorTankId ?? null,
-              izvorArhivaVinaId: postojeci.izvorArhivaVinaId ?? null,
-              nazivVina: postojeci.nazivVina ?? null,
-              sorta: postojeci.sorta ?? null,
-              kolicina: Number(postojeci.kolicina),
-              postotak,
-            });
-          }
-        } else {
-          noviBlendIzvori.push({
-            ciljTankId,
-            izvorTankId: ciljTank.id,
-            izvorArhivaVinaId: null,
-            nazivVina: nazivTanka(ciljTank),
-            sorta: ciljTank.sorta ?? null,
-            kolicina: trenutnoUCilju,
-            postotak: Number(((trenutnoUCilju / finalnaKolicina) * 100).toFixed(2)),
-          });
-        }
-      }
-
-      for (const i of izvori) {
-        const sourceTank = tankById.get(i.tankId)!;
-        const kolicinaIzvora = Number(i.kolicina);
-        const stanjePrije = Number(sourceTank.kolicinaVinaUTanku ?? 0);
-        const preostalo = Number((stanjePrije - kolicinaIzvora).toFixed(6));
-
-        let izvorTankId: string | null = sourceTank.id;
-        let izvorArhivaVinaId: string | null = null;
-
-        await tx.tank.update({
-          where: { id: sourceTank.id },
-          data: {
-            kolicinaVinaUTanku: {
-              decrement: kolicinaIzvora,
-            },
-          },
-        });
-
-        // Izvorni tank je predao dio vina, pa mu se i blend mora proporcionalno
-        // smanjiti. Obicna grana to radi od pocetka, cuvée nije — pa je u
-        // izvorima ostajalo vise litara blenda nego vina u tanku. Zateceno na
-        // tankovima 15, 32 i 43.
-        //
-        // Racun dolazi iz lib/filtracija.ts, ne iz lokalnog
-        // proporcionalniBlendIzvori: razdioba po mililitrima jamci da je zbroj
-        // ostatka tocno jednak onome sto je u tanku ostalo, dok dijeljenje
-        // decimala po stavci ostavlja drift (upravo takav drift i jesu zateceni
-        // 4369,879518 L na tankovima 15 i 32).
-        if (preostalo > 0 && sourceTank.blendIzvori.length > 0) {
-          const ostatakBlenda = blendKojiOstaje(
-            sourceTank,
-            uMl(preostalo),
-            uMl(stanjePrije)
-          );
-
-          await tx.blendIzvor.deleteMany({
-            where: { ciljTankId: sourceTank.id },
-          });
-
-          if (ostatakBlenda.length > 0) {
-            await tx.blendIzvor.createMany({
-              data: ostatakBlenda.map((b) => ({
-                ciljTankId: sourceTank.id,
-                izvorTankId: b.izvorTankId,
-                izvorArhivaVinaId: b.izvorArhivaVinaId,
-                nazivVina: b.nazivVina,
-                sorta: b.sorta,
-                kolicina: uLitre(b.kolicinaMl),
-                postotak: b.postotak,
-              })),
-            });
-          }
-        }
-
-        if (preostalo <= 0) {
-          const arhiva = await arhivirajPotroseniTank(
-            tx,
-            {
-              id: sourceTank.id,
-              broj: sourceTank.broj,
-              sorta: sourceTank.sorta ?? null,
-              nazivVina: sourceTank.nazivVina ?? null,
-              godiste: sourceTank.godiste ?? null,
-              kapacitet: sourceTank.kapacitet,
-              tip: sourceTank.tip ?? null,
-            },
-            stanjePrije,
-            `Automatski arhivirano jer je vino ušlo u ${
-              tipPretoka === TipPretokaDb.CUVEE ? "cuvée" : "blend iste sorte"
-            } u tank ${ciljTank.broj}.`
-          );
-
-          izvorTankId = null;
-          izvorArhivaVinaId = arhiva.id;
-        }
-
-        noviBlendIzvori.push({
-          ciljTankId,
-          izvorTankId,
-          izvorArhivaVinaId,
-          nazivVina: nazivTanka(sourceTank),
-          sorta: sourceTank.sorta ?? null,
-          kolicina: kolicinaIzvora,
-          postotak: Number(((kolicinaIzvora / finalnaKolicina) * 100).toFixed(2)),
-        });
-      }
-
-      await tx.tank.update({
-        where: { id: ciljTankId },
+      // Kalo i izlaz sada racuna motor, pa se konacno upisuju. Na starim
+      // pretocima ostaju NULL — ondje ih nitko nije ni racunao.
+      await tx.pretok.update({
+        where: { id: pretok.id },
         data: {
-          kolicinaVinaUTanku: {
-            increment: ukupnoDodano,
-          },
-          nazivVina: nazivNovogVina,
-          sorta: sortaNovogVina,
-          godiste: godisteNovo,
+          kolicinaIzlaz: rezultatMotora.izasloLitara,
+          gubitakLitara: rezultatMotora.gubitakLitara,
         },
       });
 
-      await tx.tankSortaUdio.deleteMany({
-        where: { tankId: ciljTankId },
-      });
-
-      if (noviSastav.length > 0) {
-        await tx.tankSortaUdio.createMany({
-          data: noviSastav.map((s) => ({
-            tankId: ciljTankId,
-            nazivSorte: s.nazivSorte,
-            postotak: s.postotak,
-          })),
-        });
-      }
-
-      await tx.blendIzvor.deleteMany({
-        where: { ciljTankId },
-      });
-
-      if (noviBlendIzvori.length > 0) {
-        await tx.blendIzvor.createMany({
-          data: noviBlendIzvori,
-        });
-      }
-
-      // Isti guard kao na obicnom pretoku gore — cuvée i blend iste sorte
-      // jednako lako proizvedu prazan redak kad izvori nemaju mjerenja.
+      // Prazno mjerenje se NE upisuje. `pretokMjerenje.create` mora biti pod
+      // istim uvjetom — inace bi veza pokazivala na mjerenje koje ne postoji.
       if (parametriPreneseni) {
         const createdMjerenje = await tx.mjerenje.create({
           data: {
@@ -1086,7 +630,9 @@ export async function POST(req: Request) {
             ph: novoMjerenje.ph,
             temperatura: novoMjerenje.temperatura,
             napomena:
-              (tipPretoka === TipPretokaDb.CUVEE
+              (tipPretoka === TipPretokaDb.OBICNI
+                ? "Automatski izračunato novo mjerenje nakon običnog pretoka."
+                : tipPretoka === TipPretokaDb.CUVEE
                 ? "Automatski izračunato novo mjerenje nakon cuvéea."
                 : "Automatski izračunato novo mjerenje nakon blenda iste sorte.") +
               dodatakONastanku,
@@ -1103,9 +649,30 @@ export async function POST(req: Request) {
         });
       }
 
+      // Sastav i blend se citaju IZ BAZE, ne racunaju napamet — odgovor tako
+      // ne moze tvrditi nesto drugo od onoga sto je upisano.
+      const ciljPoslije = await tx.tank.findUniqueOrThrow({
+        where: { id: ciljTankId },
+        include: {
+          udjeliSorti: { orderBy: { postotak: "desc" } },
+          blendIzvori: { orderBy: { kolicina: "desc" } },
+        },
+      });
+
       return {
         pretok,
-        noviBlendIzvori,
+        noviBlendIzvori: ciljPoslije.blendIzvori.map((b) => ({
+          izvorTankId: b.izvorTankId,
+          izvorArhivaVinaId: b.izvorArhivaVinaId,
+          nazivVina: b.nazivVina,
+          sorta: b.sorta,
+          kolicina: Number(b.kolicina),
+          postotak: Number(b.postotak),
+        })),
+        noviSastav: ciljPoslije.udjeliSorti.map((u) => ({
+          nazivSorte: u.nazivSorte,
+          postotak: Number(u.postotak),
+        })),
       };
       // Zadani Prismin timeout je 5 s. Pretok koji arhivira potroseni izvorni
       // tank to redovito probije, i to TIHO — transakcija se povuce natrag, a
@@ -1120,7 +687,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       tipPretoka,
-      noviSastav,
+      noviSastav: rezultat.noviSastav,
       blendIzvori: rezultat.noviBlendIzvori,
       novoMjerenje,
       pretok: rezultat.pretok,
