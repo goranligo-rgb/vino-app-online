@@ -593,57 +593,10 @@ export default async function TankPregledPage({
 
   if (!tank) return notFound();
 
-  // Nadzor temperature: zadnje ocitanje + aktivni alarmi + zadnja Hy komanda.
-  const [zadnjeOcitanje, aktivniAlarmi, zadnjaHyKomanda] = await Promise.all([
-    prisma.ocitanjeTemperature.findFirst({
-      where: { tankId: id },
-      orderBy: { mjerenoU: "desc" },
-    }),
-    prisma.tankAlarm.findMany({
-      where: { tankId: id, aktivan: true },
-      orderBy: { nastaoU: "desc" },
-    }),
-    prisma.tankKomanda.findFirst({
-      where: { tankId: id, tip: "HY" },
-      orderBy: { trazenoU: "desc" },
-      select: { status: true, greska: true },
-    }),
-  ]);
-
-  const smijeHladjenje = smijeUpravljatiRole(prijavljeni.role);
-  const hyStanje: HyKomandaStanje = zadnjaHyKomanda
-    ? { status: zadnjaHyKomanda.status, greska: zadnjaHyKomanda.greska }
-    : null;
-
-  // Zadana koja se prikazuje je STVARNA - ona koju je gateway zadnji put procitao
-  // s kontrolera. Tank.zadanaTemp je samo zelja i moze zaostati ako komanda propadne.
-  // Soft-OFF: zadana = SOFT_OFF_TEMP (20,0 C) znaci "hladjenje iskljuceno" -
-  // kontroler nema Modbus registar za ON/OFF (vidi lib/tank-komanda.ts).
-  const zadanaStvarna = stvarnaZadana(
-    zadnjeOcitanje?.zadanaTemperatura,
-    tank.zadanaTemp
-  );
-  const hladjenjeIskljuceno = jeHladjenjeIskljuceno(zadanaStvarna);
-  const tempStatus = izracunajStatus({
-    mjerenoU: zadnjeOcitanje?.mjerenoU ?? null,
-    imaAktivanAlarm: aktivniAlarmi.length > 0,
-    hladjenjeIskljuceno,
-  });
-  const tempStil = stilZaStatus(tempStatus);
-  const hladiSad = hladjenjeIskljuceno ? false : (zadnjeOcitanje?.hladjenjeAktivno ?? null);
-
-  const mjerenjaZaTop = await prisma.mjerenje.findMany({
-    where: { tankId: id },
-    orderBy: { izmjerenoAt: "desc" },
-    take: 200,
-  });
-
-  const svaMjerenja = await prisma.mjerenje.findMany({
-    where: { tankId: id },
-    orderBy: { izmjerenoAt: "desc" },
-    take: 100,
-  });
-
+  // Izvedeno iz vec ucitanog tanka. Stoji OVDJE, prije upita, jer
+  // `tankJePrazan` odlucuje hoce li se punjenja i zadaci uopce citati —
+  // a to mora biti poznato prije nego se svi upiti poslozu u jedan
+  // Promise.all ispod.
   const udjeliSorti = tank.udjeliSorti ?? [];
   const ukupnoPostotak = udjeliSorti.reduce(
     (sum, u) => sum + Number(u.postotak ?? 0),
@@ -668,8 +621,49 @@ export default async function TankPregledPage({
 
   const izlaziZaPrikaz = tankJePrazan ? [] : (tank.izlaziVina ?? []);
 
-  const punjenja = !tankJePrazan
-  ? await prisma.punjenjeTanka.findMany({
+  // Upiti idu u DVA VALA umjesto sest uzastopnih koraka.
+  //
+  // Prije: tri temperaturna paralelno, pa mjerenja, pa jos jednom mjerenja, pa
+  // punjenja, pa otvoreni zadaci, pa izvrseni — sest odlazaka do baze jedan za
+  // drugim, iako nijedan ne treba rezultat prethodnog (ovise samo o
+  // `tankJePrazan`, koji je poznat gore).
+  //
+  // ZASTO NE SVIH SEDAM ODJEDNOM: pooler drzi `pool_size: 15` za cijelu
+  // aplikaciju — produkciju, dev i skripte zajedno. Sedam usporednih citanja po
+  // prikazu znaci da dva istovremena posjetitelja pojedu budzet i baza pocne
+  // odbijati veze (EMAXCONNSESSION -> 500). Izmjereno, ne pretpostavljeno.
+  // Cetiri po valu daju gotovo istu dobit uz upola manji vrsni pritisak.
+  const [zadnjeOcitanje, aktivniAlarmi, zadnjaHyKomanda, mjerenja] =
+    await Promise.all([
+    prisma.ocitanjeTemperature.findFirst({
+      where: { tankId: id },
+      orderBy: { mjerenoU: "desc" },
+    }),
+    prisma.tankAlarm.findMany({
+      where: { tankId: id, aktivan: true },
+      orderBy: { nastaoU: "desc" },
+    }),
+    prisma.tankKomanda.findFirst({
+      where: { tankId: id, tip: "HY" },
+      orderBy: { trazenoU: "desc" },
+      select: { status: true, greska: true },
+    }),
+
+    // JEDAN upit nad mjerenjima umjesto dva. Prije su stajala dva ista upita
+    // (take 200 za parametre, take 100 za popis) — isti `where` i isti
+    // `orderBy`, pa je drugi bio doslovan prefiks prvoga.
+    prisma.mjerenje.findMany({
+      where: { tankId: id },
+      orderBy: { izmjerenoAt: "desc" },
+      take: 200,
+    }),
+  ]);
+
+  // Drugi val. Prazan tank i dalje NE cita punjenja ni zadatke — uvjet je isti,
+  // samo je preseljen u izraz; `Promise.all` prima i obicne vrijednosti, pa
+  // `[]` prolazi bez upita.
+  const [punjenja, otvoreniZadaci, izvrseniZadaci] = await Promise.all([
+    tankJePrazan ? [] : prisma.punjenjeTanka.findMany({
       where: {
         tankId: id,
         stavke: {
@@ -690,12 +684,9 @@ export default async function TankPregledPage({
           },
         },
       },
-    })
-  : [];
+    }),
 
-  const otvoreniZadaci = tankJePrazan
-  ? []
-  : await prisma.zadatak.findMany({
+    tankJePrazan ? [] : prisma.zadatak.findMany({
       where: { tankId: id, status: "OTVOREN" },
       include: {
         preparat: {
@@ -739,11 +730,9 @@ export default async function TankPregledPage({
         },
       },
       orderBy: { zadanoAt: "desc" },
-    });
+    }),
 
-const izvrseniZadaci = tankJePrazan
-  ? []
-  : await prisma.zadatak.findMany({
+    tankJePrazan ? [] : prisma.zadatak.findMany({
       where: { tankId: id, status: { in: ["IZVRSEN", "OTKAZAN"] } },
       include: {
         preparat: {
@@ -788,7 +777,33 @@ const izvrseniZadaci = tankJePrazan
       },
       orderBy: [{ izvrsenoAt: "desc" }, { zadanoAt: "desc" }],
       take: 30,
-    });
+    }),
+  ]);
+
+  const mjerenjaZaTop = mjerenja;
+  const svaMjerenja = mjerenja.slice(0, 100);
+
+  const smijeHladjenje = smijeUpravljatiRole(prijavljeni.role);
+  const hyStanje: HyKomandaStanje = zadnjaHyKomanda
+    ? { status: zadnjaHyKomanda.status, greska: zadnjaHyKomanda.greska }
+    : null;
+
+  // Zadana koja se prikazuje je STVARNA - ona koju je gateway zadnji put procitao
+  // s kontrolera. Tank.zadanaTemp je samo zelja i moze zaostati ako komanda propadne.
+  // Soft-OFF: zadana = SOFT_OFF_TEMP (20,0 C) znaci "hladjenje iskljuceno" -
+  // kontroler nema Modbus registar za ON/OFF (vidi lib/tank-komanda.ts).
+  const zadanaStvarna = stvarnaZadana(
+    zadnjeOcitanje?.zadanaTemperatura,
+    tank.zadanaTemp
+  );
+  const hladjenjeIskljuceno = jeHladjenjeIskljuceno(zadanaStvarna);
+  const tempStatus = izracunajStatus({
+    mjerenoU: zadnjeOcitanje?.mjerenoU ?? null,
+    imaAktivanAlarm: aktivniAlarmi.length > 0,
+    hladjenjeIskljuceno,
+  });
+  const tempStil = stilZaStatus(tempStatus);
+  const hladiSad = hladjenjeIskljuceno ? false : (zadnjeOcitanje?.hladjenjeAktivno ?? null);
 
   const zadnje = sloziZadnjeMjerenjePoPoljima(mjerenjaZaTop);
   const from = `/tankovi/${tank.id}`;
