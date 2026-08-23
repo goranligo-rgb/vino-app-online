@@ -11,6 +11,8 @@
  * zastitu rade proxy.ts i provjere u rutama/server akcijama.
  */
 
+import { jeL12 } from "@/lib/auth-role";
+
 export type AuthUserKlijent = {
   id?: string;
   ime?: string;
@@ -30,7 +32,9 @@ export async function dohvatiAuthUserKlijent(): Promise<AuthUserKlijent | null> 
   }
 }
 
-// Level 1 (ADMIN) ili Level 2 (PODRUM) — isto mapiranje kao requireLevel12User.
+// Level 1 (ADMIN) ili Level 2 (PODRUM). Pravilo zivi u lib/auth-role.ts —
+// ovdje je samo omotac koji iz korisnika izvadi rolu, da isti uvjet ne postoji
+// u dvije verzije.
 export function jeL12Klijent(user: AuthUserKlijent | null): boolean {
-  return user?.role === "ADMIN" || user?.role === "PODRUM";
+  return jeL12(user?.role);
 }

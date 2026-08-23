@@ -840,6 +840,7 @@ const izvrseniZadaci = tankJePrazan
           <div style={headerActionsStyle}>
             <NatragNaPrethodnu />
             <TankRoleActions
+              rola={prijavljeni.role}
               tankId={tank.id}
               brojTanka={tank.broj}
               primaryStyle={linkButtonPrimaryStyle}
@@ -1449,6 +1450,7 @@ const izvrseniZadaci = tankJePrazan
               <div style={mutedTextStyle}>Trenutni sastav vina u tanku</div>
 
               <TankRoleSastavModal
+                rola={prijavljeni.role}
                 tankId={tank.id}
                 stavke={udjeliSorti.map((u) => ({
                   id: u.id,
@@ -1727,7 +1729,7 @@ const izvrseniZadaci = tankJePrazan
 
       <div style={docsGridStyle}>
         <Card title="Dokumenti">
-          <TankRoleDokumentiUpload tankId={tank.id} />
+          <TankRoleDokumentiUpload rola={prijavljeni.role} tankId={tank.id} />
         </Card>
 
         <Card title="Popis dokumenata">

@@ -1,42 +1,35 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import ArhivirajButton from "./arhiviraj-button";
+import { jeL12, type Rola } from "@/lib/auth-role";
 
-type AuthUser = {
-  id: string;
-  ime?: string;
-  username?: string;
-  email?: string;
-  role?: "ADMIN" | "ENOLOG" | "PODRUM" | "PREGLED";
-};
-
+/**
+ * Gumbi u zaglavlju tanka, ovisno o roli.
+ *
+ * Rola dolazi PROPOM S POSLUZITELJA. Prije se citala iz
+ * `localStorage["user"]`, koji upisuje samo /login: tko je ocistio preglednik,
+ * dosao s drugog uredjaja ili se prijavio prije nego je taj kljuc uveden,
+ * imao je `null` — a `null` je padao u granu "smije sve", pa je i PREGLED
+ * vidio gumb Arhiviraj i dobio "nemate prava" tek nakon klika. Stranica je
+ * server-komponenta i rolu ima iz potpisane sesije (citajSesiju), pa nema
+ * razloga da je klijent pogadja.
+ *
+ * Vise nije klijentska komponenta — nema stanja ni efekta. ArhivirajButton
+ * ispod jest, i to ostaje nepromijenjeno.
+ */
 export default function TankRoleActions({
+  rola,
   tankId,
   brojTanka,
   primaryStyle,
   secondaryStyle,
 }: {
+  rola: Rola | string | null | undefined;
   tankId: string;
   brojTanka: number;
   primaryStyle: React.CSSProperties;
   secondaryStyle: React.CSSProperties;
 }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-
-  useEffect(() => {
-    const raw = localStorage.getItem("user");
-    if (raw) {
-      try {
-        setUser(JSON.parse(raw));
-      } catch {
-        setUser(null);
-      }
-    }
-  }, []);
-
-  const isLevel2 = user?.role === "ENOLOG" || user?.role === "PREGLED";
+  const smijeUredjivati = jeL12(rola);
 
   return (
     <>
@@ -44,11 +37,7 @@ export default function TankRoleActions({
         Početna
       </Link>
 
-      {isLevel2 ? (
-        <Link href="/monitor" style={secondaryStyle}>
-          Monitor
-        </Link>
-      ) : (
+      {smijeUredjivati ? (
         <>
           <Link href="/tankovi" style={secondaryStyle}>
             Popis tankova
@@ -60,6 +49,10 @@ export default function TankRoleActions({
             style={secondaryStyle}
           />
         </>
+      ) : (
+        <Link href="/monitor" style={secondaryStyle}>
+          Monitor
+        </Link>
       )}
     </>
   );

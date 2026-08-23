@@ -1,37 +1,18 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import DokumentiUpload from "./dokumenti-upload";
+import { jeL12, type Rola } from "@/lib/auth-role";
 
-type AuthUser = {
-  id: string;
-  ime?: string;
-  username?: string;
-  email?: string;
-  role?: "ADMIN" | "ENOLOG" | "PODRUM" | "PREGLED";
-};
-
+/**
+ * Prilaganje dokumenata vidi samo L1/L2. Rola dolazi propom s posluzitelja —
+ * vidi obrazlozenje u tank-role-actions.tsx.
+ */
 export default function TankRoleDokumentiUpload({
+  rola,
   tankId,
 }: {
+  rola: Rola | string | null | undefined;
   tankId: string;
 }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-
-  useEffect(() => {
-    const raw = localStorage.getItem("user");
-    if (raw) {
-      try {
-        setUser(JSON.parse(raw));
-      } catch {
-        setUser(null);
-      }
-    }
-  }, []);
-
-  const isLevel2 = user?.role === "ENOLOG" || user?.role === "PREGLED";
-
-  if (isLevel2) return null;
+  if (!jeL12(rola)) return null;
 
   return <DokumentiUpload tankId={tankId} />;
 }
