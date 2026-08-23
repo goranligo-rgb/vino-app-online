@@ -21,11 +21,21 @@
  * prepisan umjesto prosiren — to je znak za zaustavljanje, ne za popravak
  * testa.
  *
+ * TRI STVARI KOJE JE MOTOR PREUZEO OD STARIH GRANA (faza 5c):
+ *   1. arhiviranje izvora koji je pao na nulu,
+ *   2. preusmjeravanje blend pokazivaca s tog tanka na novonastalu arhivu,
+ *   3. spajanje identiteta i sastava kod cuvéea.
+ *
+ * Prve dvije NISU prepisane — motor zove iste funkcije iz lib/pretok-arhiviranje.ts
+ * koje je zvala i stara grana. Da je rijec o premjestanju, a ne o prepisivanju,
+ * dokazuje scripts/test-arhiviranje-baza.ts sa 123 tvrdnje.
+ *
+ * Trecu motor racuna sam, u mililitrima, umjesto starim postotnim racunom iz
+ * lib/pretok-sastav.ts. To je jedina od tri gdje se ishod smije razlikovati —
+ * i razlikuje se u smjeru tocnosti, sto pokriva diferencijalni test.
+ *
  * STO OVAJ MODUL NAMJERNO NE RADI:
- *   - ne dira `Zadatak` (izvrsiFiltraciju to radi; ovdje je pretok bez zadatka);
- *   - ne arhivira ispraznjeni izvor i ne preusmjerava blend pokazivace — to
- *     zivi u app/api/pretok/route.ts i ulazi ovamo u fazi 5c, kad se stara
- *     grana gasi. Do tada bi dvije kopije arhiviranja bile gore od jedne.
+ *   - ne dira `Zadatak` (izvrsiFiltraciju to radi; ovdje je pretok bez zadatka).
  */
 
 import { Prisma } from "@prisma/client";
@@ -50,6 +60,10 @@ import {
   type TankSaSastavom,
   type Tx,
 } from "@/lib/filtracija";
+import {
+  arhivirajPotroseniTank,
+  preusmjeriNaArhivu,
+} from "@/lib/pretok-arhiviranje";
 
 /** Sto se radi. Mehanika je za sve tri ISTA — razlikuje se samo identitet vina. */
 export type VrstaPretoka = "OBICNI" | "CUVEE" | "ISTA_SORTA";
@@ -451,6 +465,11 @@ export async function izvrsiPretok(
   }
 
   // 7) IZVORI — umanji kolicinu i proporcionalno smanji blend.
+  //
+  //    Izvor koji padne na nulu se arhivira; `arhiveIzvora` pamti koja je
+  //    arhiva nastala iz kojeg tanka, da se blend pokazivaci ciljeva mogu
+  //    preusmjeriti na nju umjesto na tank koji je od sada slobodan za novo vino.
+  const arhiveIzvora = new Map<string, string>();
   const rezultatIzvori: RezultatPretoka["izvori"] = [];
 
   for (const i of provjeren.izvori) {
@@ -465,14 +484,34 @@ export async function izvrsiPretok(
     });
 
     if (paoNaNulu) {
-      // Prazan tank gubi identitet i blend. NE arhivira se ovdje — arhiviranje
-      // je jos u app/api/pretok/route.ts i dolazi ovamo u fazi 5c.
-      await tx.tank.update({
+      // ARHIVIRANJE. Zove se ISTA funkcija koju je zvala stara grana — ne
+      // kopija. Ona sama ocisti tank (kolicina 0, identitet i blend van) i u
+      // arhivu prenese mjerenja, zadatke, dokumente, punjenja, radnje i izlaze.
+      //
+      // Mora se dogoditi PRIJE nego se upisu blendovi ciljeva, jer tek tada
+      // postoji arhiva na koju se pokazivaci mogu preusmjeriti. Isti redoslijed
+      // koji je faza 1 uspostavila u staroj grani.
+      const dodatni = await tx.tank.findUniqueOrThrow({
         where: { id: t.id },
-        data: { nazivVina: null, sorta: null, godiste: null },
+        select: { tip: true },
       });
-      await upisiSastav(tx, t.id, []);
-      await upisiBlend(tx, t.id, []);
+
+      const arhiva = await arhivirajPotroseniTank(
+        tx,
+        {
+          id: t.id,
+          broj: t.broj,
+          sorta: t.sorta ?? null,
+          nazivVina: t.nazivVina ?? null,
+          godiste: t.godiste ?? null,
+          kapacitet: t.kapacitet,
+          tip: dodatni.tip ?? null,
+        },
+        uLitre(prijeMl),
+        `Automatski arhivirano jer je vino pretokom izašlo iz tanka ${t.broj}.`
+      );
+
+      arhiveIzvora.set(t.id, arhiva.id);
     } else {
       await upisiBlend(tx, t.id, blendKojiOstaje(t, ostatakMl, prijeMl));
     }
@@ -550,7 +589,17 @@ export async function izvrsiPretok(
       .map((b, j) => ({ ...b, kolicinaMl: udjeliBlendaPoCilju[k][j], postotak: 0 }))
       .filter((b) => b.kolicinaMl > 0);
 
-    await upisiBlend(tx, t.id, normalizirajBlend([...blendCilja, ...dolazeciBlend]));
+    // PREUSMJERAVANJE POKAZIVACA. Ide PRIJE normalizacije da se stari i novi
+    // redak istog porijekla spoje u jedan umjesto da ostanu dva. Prolazi i kroz
+    // zatecen blend cilja: ondje moze stajati stariji redak koji pokazuje na
+    // isti tank, i on je od ovog trenutka jednako kriv.
+    let spojeniBlend = [...blendCilja, ...dolazeciBlend];
+
+    for (const [izvorId, arhivaId] of arhiveIzvora) {
+      spojeniBlend = preusmjeriNaArhivu(spojeniBlend, izvorId, arhivaId);
+    }
+
+    await upisiBlend(tx, t.id, normalizirajBlend(spojeniBlend));
 
     // Sastav po sortama: zatecено u cilju + udio onoga sto dolazi.
     const mapaSastava = sastavUMl(t, prijeMl);

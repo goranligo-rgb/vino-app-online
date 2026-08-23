@@ -30,7 +30,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { arhivirajPotroseniTank } from "../app/api/pretok/route";
+import { arhivirajPotroseniTank } from "../lib/pretok-arhiviranje";
 import { arhivirajPrazanTank } from "../app/api/izlaz-vina/route";
 
 type Tx = Prisma.TransactionClient;

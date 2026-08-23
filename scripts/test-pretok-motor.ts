@@ -209,6 +209,41 @@ function orakulProporcionalno(
   );
 }
 
+/**
+ * ORAKUL SASTAVA — stari postotni racun iz lib/pretok-sastav.ts.
+ *
+ * Prepisan ovdje, a ne pozvan, iz dva razloga: izvorna funkcija cita preko
+ * GLOBALNOG prisma klijenta (ne `tx`), pa unutar transakcije s rollbackom ne bi
+ * vidjela sintetske tankove — a to je ujedno i nalaz koji je faza 5c usput
+ * ispravila: stari racun je radio IZVAN transakcije i izvan zakljucavanja.
+ */
+function orakulSastav(
+  izvori: Array<{ sastav: Array<{ nazivSorte: string; postotak: number }>; kolicina: number }>,
+  cilj: Array<{ nazivSorte: string; postotak: number; kolicina: number }>
+): Array<{ nazivSorte: string; postotak: number }> {
+  const litre: Record<string, number> = {};
+
+  const dodaj = (naziv: string, l: number) => {
+    if (!naziv || l <= 0) return;
+    litre[naziv] = (litre[naziv] ?? 0) + l;
+  };
+
+  for (const i of izvori) {
+    for (const s of i.sastav) dodaj(s.nazivSorte, (s.postotak / 100) * i.kolicina);
+  }
+  for (const c of cilj) dodaj(c.nazivSorte, (c.postotak / 100) * c.kolicina);
+
+  const ukupno = Object.values(litre).reduce((z, v) => z + v, 0);
+  if (ukupno <= 0) return [];
+
+  return Object.entries(litre)
+    .map(([nazivSorte, l]) => ({
+      nazivSorte,
+      postotak: Number(((l / ukupno) * 100).toFixed(2)),
+    }))
+    .sort((a, b) => b.postotak - a.postotak);
+}
+
 // ===========================================================================
 
 async function main() {
@@ -763,9 +798,166 @@ async function main() {
     );
   });
 
+
   // -------------------------------------------------------------------------
   console.log("");
-  console.log("=== DIO 5: cista provjera ulaza, bez baze ===");
+  console.log("=== DIO 6: tri stvari preuzete od starih grana (faza 5c) ===");
+  console.log("");
+
+  await scenarij(
+    "DOKAZ 13: cuvée u kojem JEDAN izvor pada na nulu — sve tri odjednom",
+    async (tx) => {
+      const u = await napraviKorisnika(tx);
+
+      // i1 se prazni do kraja → mora se arhivirati.
+      const i1 = await napraviTank(tx, {
+        kolicina: 600,
+        nazivVina: "Grasevina 2025",
+        sorta: "Grasevina",
+        sastav: [{ nazivSorte: "Grasevina", postotak: 100 }],
+      });
+      // i2 ostaje pun → ne arhivira se.
+      const i2 = await napraviTank(tx, {
+        kolicina: 1000,
+        nazivVina: "Sauvignon 2025",
+        sorta: "Sauvignon",
+        sastav: [{ nazivSorte: "Sauvignon", postotak: 100 }],
+      });
+      const cilj = await napraviTank(tx, { kolicina: 0 });
+
+      const arhivaPrije = await tx.arhivaVina.count();
+
+      await izvrsiPretok(tx, {
+        izvori: [
+          { tankId: i1.id, kolicina: 600 },
+          { tankId: i2.id, kolicina: 400 },
+        ],
+        ciljevi: [{ tankId: cilj.id, kolicina: 1000 }],
+        vrsta: "CUVEE",
+        nacin: "BEZ",
+        korisnikId: u.id,
+        noviIdentitet: { nazivVina: "TEST cuvée", sorta: "Cuvée", godiste: 2025 },
+      });
+
+      // --- 1) ARHIVIRANJE ---
+      const arhive = await tx.arhivaVina.findMany({ where: { tankId: i1.id } });
+      jednako(await tx.arhivaVina.count(), arhivaPrije + 1, "nastala je TOCNO jedna arhiva");
+      jednako(arhive.length, 1, "arhiva pripada ispraznjenom izvoru");
+      jednako(arhive[0]?.brojTanka, i1.broj, "arhiva nosi broj tog tanka");
+      jednako(arhive[0]?.kolicinaVina, 600, "arhiva nosi kolicinu prije praznjenja");
+      jednako(arhive[0]?.nazivVina, "Grasevina 2025", "arhiva nosi naziv vina");
+      jednako(
+        (await tx.arhivaVina.count({ where: { tankId: i2.id } })),
+        0,
+        "izvor koji je ostao pun NIJE arhiviran"
+      );
+
+      const i1Poslije = await stanje(tx, i1.id);
+      jednako(i1Poslije.litara, 0, "arhivirani izvor je prazan");
+      jednako(i1Poslije.nazivVina, null, "arhivirani izvor izgubio identitet");
+      jednako(i1Poslije.blendRedaka, 0, "arhivirani izvor nema blend");
+
+      // --- 2) PREUSMJERAVANJE POKAZIVACA ---
+      const naIspraznjeni = await tx.blendIzvor.count({ where: { izvorTankId: i1.id } });
+      jednako(naIspraznjeni, 0, "NIJEDAN blend redak ne pokazuje na ispraznjeni tank");
+
+      const naArhivu = await tx.blendIzvor.count({
+        where: { ciljTankId: cilj.id, izvorArhivaVinaId: arhive[0]!.id },
+      });
+      jednako(naArhivu, 1, "blend cilja pokazuje na novonastalu arhivu");
+
+      const naPuniIzvor = await tx.blendIzvor.count({
+        where: { ciljTankId: cilj.id, izvorTankId: i2.id },
+      });
+      jednako(naPuniIzvor, 1, "blend cilja i dalje pokazuje na izvor koji nije arhiviran");
+
+      // --- 3) IDENTITET I SASTAV CUVÉEA ---
+      const c = await stanje(tx, cilj.id);
+      jednako(c.nazivVina, "TEST cuvée", "cilj dobio novi naziv");
+      jednako(c.sorta, "Cuvée", "cilj dobio novu sortu");
+      jednako(c.godiste, 2025, "cilj dobio novo godiste");
+      jednako(c.sastav.length, 2, "sastav cilja ima obje sorte");
+      jednako(c.sastavZbroj, 100, "sastav zbraja tocno 100,00");
+      jednako(c.blendMl, 1_000_000, "blend cilja tocno 1000 L u ml");
+      jednako(c.postotakZbroj, 100, "postotci blenda zbrajaju tocno 100,00");
+    }
+  );
+
+  await scenarij(
+    "DOKAZ 14: sastav — motor vs stari postotni racun (orakul)",
+    async (tx) => {
+      const u = await napraviKorisnika(tx);
+
+      // Tri sorte u omjeru koji se u postocima ne zatvara lijepo.
+      const i1 = await napraviTank(tx, {
+        kolicina: 1000,
+        nazivVina: "A",
+        sorta: "Mjesavina",
+        sastav: [
+          { nazivSorte: "Grasevina", postotak: 33.33 },
+          { nazivSorte: "Sauvignon", postotak: 33.33 },
+          { nazivSorte: "Rizling", postotak: 33.34 },
+        ],
+      });
+      const i2 = await napraviTank(tx, {
+        kolicina: 500,
+        nazivVina: "B",
+        sorta: "Chardonnay",
+        sastav: [{ nazivSorte: "Chardonnay", postotak: 100 }],
+      });
+      const cilj = await napraviTank(tx, { kolicina: 0 });
+
+      await izvrsiPretok(tx, {
+        izvori: [
+          { tankId: i1.id, kolicina: 700 },
+          { tankId: i2.id, kolicina: 300 },
+        ],
+        ciljevi: [{ tankId: cilj.id, kolicina: 1000 }],
+        vrsta: "CUVEE",
+        nacin: "BEZ",
+        korisnikId: u.id,
+        noviIdentitet: { nazivVina: "TEST cuvée", sorta: "Cuvée" },
+      });
+
+      const orakul = orakulSastav(
+        [
+          { sastav: [
+            { nazivSorte: "Grasevina", postotak: 33.33 },
+            { nazivSorte: "Sauvignon", postotak: 33.33 },
+            { nazivSorte: "Rizling", postotak: 33.34 },
+          ], kolicina: 700 },
+          { sastav: [{ nazivSorte: "Chardonnay", postotak: 100 }], kolicina: 300 },
+        ],
+        []
+      );
+
+      const c = await stanje(tx, cilj.id);
+      const orakulZbroj = Number(
+        orakul.reduce((z, o) => z + o.postotak, 0).toFixed(2)
+      );
+
+      console.log(
+        `       orakul zbraja ${orakulZbroj.toFixed(2)} %, motor ${c.sastavZbroj.toFixed(2)} %`
+      );
+
+      jednako(c.sastav.length, orakul.length, "isti broj sorti kao u orakula");
+      jednako(c.sastavZbroj, 100, "MOTOR: sastav zbraja tocno 100,00");
+
+      // Sorte se moraju poklapati po imenu i biti bliske po postotku.
+      for (const o of orakul) {
+        const m = c.sastav.find((x) => x.nazivSorte === o.nazivSorte);
+        tvrdi(!!m, `motor zna sortu ${o.nazivSorte}`);
+        tvrdi(
+          Math.abs(Number(m?.postotak ?? 0) - o.postotak) <= 0.02,
+          `${o.nazivSorte}: motor ${m?.postotak} % vs orakul ${o.postotak} % — razlika do 0,02`
+        );
+      }
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  console.log("");
+  console.log("=== DIO 7: cista provjera ulaza, bez baze ===");
   console.log("");
 
   const osnovni = {
