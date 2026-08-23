@@ -33,6 +33,17 @@ type ZadnjiPretok = {
     nazivVina?: string | null;
     tip?: string | null;
   } | null;
+  ciljevi?: Array<{
+    id: string;
+    kolicina: number;
+    tank?: {
+      id: string;
+      broj: number;
+      sorta?: string | null;
+      nazivVina?: string | null;
+      tip?: string | null;
+    } | null;
+  }>;
   izvori: Array<{
     id: string;
     kolicina: number;
@@ -252,9 +263,20 @@ function ZadnjiPretociPanel({
 
                 <div className="mt-3 grid gap-2">
                   <div>
-                    <span className="text-stone-500">Cilj: </span>
+                    <span className="text-stone-500">
+                      {(p.ciljevi?.length ?? 0) > 1 ? "Ciljevi: " : "Cilj: "}
+                    </span>
                     <strong>
-                      Tank {p.ciljTank?.broj ?? "-"} — {nazivTankaKratko(p.ciljTank)}
+                      {(p.ciljevi?.length ?? 0) > 0
+                        ? p.ciljevi!
+                            .map(
+                              (c) =>
+                                `Tank ${c.tank?.broj ?? "-"} — ${nazivTankaKratko(c.tank)}`
+                            )
+                            .join(" · ")
+                        : `Tank ${p.ciljTank?.broj ?? "-"} — ${nazivTankaKratko(
+                            p.ciljTank
+                          )}`}
                     </strong>
                   </div>
 

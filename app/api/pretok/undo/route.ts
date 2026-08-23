@@ -49,6 +49,7 @@ export async function POST(req: Request) {
       where: { id: pretokId },
       include: {
         izvori: true,
+        ciljevi: true,
         snapshoti: {
           include: {
             sorte: true,
@@ -76,8 +77,11 @@ export async function POST(req: Request) {
       );
     }
 
+    // Ciljevi dolaze iz `ciljevi`; `ciljTankId` ostaje u popisu jer je i dalje
+    // upisan kao glavni cilj i na starim pretocima je jedini izvor te veze.
     const sviTankoviIds = uniqueStrings([
       pretok.ciljTankId,
+      ...pretok.ciljevi.map((c) => c.tankId),
       ...pretok.izvori.map((i) => i.tankId),
     ]);
 
@@ -89,7 +93,7 @@ export async function POST(req: Request) {
         id: { not: pretok.id },
         createdAt: { gt: pretok.createdAt },
         OR: [
-          { ciljTankId: { in: sviTankoviIds } },
+          { ciljevi: { some: { tankId: { in: sviTankoviIds } } } },
           {
             izvori: {
               some: {

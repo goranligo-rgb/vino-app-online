@@ -79,6 +79,7 @@ model Tank {
   mjerenja             Mjerenje[]
   pretociKaoCilj       Pretok[]              @relation("CiljniPretoci")
   pretociKaoIzvor      PretokIzvor[]         @relation("IzvorniPretoci")
+  pretokCiljevi        PretokCilj[]          @relation("CiljniPretokCiljevi")
   pretokMjerenja       PretokMjerenje[]
   pretokSnapshoti      PretokSnapshot[]
   punjenja             PunjenjeTanka[]
@@ -174,13 +175,30 @@ model TankKomanda {
 model Pretok {
   id         String           @id @default(uuid())
   datum      DateTime         @default(now())
-  ciljTankId String
+  // GLAVNI cilj. Nullable otkad ciljevi zive u PretokCilj — ostaje dok se svi
+  // citaci ne prebace, i dalje ga se upisuje. Vise ciljeva je u `ciljevi`.
+  ciljTankId String?
   napomena   String?
   createdAt  DateTime         @default(now())
   tip        String           @default("OBICNI")
   korisnikId String?
-  ciljTank   Tank             @relation("CiljniPretoci", fields: [ciljTankId], references: [id])
+  // Koliko je UKUPNO izaslo iz izvora i koliko se od toga izgubilo (kalo).
+  // NULL na zatecenim pretocima: pojam nije postojao kad su nastali, a tocan
+  // odgovor za njih ionako daje zbroj PretokIzvor.
+  kolicinaIzlaz  Float?
+  gubitakLitara  Float?
+  // Nacin pretoka (npr. gravitacijom, pumpom). Neovisan o `tip` — tip kaze
+  // STO se radi (obicni/cuvee/blend), nacin kako se to fizicki izvelo.
+  // Slobodan opis ide u nacinNapomena, ne u nacin.
+  nacin          String?
+  nacinNapomena  String?
+  // onDelete: Restrict je EKSPLICITAN. Prismin zadani za opcijsku relaciju je
+  // SetNull, a stupac je upravo postao opcijski — bez ovoga bi migracija tiho
+  // pretvorila zatecen RESTRICT u SET NULL i brisanje tanka bi umjesto greske
+  // samo ponistilo pokazivac. Vidi DELETE /api/tank, koji na taj broj racuna.
+  ciljTank   Tank?            @relation("CiljniPretoci", fields: [ciljTankId], references: [id], onDelete: Restrict)
   korisnik   User?            @relation(fields: [korisnikId], references: [id])
+  ciljevi    PretokCilj[]
   izvori     PretokIzvor[]
   mjerenja   PretokMjerenje[]
   snapshoti  PretokSnapshot[]
@@ -189,6 +207,26 @@ model Pretok {
   @@index([createdAt])
   @@index([tip])
   @@index([korisnikId])
+}
+
+/**
+ * Ciljni tank pretoka. Zrcalo PretokIzvor-a s druge strane.
+ *
+ * Do sada je pretok imao TOCNO JEDAN cilj (`Pretok.ciljTankId`). Ova tablica
+ * to otvara za vise ciljeva, kako to filtracija vec radi preko
+ * ZadatakTankStavka. Ponasanje se ne mijenja: pretok i dalje pise jedan redak.
+ */
+model PretokCilj {
+  id         String @id @default(uuid())
+  pretokId   String
+  tankId     String
+  kolicina   Float
+  redoslijed Int    @default(0)
+  pretok     Pretok @relation(fields: [pretokId], references: [id], onDelete: Cascade)
+  tank       Tank   @relation("CiljniPretokCiljevi", fields: [tankId], references: [id])
+
+  @@index([pretokId])
+  @@index([tankId])
 }
 
 model PretokIzvor {

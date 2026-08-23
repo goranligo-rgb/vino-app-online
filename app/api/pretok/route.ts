@@ -953,6 +953,8 @@ export async function POST(req: Request) {
     const rezultat = await prisma.$transaction(async (tx) => {
       const pretok = await tx.pretok.create({
         data: {
+          // `ciljTankId` ostaje GLAVNI cilj — jos ga se pise, i dalje je jedini
+          // koji zna `Pretok.ciljTank`. Pravi popis ciljeva je `ciljevi` nize.
           ciljTankId,
           tip: tipPretoka,
           // Tko je pretocio. Zateceni pretoci ostaju NULL — vidi migraciju
@@ -971,6 +973,22 @@ export async function POST(req: Request) {
               tankId: i.tankId,
               kolicina: Number(i.kolicina),
             })),
+          },
+          // Ciljevi kao zrcalo izvora. Danas uvijek TOCNO JEDAN, isti onaj koji je
+          // u `ciljTankId` — ponasanje se ne mijenja, model je samo spreman za
+          // vise njih. `ukupnoDodano` je zbroj izvora, a za oba puta (obicni i
+          // cuvee) je to tocno ono za sto se ciljni tank uvecava.
+          //
+          // `kolicinaIzlaz` i `gubitakLitara` ostaju NULL: kalo jos nitko ne
+          // racuna, a lazna nula bi tvrdila da gubitka nije bilo.
+          ciljevi: {
+            create: [
+              {
+                tankId: ciljTankId,
+                kolicina: ukupnoDodano,
+                redoslijed: 0,
+              },
+            ],
           },
         },
         include: {

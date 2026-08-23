@@ -238,7 +238,9 @@ export async function DELETE(req: Request) {
       prisma.transfer.count({ where: { sourceTankId: tankId } }),
       prisma.zadatak.count({ where: { tankId } }),
       prisma.tankSortaUdio.count({ where: { tankId } }),
-      prisma.pretok.count({ where: { ciljTankId: tankId } }),
+      // Kroz `ciljevi`: broji i pretoke kojima je ovaj tank jedan od vise
+      // ciljeva, ne samo one kojima je glavni.
+      prisma.pretok.count({ where: { ciljevi: { some: { tankId } } } }),
       prisma.pretokIzvor.count({ where: { tankId } }),
       prisma.mixing.count({ where: { targetTankId: tankId } }),
       // Filtracije koje u ovaj tank dovode vino. ZadatakTankStavka_ciljTankId_fkey

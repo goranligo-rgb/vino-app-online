@@ -18,6 +18,21 @@ export async function GET() {
       orderBy: [{ createdAt: "desc" }, { datum: "desc" }],
       take: 12,
       include: {
+        // `ciljevi` je pravi popis; `ciljTank` ostaje dok se glavni cilj jos pise.
+        ciljevi: {
+          orderBy: { redoslijed: "asc" },
+          include: {
+            tank: {
+              select: {
+                id: true,
+                broj: true,
+                sorta: true,
+                nazivVina: true,
+                tip: true,
+              },
+            },
+          },
+        },
         ciljTank: {
           select: {
             id: true,

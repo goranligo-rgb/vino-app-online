@@ -439,6 +439,16 @@ function OdZadnjeArhive({ granica }: { granica: Date | null }) {
   );
 }
 
+/**
+ * "tank 12" ili "tankove 12, 14" — pretok od faze 4 moze imati vise ciljeva.
+ * Dok ih ima jedan, ispis je isti kao prije.
+ */
+function opisiCiljeve(ciljevi: Array<{ tank: { broj: number } }>) {
+  if (ciljevi.length === 0) return "tank —";
+  if (ciljevi.length === 1) return `tank ${ciljevi[0].tank.broj}`;
+  return `tankove ${ciljevi.map((c) => c.tank.broj).join(", ")}`;
+}
+
 /** Jedno polje berbe. Prazno se prikazuje blijedo, ne skriva se. */
 function BerbaPolje({ label, value }: { label: string; value?: string | null }) {
   const prazno = !value;
@@ -953,13 +963,19 @@ export default async function TankPregledPage({
       }),
       // Pretok se dosad nije citao ni s jedne strane.
       prisma.pretok.findMany({
-        where: { ciljTankId: id, datum: odGranice },
+        // Kroz `ciljevi`, ne kroz `ciljTankId`: pretok od faze 4 moze imati vise
+        // ciljeva. Dok ih ima tocno jedan, oba upita vracaju isti skup.
+        where: { ciljevi: { some: { tankId: id } }, datum: odGranice },
         orderBy: { datum: "desc" },
         include: { izvori: { include: { tank: { select: { broj: true } } } } },
       }),
       prisma.pretokIzvor.findMany({
         where: { tankId: id, pretok: { datum: odGranice } },
-        include: { pretok: { include: { ciljTank: { select: { broj: true } } } } },
+        include: {
+          pretok: {
+            include: { ciljevi: { include: { tank: { select: { broj: true } } } } },
+          },
+        },
       }),
       // Prijenos vina zivi na IZVORNOM tanku; ciljni ga vidi samo ovuda.
       prisma.zadatakTankStavka.findMany({
@@ -1339,11 +1355,14 @@ export default async function TankPregledPage({
       id: `pi-${i.id}`,
       vrsta: "PRETOK_IZLAZ",
       vrijeme: i.pretok.datum.toISOString(),
-      naslov: `Pretok iz ovog tanka u tank ${i.pretok.ciljTank.broj}`,
+      naslov: `Pretok iz ovog tanka u ${opisiCiljeve(i.pretok.ciljevi)}`,
       podnaslov: `Tip: ${i.pretok.tip}`,
       iznos: `−${formatBroj(i.kolicina, 0)} L`,
       detalji: [
-        { label: "U tank", value: String(i.pretok.ciljTank.broj) },
+        ...i.pretok.ciljevi.map((c) => ({
+          label: "U tank",
+          value: `${c.tank.broj} — ${formatBroj(c.kolicina)} L`,
+        })),
         { label: "Količina", value: `${formatBroj(i.kolicina)} L` },
         { label: "Tip pretoka", value: String(i.pretok.tip) },
         { label: "Napomena", value: i.pretok.napomena || "—" },
