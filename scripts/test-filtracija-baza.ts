@@ -627,6 +627,153 @@ async function main() {
     }
   );
 
+
+  // -------------------------------------------------------------------------
+  // Ova dva dokaza PRIKUCAVAJU zateceno ponasanje filtracije prije nego
+  // `izvrsiFiltraciju` prijedje na motor pretoka (faza 5d).
+  //
+  // Bez njih bi refaktor promijenio bas ono sto testovi ne gledaju: motor
+  // arhivira izvor koji padne na nulu i odbija cilj s drugim vinom, a filtracija
+  // radi suprotno u oba slucaja. Testovi bi ostali zeleni, a ponasanje bi se
+  // tiho promijenilo.
+  // -------------------------------------------------------------------------
+  await scenarij(
+    "DOKAZ 5: izvor koji padne na nulu se NE arhivira — samo gubi identitet",
+    async (tx) => {
+      const user = await napraviKorisnika(tx);
+      const izvor = await napraviTank(tx, {
+        kapacitet: 2000,
+        kolicina: 1000,
+        nazivVina: "TEST vino",
+        sorta: "Grasevina",
+        godiste: 2025,
+      });
+      const cilj = await napraviTank(tx, { kapacitet: 2000, kolicina: 0 });
+
+      await tx.tankSortaUdio.create({
+        data: { tankId: izvor.id, nazivSorte: "Grasevina", postotak: 100 },
+      });
+
+      const arhivaPrije = await tx.arhivaVina.count();
+
+      const zadatak = await napraviZadatak(tx, {
+        izvorTankId: izvor.id,
+        userId: user.id,
+        kolicinaIzlaz: 1000,
+        ciljevi: [{ tankId: cilj.id, kolicina: 1000 }],
+      });
+
+      await izvrsiFiltraciju(tx, {
+        zadatakId: zadatak.id,
+        izvrsioKorisnikId: user.id,
+      });
+
+      const izvorPoslije = await tx.tank.findUniqueOrThrow({
+        where: { id: izvor.id },
+      });
+
+      jednako(izvorPoslije.kolicinaVinaUTanku, 0, "izvor je prazan");
+      jednako(izvorPoslije.nazivVina, null, "izvor izgubio naziv vina");
+      jednako(izvorPoslije.sorta, null, "izvor izgubio sortu");
+      jednako(izvorPoslije.godiste, null, "izvor izgubio godiste");
+
+      jednako(
+        await tx.tankSortaUdio.count({ where: { tankId: izvor.id } }),
+        0,
+        "izvor izgubio sastav"
+      );
+      jednako(
+        await tx.blendIzvor.count({ where: { ciljTankId: izvor.id } }),
+        0,
+        "izvor izgubio blend"
+      );
+
+      // OVO je razlika prema motoru pretoka, koji bi ovdje arhivirao.
+      jednako(
+        await tx.arhivaVina.count(),
+        arhivaPrije,
+        "NIJE nastala arhiva — filtracija namjerno ne arhivira (F1)"
+      );
+      jednako(
+        await tx.arhivaVina.count({ where: { tankId: izvor.id } }),
+        0,
+        "izvorni tank nema nijednu arhivu"
+      );
+    }
+  );
+
+  await scenarij(
+    "DOKAZ 6: cilj s DRUGIM vinom prolazi i dobiva zadani naziv",
+    async (tx) => {
+      const user = await napraviKorisnika(tx);
+      const izvor = await napraviTank(tx, {
+        kapacitet: 2000,
+        kolicina: 1000,
+        nazivVina: "Grasevina 2025",
+        sorta: "Grasevina",
+      });
+      const cilj = await napraviTank(tx, {
+        kapacitet: 3000,
+        kolicina: 500,
+        nazivVina: "Sauvignon 2025",
+        sorta: "Sauvignon",
+      });
+
+      await tx.tankSortaUdio.create({
+        data: { tankId: izvor.id, nazivSorte: "Grasevina", postotak: 100 },
+      });
+      await tx.tankSortaUdio.create({
+        data: { tankId: cilj.id, nazivSorte: "Sauvignon", postotak: 100 },
+      });
+
+      const zadatak = await napraviZadatak(tx, {
+        izvorTankId: izvor.id,
+        userId: user.id,
+        kolicinaIzlaz: 500,
+        ciljevi: [{ tankId: cilj.id, kolicina: 500 }],
+      });
+
+      // Filtracija NE odbija drugo vino — pita za naziv i nastavlja.
+      const rezultat = await izvrsiFiltraciju(tx, {
+        zadatakId: zadatak.id,
+        izvrsioKorisnikId: user.id,
+        naziviVina: { [cilj.id]: "TEST mjesavina" },
+      });
+
+      jednako(rezultat.ciljevi.length, 1, "jedan cilj u rezultatu");
+      jednako(
+        rezultat.ciljevi[0].biloDrugoVino,
+        true,
+        "rezultat javlja da je u cilju bilo drugo vino"
+      );
+      jednako(
+        rezultat.ciljevi[0].noviNazivVina,
+        "TEST mjesavina",
+        "rezultat nosi zadani novi naziv"
+      );
+
+      const ciljPoslije = await tx.tank.findUniqueOrThrow({
+        where: { id: cilj.id },
+        include: { udjeliSorti: true },
+      });
+
+      jednako(ciljPoslije.kolicinaVinaUTanku, 1000, "cilj ima 1000 L");
+      jednako(ciljPoslije.nazivVina, "TEST mjesavina", "cilj je preimenovan");
+      jednako(
+        ciljPoslije.udjeliSorti.length,
+        2,
+        "sastav cilja ima obje sorte"
+      );
+      jednako(
+        Number(
+          ciljPoslije.udjeliSorti.reduce((z, u) => z + Number(u.postotak), 0).toFixed(2)
+        ),
+        100,
+        "sastav zbraja 100,00"
+      );
+    }
+  );
+
   console.log("");
   console.log(`proslo: ${proslo}, palo: ${pao}`);
   console.log(
