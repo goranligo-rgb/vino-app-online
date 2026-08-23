@@ -11,7 +11,8 @@
     "test:vrste": "tsx scripts/test-vrste-prijenosa.ts",
     "postinstall": "prisma generate",
     "test:ponderirano": "tsx scripts/test-ponderirano.ts",
-    "test:filtracija:baza": "tsx scripts/test-filtracija-baza.ts"
+    "test:filtracija:baza": "tsx scripts/test-filtracija-baza.ts",
+    "test:berba": "tsx scripts/test-berba-polja.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -2,6 +2,12 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { citajSesiju } from "@/lib/auth-sesija";
+
+// Tko smije UPISATI punjenje. Isti popis koji proxy.ts pusta na stranicu
+// /punjenje — proxy stiti samo stranice, pa svaka ruta mora sama provjeriti
+// rolu. GET se namjerno NE zakljucava: cita ga i /berba.
+const ROLE_UPIS_PUNJENJA = ["ADMIN", "PODRUM"] as const;
 
 function ocistiString(v: unknown): string | null {
   if (v === null || v === undefined) return null;
@@ -80,13 +86,33 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    // Korisnik se cita SA SERVERA, ne iz body-ja. Kolacic je potpisan i
+    // httpOnly pa ga klijent ne vidi, a `korisnikId` poslan s klijenta bio bi
+    // krivotvorljiv. Isti obrazac kao app/api/izlaz-vina/route.ts:290.
+    //
+    // Prije ovoga ruta nije trazila prijavu uopce, pa `korisnikId` nikad nije
+    // stigao — zbog cega punjenje NIJE ostavljalo `Radnja` (vidi :436).
+    const user = await citajSesiju();
+
+    if (!user?.id) {
+      return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+    }
+
+    if (!ROLE_UPIS_PUNJENJA.includes(user.role as (typeof ROLE_UPIS_PUNJENJA)[number])) {
+      return NextResponse.json(
+        { error: "Nemate pravo upisa punjenja." },
+        { status: 403 }
+      );
+    }
+
+    const korisnikId = user.id;
+
     const body = await req.json();
 
     const tankId = ocistiString(body.tankId);
     const nazivVina = ocistiString(body.nazivVina);
     const napomena = ocistiString(body.napomena);
     const opis = ocistiString(body.opis);
-    const korisnikId = ocistiString(body.korisnikId);
 
     const datumPunjenja = datumIliNull(body.datumPunjenja) ?? new Date();
     const stavke = Array.isArray(body.stavke) ? body.stavke : [];
@@ -433,19 +459,23 @@ export async function POST(req: Request) {
         });
       }
 
-      if (korisnikId) {
-        await tx.radnja.create({
-          data: {
-            tankId,
-            korisnikId,
-            vrsta: "PUNJENJE",
-            opis: nazivVina
-              ? `Punjenje tanka - ${nazivVina}`
-              : "Punjenje tanka",
-            napomena: napomena ?? opis ?? null,
-          },
-        });
-      }
+      // Punjenje MORA ostaviti trag u radnjama. Uvjet `if (korisnikId)` koji
+      // je ovdje stajao nikad nije bio ispunjen — forma korisnika nije slala,
+      // pa nijedno punjenje nije imalo svoju radnju. Sad je korisnik zajamcen
+      // (401 gore), pa uvjet vise ne postoji.
+      await tx.radnja.create({
+        data: {
+          tankId,
+          korisnikId,
+          vrsta: "PUNJENJE",
+          opis: nazivVina
+            ? `Punjenje tanka - ${nazivVina}`
+            : "Punjenje tanka",
+          napomena: napomena ?? opis ?? null,
+          // Trag bez litara je slab trag; zapisnik radova (faza 1) ovo cita.
+          kolicina: ukupnoLitara,
+        },
+      });
 
       return created;
     });

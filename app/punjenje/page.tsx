@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  tekstIliNull,
+  brojIliNull,
+  datumIliNull,
+  danasZaDateInput,
+  godinaIzDatuma,
+} from "@/lib/berba-polja";
 
 type Tank = {
   id: string;
@@ -25,7 +32,23 @@ type StavkaPunjenja = {
   opis: string;
   kolicinaKgGrozdja: string;
   kolicinaLitara: string;
+  // --- Berba: sve neobavezno, prazno ide u bazu kao NULL (lib/berba-polja) ---
+  parcela: string;
+  vinograd: string;
+  oznakaBerbe: string;
+  datumBerbe: string;
+  godinaBerbe: string;
+  secer: string;
+  kiseline: string;
+  ph: string;
+  napomenaBerbe: string;
+  // Samo za UI, NIKAD se ne salje: je li korisnik sam dirao godinu berbe.
+  // Dok je false, promjena datuma berbe povlaci godinu za sobom.
+  godinaRucno: boolean;
 };
+
+// Polja stavke koja su obicni tekstualni inputi — sva idu kroz istu izmjenu.
+type TekstualnoPoljeStavke = Exclude<keyof StavkaPunjenja, "godinaRucno">;
 
 type ZadnjePunjenje = {
   id: string;
@@ -74,6 +97,10 @@ const SORTE_HR: Sorta[] = [
   { id: "portugizac", naziv: "Portugizac" },
 ];
 
+// Datum i godina berbe se predpopunjavaju u trenutku stvaranja stavke — vrijedi
+// za prvu stavku, svaki "+ Dodaj stavku" i reset nakon spremanja. U berbi je to
+// tocno u velikoj vecini slucajeva, a korisnik moze prepisati ili isprazniti;
+// isprazneno polje OSTAJE prazno i sprema se kao NULL.
 const praznaStavka = (): StavkaPunjenja => ({
   sortaId: "",
   nazivSorte: "",
@@ -81,6 +108,16 @@ const praznaStavka = (): StavkaPunjenja => ({
   opis: "",
   kolicinaKgGrozdja: "",
   kolicinaLitara: "",
+  parcela: "",
+  vinograd: "",
+  oznakaBerbe: "",
+  datumBerbe: danasZaDateInput(),
+  godinaBerbe: String(new Date().getFullYear()),
+  secer: "",
+  kiseline: "",
+  ph: "",
+  napomenaBerbe: "",
+  godinaRucno: false,
 });
 
 function parseBroj(vrijednost: string | number | null | undefined) {
@@ -190,12 +227,45 @@ export default function PunjenjePage() {
 
   function promijeniStavku(
     index: number,
-    field: keyof StavkaPunjenja,
+    field: TekstualnoPoljeStavke,
     value: string
   ) {
     setStavke((prev) =>
       prev.map((stavka, i) =>
         i === index ? { ...stavka, [field]: value } : stavka
+      )
+    );
+  }
+
+  /**
+   * Datum berbe povlaci godinu berbe za sobom — ali samo dok korisnik godinu
+   * nije sam dirao. Bez toga bi upis datuma 05.10.2025 ostavio godinu 2026 iz
+   * predpopune, pa bi zapis sam sebi proturjecio.
+   */
+  function promijeniDatumBerbe(index: number, value: string) {
+    setStavke((prev) =>
+      prev.map((stavka, i) => {
+        if (i !== index) return stavka;
+
+        const godinaIzNovog = godinaIzDatuma(value);
+
+        return {
+          ...stavka,
+          datumBerbe: value,
+          godinaBerbe:
+            stavka.godinaRucno || godinaIzNovog === null
+              ? stavka.godinaBerbe
+              : String(godinaIzNovog),
+        };
+      })
+    );
+  }
+
+  /** Cim korisnik upise godinu rukom, datum je vise ne prepisuje. */
+  function promijeniGodinuBerbe(index: number, value: string) {
+    setStavke((prev) =>
+      prev.map((stavka, i) =>
+        i === index ? { ...stavka, godinaBerbe: value, godinaRucno: true } : stavka
       )
     );
   }
@@ -294,6 +364,16 @@ export default function PunjenjePage() {
   const slobodnoNakonPunjenja = Math.max(kapacitetTanka - stanjeNakonPunjenja, 0);
   const prelaziKapacitet = !!odabraniTank && stanjeNakonPunjenja > kapacitetTanka;
 
+  // Grid polja unutar skupine u kartici stavke. Ovisi o isMobile pa ne moze
+  // biti modulska konstanta kao ostali stilovi.
+  const poljaGrid: React.CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: isMobile
+      ? "1fr"
+      : "repeat(auto-fit, minmax(170px, 1fr))",
+    gap: 12,
+  };
+
   const pregledPostotaka = useMemo(() => {
     const validne = stavke
       .map((s) => {
@@ -335,17 +415,27 @@ export default function PunjenjePage() {
       return;
     }
 
+    // Svako neobavezno polje prolazi kroz lib/berba-polja: prazno -> null,
+    // NIKAD 0 ni "". Zatecen `parseBroj("")` vraca 0, sto bi za secer, kiseline
+    // i pH znacilo "izmjereno 0" umjesto "nije se mjerilo" — i to bi zatim
+    // ulazilo u prosjeke izvjestaja o berbi. Pokriveno s npm run test:berba.
     const cisteStavke = stavke
       .map((s) => ({
         sortaId: null,
         nazivSorte: s.nazivSorte.trim(),
-        polozaj: s.polozaj.trim(),
-        opis: s.opis.trim(),
-        kolicinaKgGrozdja:
-          s.kolicinaKgGrozdja.trim() === ""
-            ? null
-            : parseBroj(s.kolicinaKgGrozdja),
+        polozaj: tekstIliNull(s.polozaj),
+        opis: tekstIliNull(s.opis),
+        kolicinaKgGrozdja: brojIliNull(s.kolicinaKgGrozdja),
         kolicinaLitara: parseBroj(s.kolicinaLitara),
+        parcela: tekstIliNull(s.parcela),
+        vinograd: tekstIliNull(s.vinograd),
+        oznakaBerbe: tekstIliNull(s.oznakaBerbe),
+        datumBerbe: datumIliNull(s.datumBerbe),
+        godinaBerbe: brojIliNull(s.godinaBerbe),
+        secer: brojIliNull(s.secer),
+        kiseline: brojIliNull(s.kiseline),
+        ph: brojIliNull(s.ph),
+        napomenaBerbe: tekstIliNull(s.napomenaBerbe),
       }))
       .filter((s) => s.nazivSorte !== "" || s.kolicinaLitara > 0);
 
@@ -364,7 +454,11 @@ export default function PunjenjePage() {
     );
 
     if (imaNeispravnih) {
-      setPoruka("Provjeri sortu, položaj, litre i opcionalno kg grožđa.");
+      // Ranija poruka je spominjala položaj, koji se NE validira — sve osim
+      // sorte i litara je neobavezno i prazno se sprema kao NULL.
+      setPoruka(
+        "Provjeri sortu i litre mošta — samo su oni obavezni. Kg grožđa, ako je upisan, ne smije biti negativan."
+      );
       return;
     }
 
@@ -565,6 +659,16 @@ export default function PunjenjePage() {
                       style={inputStyle}
                       disabled={saving}
                     />
+                    {/* Zatecen pomak: "2026-08-21T12:53" je datum-vrijeme bez
+                        zone, pa ga server (UTC) parsira kao svoje lokalno
+                        vrijeme. Datum berbe je <input type="date"> i NIJE
+                        pogodjen — takav se oblik parsira kao UTC ponoc, pa u
+                        Hrvatskoj ostaje isti dan. Popravak ide u fazu 5. */}
+                    <span style={upozorenjeVrijemeStyle}>
+                      Vrijeme se trenutno sprema 2 h unaprijed (upišeš 12:53,
+                      prikazuje se 14:53). Datum je točan. Datum berbe dolje
+                      nije pogođen.
+                    </span>
                   </label>
                 </div>
 
@@ -618,17 +722,13 @@ export default function PunjenjePage() {
                           </div>
                         </div>
 
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: isMobile
-                              ? "1fr"
-                              : "repeat(auto-fit, minmax(170px, 1fr))",
-                            gap: 12,
-                          }}
-                        >
+                        {/* --- GROŽĐE: jedino obavezno --- */}
+                        <div style={grupaNaslovStyle}>Grožđe</div>
+                        <div style={poljaGrid}>
                           <label style={labelStyle}>
-                            <span style={labelMini}>Sorta</span>
+                            <span style={labelMini}>
+                              Sorta <span style={obaveznoStyle}>*</span>
+                            </span>
                             <select
                               value={stavka.sortaId}
                               onChange={(e) =>
@@ -648,30 +748,23 @@ export default function PunjenjePage() {
                           </label>
 
                           <label style={labelStyle}>
-                            <span style={labelMini}>Položaj / parcela</span>
+                            <span style={labelMini}>
+                              Litara mošta <span style={obaveznoStyle}>*</span>
+                            </span>
                             <input
-                              value={stavka.polozaj}
+                              value={stavka.kolicinaLitara}
                               onChange={(e) =>
-                                promijeniStavku(index, "polozaj", e.target.value)
+                                promijeniStavku(
+                                  index,
+                                  "kolicinaLitara",
+                                  e.target.value
+                                )
                               }
                               onKeyDown={handleEnterMoveNext}
-                              placeholder="npr. Lukovec 2"
+                              placeholder="npr. 1900"
                               style={inputStyle}
                               disabled={saving}
-                            />
-                          </label>
-
-                          <label style={labelStyle}>
-                            <span style={labelMini}>Opis kvalitete / bilješka</span>
-                            <input
-                              value={stavka.opis}
-                              onChange={(e) =>
-                                promijeniStavku(index, "opis", e.target.value)
-                              }
-                              onKeyDown={handleEnterMoveNext}
-                              placeholder="npr. zdravo grožđe, odličan šećer"
-                              style={inputStyle}
-                              disabled={saving}
+                              inputMode="decimal"
                             />
                           </label>
 
@@ -693,23 +786,184 @@ export default function PunjenjePage() {
                               inputMode="decimal"
                             />
                           </label>
+                        </div>
+
+                        {/* --- PODRIJETLO --- */}
+                        <div style={grupaNaslovStyle}>Podrijetlo</div>
+                        <div style={poljaGrid}>
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Vinograd</span>
+                            <input
+                              value={stavka.vinograd}
+                              onChange={(e) =>
+                                promijeniStavku(index, "vinograd", e.target.value)
+                              }
+                              onKeyDown={handleEnterMoveNext}
+                              placeholder="npr. Lukovec"
+                              style={inputStyle}
+                              disabled={saving}
+                            />
+                          </label>
 
                           <label style={labelStyle}>
-                            <span style={labelMini}>Litara mošta</span>
+                            <span style={labelMini}>Parcela</span>
                             <input
-                              value={stavka.kolicinaLitara}
+                              value={stavka.parcela}
+                              onChange={(e) =>
+                                promijeniStavku(index, "parcela", e.target.value)
+                              }
+                              onKeyDown={handleEnterMoveNext}
+                              placeholder="npr. 1274/3"
+                              style={inputStyle}
+                              disabled={saving}
+                            />
+                          </label>
+
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Položaj</span>
+                            <input
+                              value={stavka.polozaj}
+                              onChange={(e) =>
+                                promijeniStavku(index, "polozaj", e.target.value)
+                              }
+                              onKeyDown={handleEnterMoveNext}
+                              placeholder="npr. Lukovec (stari)"
+                              style={inputStyle}
+                              disabled={saving}
+                            />
+                          </label>
+
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Oznaka berbe</span>
+                            <input
+                              value={stavka.oznakaBerbe}
                               onChange={(e) =>
                                 promijeniStavku(
                                   index,
-                                  "kolicinaLitara",
+                                  "oznakaBerbe",
                                   e.target.value
                                 )
                               }
                               onKeyDown={handleEnterMoveNext}
-                              placeholder="npr. 1900"
+                              placeholder="npr. B-2026-014"
+                              style={inputStyle}
+                              disabled={saving}
+                            />
+                          </label>
+                        </div>
+
+                        {/* --- BERBA --- */}
+                        <div style={grupaNaslovStyle}>Berba</div>
+                        <div style={poljaGrid}>
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Datum berbe</span>
+                            <input
+                              type="date"
+                              value={stavka.datumBerbe}
+                              onChange={(e) =>
+                                promijeniDatumBerbe(index, e.target.value)
+                              }
+                              onKeyDown={handleEnterMoveNext}
+                              style={inputStyle}
+                              disabled={saving}
+                            />
+                          </label>
+
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Godina berbe</span>
+                            <input
+                              value={stavka.godinaBerbe}
+                              onChange={(e) =>
+                                promijeniGodinuBerbe(index, e.target.value)
+                              }
+                              onKeyDown={handleEnterMoveNext}
+                              placeholder="npr. 2026"
+                              style={inputStyle}
+                              disabled={saving}
+                              inputMode="numeric"
+                            />
+                          </label>
+
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Opis kvalitete</span>
+                            <input
+                              value={stavka.opis}
+                              onChange={(e) =>
+                                promijeniStavku(index, "opis", e.target.value)
+                              }
+                              onKeyDown={handleEnterMoveNext}
+                              placeholder="npr. zdravo grožđe"
+                              style={inputStyle}
+                              disabled={saving}
+                            />
+                          </label>
+                        </div>
+
+                        {/* --- PARAMETRI MOŠTA --- */}
+                        <div style={grupaNaslovStyle}>Parametri mošta</div>
+                        <div style={poljaGrid}>
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Šećer</span>
+                            <input
+                              value={stavka.secer}
+                              onChange={(e) =>
+                                promijeniStavku(index, "secer", e.target.value)
+                              }
+                              onKeyDown={handleEnterMoveNext}
+                              placeholder="npr. 90"
                               style={inputStyle}
                               disabled={saving}
                               inputMode="decimal"
+                            />
+                          </label>
+
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Kiseline</span>
+                            <input
+                              value={stavka.kiseline}
+                              onChange={(e) =>
+                                promijeniStavku(index, "kiseline", e.target.value)
+                              }
+                              onKeyDown={handleEnterMoveNext}
+                              placeholder="npr. 5,6"
+                              style={inputStyle}
+                              disabled={saving}
+                              inputMode="decimal"
+                            />
+                          </label>
+
+                          <label style={labelStyle}>
+                            <span style={labelMini}>pH</span>
+                            <input
+                              value={stavka.ph}
+                              onChange={(e) =>
+                                promijeniStavku(index, "ph", e.target.value)
+                              }
+                              onKeyDown={handleEnterMoveNext}
+                              placeholder="npr. 3,4"
+                              style={inputStyle}
+                              disabled={saving}
+                              inputMode="decimal"
+                            />
+                          </label>
+                        </div>
+
+                        <div style={{ marginTop: 12 }}>
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Napomena berbe</span>
+                            <input
+                              value={stavka.napomenaBerbe}
+                              onChange={(e) =>
+                                promijeniStavku(
+                                  index,
+                                  "napomenaBerbe",
+                                  e.target.value
+                                )
+                              }
+                              onKeyDown={handleEnterMoveNext}
+                              placeholder="npr. brano ručno, kiša dan prije"
+                              style={inputStyle}
+                              disabled={saving}
                             />
                           </label>
                         </div>
@@ -1141,6 +1395,32 @@ const stavkaUdioStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 600,
   color: "#8a6470",
+};
+
+// Podnaslov skupine polja u kartici stavke (Grožđe / Podrijetlo / Berba /
+// Parametri mošta). Skupine se NE sklapaju: skrivena neobavezna polja su
+// upravo razlog zašto su podaci o berbi dosad ostajali prazni.
+const grupaNaslovStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "#a07c88",
+  borderBottom: "1px solid #f2e3e6",
+  paddingBottom: 4,
+  margin: "16px 0 10px 0",
+};
+
+const obaveznoStyle: React.CSSProperties = {
+  color: "#b91c1c",
+  fontWeight: 700,
+};
+
+// Privremeno — mice se kad faza 5 rijesi vremensku zonu.
+const upozorenjeVrijemeStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#8a6470",
+  lineHeight: 1.4,
 };
 
 const stavkaButtonsRow: React.CSSProperties = {
