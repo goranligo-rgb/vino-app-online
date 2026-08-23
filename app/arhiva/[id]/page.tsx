@@ -336,6 +336,14 @@ export default async function ArhivaDetaljPage({
       dokumenti: {
         orderBy: [{ datumDokumenta: "desc" }, { createdAt: "desc" }],
       },
+      punjenja: {
+        orderBy: { datumPunjenja: "desc" },
+        include: {
+          stavke: {
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      },
     },
   });
 
@@ -382,8 +390,20 @@ export default async function ArhivaDetaljPage({
     ? Number(matchProdaja[1].replace(",", "."))
     : null;
 
-  const punjenja: any[] = [];
-  const zadnjePunjenje = null;
+  // Punjenja dolaze iz arhive, ne iz tanka: tank je odavno ispraznjen i
+  // ponovno napunjen drugim vinom. Ovo je jedini preostali zapis berbe ovog
+  // vina — parcela, vinograd, oznaka berbe, kilogrami grozdja i secer/kiseline/
+  // pH u trenutku berbe.
+  const punjenja = arhiva.punjenja;
+
+  const ukupnoLitaraPunjenja = punjenja.reduce(
+    (zbroj, p) => zbroj + Number(p.ukupnoLitara ?? 0),
+    0
+  );
+  const ukupnoKgGrozdja = punjenja.reduce(
+    (zbroj, p) => zbroj + Number(p.ukupnoKgGrozdja ?? 0),
+    0
+  );
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f6f3f1_0%,#f9f3f4_45%,#fdf7f8_100%)] px-4 py-4 text-stone-800 [font-family:Calibri,Segoe_UI,Arial,sans-serif] md:px-6">
@@ -533,9 +553,160 @@ export default async function ArhivaDetaljPage({
           ) : null}
         </Card>
 
-        <div className="mb-4 border border-dashed border-rose-200 bg-white px-4 py-4 text-[13px] text-stone-600">
-          Detalji punjenja privremeno su skriveni dok se nova arhivska tablica ne
-          sinkronizira s bazom.
+        <div className="mb-4">
+          <Card
+            title="Punjenja i berba"
+            right={
+              <div className="flex flex-wrap gap-2">
+                <Oznaka>{`Punjenja: ${punjenja.length}`}</Oznaka>
+                {ukupnoLitaraPunjenja > 0 ? (
+                  <Oznaka variant="strong">{`Ukupno ${formatBroj(
+                    ukupnoLitaraPunjenja,
+                    0
+                  )} L`}</Oznaka>
+                ) : null}
+                {ukupnoKgGrozdja > 0 ? (
+                  <Oznaka variant="soft">{`Grožđe ${formatBroj(
+                    ukupnoKgGrozdja,
+                    0
+                  )} kg`}</Oznaka>
+                ) : null}
+              </div>
+            }
+          >
+            {punjenja.length === 0 ? (
+              <div className="border border-dashed border-rose-200 bg-white px-4 py-10 text-center text-[13px] text-stone-500">
+                Nema zapisa punjenja za ovo vino.
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {punjenja.map((p) => (
+                  <div key={p.id} className="border border-rose-200 bg-white">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rose-100 bg-rose-50/50 px-4 py-3">
+                      <div>
+                        <div className="text-[15px] font-semibold text-stone-800">
+                          {p.nazivVina ?? "Punjenje"}
+                        </div>
+                        <div className="mt-1 text-[12px] text-stone-500">
+                          {formatDatumSamoDan(p.datumPunjenja)}
+                          {p.opis ? ` · ${p.opis}` : ""}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Oznaka variant="strong">{`${formatBroj(
+                          p.ukupnoLitara,
+                          0
+                        )} L`}</Oznaka>
+                        {Number(p.ukupnoKgGrozdja ?? 0) > 0 ? (
+                          <Oznaka variant="soft">{`${formatBroj(
+                            p.ukupnoKgGrozdja,
+                            0
+                          )} kg grožđa`}</Oznaka>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {p.napomena ? (
+                      <div className="border-b border-rose-100 px-4 py-3 text-[13px] leading-6 whitespace-pre-wrap text-stone-700">
+                        {p.napomena}
+                      </div>
+                    ) : null}
+
+                    {p.stavke.length === 0 ? (
+                      <div className="px-4 py-6 text-center text-[13px] text-stone-500">
+                        Punjenje nema pojedinačnih stavki berbe.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[900px] border-collapse text-[13px]">
+                          <thead>
+                            <tr className="bg-stone-50 text-left text-[11px] uppercase tracking-[0.1em] text-stone-500">
+                              <th className="border-b border-rose-100 px-3 py-2">Sorta</th>
+                              <th className="border-b border-rose-100 px-3 py-2">Litara</th>
+                              <th className="border-b border-rose-100 px-3 py-2">Kg grožđa</th>
+                              <th className="border-b border-rose-100 px-3 py-2">Berba</th>
+                              <th className="border-b border-rose-100 px-3 py-2">Oznaka</th>
+                              <th className="border-b border-rose-100 px-3 py-2">Vinograd / parcela</th>
+                              <th className="border-b border-rose-100 px-3 py-2">Šećer</th>
+                              <th className="border-b border-rose-100 px-3 py-2">Kiseline</th>
+                              <th className="border-b border-rose-100 px-3 py-2">pH</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {p.stavke.map((s, index) => (
+                              <tr
+                                key={s.id}
+                                className={index % 2 === 0 ? "bg-white" : "bg-rose-50/30"}
+                              >
+                                <td className="border-b border-rose-100 px-3 py-2 font-medium text-stone-800">
+                                  {s.nazivSorte}
+                                  {s.opis ? (
+                                    <div className="text-[11px] font-normal text-stone-500">
+                                      {s.opis}
+                                    </div>
+                                  ) : null}
+                                </td>
+                                <td className="border-b border-rose-100 px-3 py-2">
+                                  {formatBroj(s.kolicinaLitara, 0)}
+                                </td>
+                                <td className="border-b border-rose-100 px-3 py-2">
+                                  {s.kolicinaKgGrozdja == null
+                                    ? "-"
+                                    : formatBroj(s.kolicinaKgGrozdja, 0)}
+                                </td>
+                                <td className="border-b border-rose-100 px-3 py-2">
+                                  {s.datumBerbe
+                                    ? formatDatumSamoDan(s.datumBerbe)
+                                    : s.godinaBerbe
+                                      ? String(s.godinaBerbe)
+                                      : "-"}
+                                </td>
+                                <td className="border-b border-rose-100 px-3 py-2">
+                                  {s.oznakaBerbe ?? "-"}
+                                </td>
+                                <td className="border-b border-rose-100 px-3 py-2">
+                                  {[s.vinograd, s.parcela, s.polozaj]
+                                    .filter(Boolean)
+                                    .join(" · ") || "-"}
+                                </td>
+                                <td className="border-b border-rose-100 px-3 py-2">
+                                  {s.secer == null ? "-" : formatBroj(s.secer)}
+                                </td>
+                                <td className="border-b border-rose-100 px-3 py-2">
+                                  {s.kiseline == null ? "-" : formatBroj(s.kiseline)}
+                                </td>
+                                <td className="border-b border-rose-100 px-3 py-2">
+                                  {s.ph == null ? "-" : formatBroj(s.ph)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {p.stavke.some((s) => s.napomenaBerbe) ? (
+                      <div className="border-t border-rose-100 px-4 py-3">
+                        {p.stavke
+                          .filter((s) => s.napomenaBerbe)
+                          .map((s) => (
+                            <div
+                              key={`${s.id}-napomena`}
+                              className="text-[12px] leading-5 text-stone-600"
+                            >
+                              <span className="font-medium text-stone-700">
+                                {s.nazivSorte}:
+                              </span>{" "}
+                              {s.napomenaBerbe}
+                            </div>
+                          ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
         </div>
 
         <div className="grid gap-4">

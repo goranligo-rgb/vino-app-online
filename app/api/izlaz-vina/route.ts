@@ -52,7 +52,9 @@ function prikaziImeKorisnika(
   return korisnik.ime ?? korisnik.username ?? korisnik.email ?? null;
 }
 
-async function arhivirajPrazanTank(
+// Izvezeno zbog scripts/test-arhiviranje-baza.ts — vidi istu biljesku u
+// app/api/pretok/route.ts.
+export async function arhivirajPrazanTank(
   tx: any,
   tankId: string,
   napomenaArhive: string,
@@ -75,6 +77,17 @@ async function arhivirajPrazanTank(
       },
       mjerenja: {
         orderBy: { izmjerenoAt: "desc" },
+      },
+      radnje: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          korisnik: true,
+          preparat: true,
+          jedinica: true,
+        },
+      },
+      izlaziVina: {
+        orderBy: { datum: "asc" },
       },
       zadaci: {
         orderBy: { zadanoAt: "desc" },
@@ -252,6 +265,58 @@ async function arhivirajPrazanTank(
     });
   }
 
+  // RADNJE I IZLAZI U ARHIVU — SAMO KOPIJA, ORIGINALI OSTAJU.
+  //
+  // Isti blok kao u `arhivirajPotroseniTank` (app/api/pretok/route.ts). Dvije
+  // kopije arhiviranja trebalo bi spojiti u jednu funkciju, ali ne usred
+  // sezone — do tada svaka izmjena ide u OBJE, inače se raziđu (upravo se to
+  // dogodilo s punjenjima: ovdje su se pisala, ondje nisu).
+  //
+  // Ne briše se ništa. `ArhivaVina` se pri poništavanju ne vraća, pa bi
+  // brisanje originala bio tihi gubitak.
+  //
+  // Izlaz koji je upravo napravljen i njegova radnja već postoje u bazi (oba se
+  // upisuju prije poziva ove funkcije), pa oboje ulazi u arhivu — završni izlaz
+  // pripada baš tom vinu.
+  if (tank.radnje.length > 0) {
+    await tx.arhivaVinaRadnja.createMany({
+      data: tank.radnje.map((r: any) => ({
+        arhivaVinaId: arhiva.id,
+        izvornaRadnjaId: r.id,
+        izvorniZadatakId: r.zadatakId,
+        tankId: tank.id,
+        vrsta: r.vrsta,
+        opis: r.opis,
+        napomena: r.napomena,
+        preparatId: r.preparatId,
+        preparatNaziv: r.preparat?.naziv ?? null,
+        jedinicaId: r.jedinicaId,
+        jedinicaNaziv: r.jedinica?.naziv ?? null,
+        kolicina: r.kolicina,
+        korisnikId: r.korisnikId,
+        korisnikIme: prikaziImeKorisnika(r.korisnik),
+        createdAt: r.createdAt,
+      })),
+    });
+  }
+
+  if (tank.izlaziVina.length > 0) {
+    await tx.arhivaVinaIzlaz.createMany({
+      data: tank.izlaziVina.map((i: any) => ({
+        arhivaVinaId: arhiva.id,
+        izvorniIzlazId: i.id,
+        tankId: tank.id,
+        tip: i.tip,
+        datum: i.datum,
+        kolicinaLitara: i.kolicinaLitara,
+        brojBoca: i.brojBoca,
+        volumenBoce: i.volumenBoce,
+        napomena: i.napomena,
+        createdAt: i.createdAt,
+      })),
+    });
+  }
+
   await tx.document.deleteMany({ where: { tankId } });
   await tx.tankSortaUdio.deleteMany({ where: { tankId } });
   await tx.mjerenje.deleteMany({ where: { tankId } });
@@ -269,7 +334,8 @@ async function arhivirajPrazanTank(
 
   await tx.punjenjeTanka.deleteMany({ where: { tankId } });
 
-  await tx.izlazVina.deleteMany({ where: { tankId } });
+  // `izlazVina.deleteMany` je maknut — vidi isto obrazloženje u
+  // app/api/pretok/route.ts. Izlazi sada idu u arhivu, originali ostaju.
 
   await tx.tank.update({
     where: { id: tankId },

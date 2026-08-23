@@ -678,6 +678,8 @@ model ArhivaVina {
   mjerenja       ArhivaVinaMjerenje[]
   udjeliSorti    ArhivaVinaUdioSorte[]
   zadaci         ArhivaVinaZadatak[]
+  radnje         ArhivaVinaRadnja[]
+  izlazi         ArhivaVinaIzlaz[]
   blendIzvori    BlendIzvor[]
 
   @@index([tankId])
@@ -789,6 +791,50 @@ model BlendIzvor {
   @@index([ciljTankId])
   @@index([izvorTankId])
   @@index([izvorArhivaVinaId])
+}
+
+model ArhivaVinaRadnja {
+  id               String      @id @default(uuid())
+  arhivaVinaId     String
+  izvornaRadnjaId  String?
+  izvorniZadatakId String?
+  tankId           String?
+  vrsta            VrstaRadnje
+  opis             String?
+  napomena         String?
+  preparatId       String?
+  preparatNaziv    String?
+  jedinicaId       String?
+  jedinicaNaziv    String?
+  kolicina         Float?
+  korisnikId       String?
+  korisnikIme      String?
+  createdAt        DateTime
+  arhiviranoAt     DateTime    @default(now())
+  arhivaVina       ArhivaVina  @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
+
+  @@index([arhivaVinaId])
+  @@index([izvornaRadnjaId])
+  @@index([izvorniZadatakId])
+}
+
+model ArhivaVinaIzlaz {
+  id             String        @id @default(uuid())
+  arhivaVinaId   String
+  izvorniIzlazId String?       @db.Uuid
+  tankId         String?
+  tip            TipIzlazaVina
+  datum          DateTime      @db.Timestamptz(6)
+  kolicinaLitara Float
+  brojBoca       Int?
+  volumenBoce    Float?
+  napomena       String?
+  createdAt      DateTime      @db.Timestamptz(6)
+  arhiviranoAt   DateTime      @default(now()) @db.Timestamptz(6)
+  arhivaVina     ArhivaVina    @relation(fields: [arhivaVinaId], references: [id], onDelete: Cascade)
+
+  @@index([arhivaVinaId])
+  @@index([izvorniIzlazId])
 }
 
 model ArhivaVinaDokument {

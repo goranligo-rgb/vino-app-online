@@ -295,7 +295,10 @@ async function spremiSnapshotTanka(
   return snapshot;
 }
 
-async function arhivirajPotroseniTank(
+// Izvezeno zbog scripts/test-arhiviranje-baza.ts. Next dopusta i izvoze koji
+// nisu HTTP metode (`dynamic` i `maxDuration` su vec takvi) — provjera rute
+// trazi da su GET/POST/... odgovarajuceg oblika, a ne da drugih izvoza nema.
+export async function arhivirajPotroseniTank(
   tx: Prisma.TransactionClient,
   tank: {
     id: string;
@@ -354,6 +357,29 @@ async function arhivirajPotroseniTank(
         orderBy: { datumPunjenja: "asc" },
       }),
     ]);
+
+  // Radnje i izlazi se dohvaćaju REDOM, ne u gornji Promise.all.
+  //
+  // Gornji `Promise.all` šalje pet upita istovremeno preko jedne veze
+  // transakcije. `pg` to prijavljuje kao DeprecationWarning ("Calling
+  // client.query() when the client is already executing a query") i najavljuje
+  // da u pg@9 prestaje raditi. To je zatečeno ponašanje i ne dira se ovdje —
+  // ali se NE širi: dva nova upita idu redom, pa izmjena ne dodaje ništa
+  // onome što će se ionako morati prepisati.
+  const radnje = await tx.radnja.findMany({
+    where: { tankId: tank.id },
+    include: {
+      korisnik: { select: { ime: true, email: true } },
+      preparat: { select: { naziv: true } },
+      jedinica: { select: { naziv: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const izlazi = await tx.izlazVina.findMany({
+    where: { tankId: tank.id },
+    orderBy: { datum: "asc" },
+  });
 
   const arhiva = await tx.arhivaVina.create({
     data: {
@@ -471,11 +497,116 @@ async function arhivirajPotroseniTank(
     });
   }
 
+  // PUNJENJA U ARHIVU.
+  //
+  // Ovo je bio zatecen gubitak podataka, ne propust u prikazu: punjenja su se
+  // dohvacala gore (`punjenja` u istom Promise.all) i nikad upisivala, a
+  // originali su se nize brisali. Svaki pretok koji je ispraznio tank trajno je
+  // unistio zapis berbe — parcelu, vinograd, oznaku berbe, kilograme grozdja i
+  // secer/kiseline/pH berbe. Isti blok vec radi u izlaz-vina putu
+  // (`arhivirajPrazanTank`), samo ovdje nikad nije napisan.
+  //
+  // Petlja po punjenju, ne createMany: stavke se pisu ugnijezdjeno, pa je jedan
+  // create po punjenju. Tank ih u praksi ima jedno do dva.
+  for (const p of punjenja) {
+    await tx.arhivaPunjenjeTanka.create({
+      data: {
+        arhivaVinaId: arhiva.id,
+        izvornoPunjenjeId: p.id,
+        nazivVina: p.nazivVina,
+        datumPunjenja: p.datumPunjenja,
+        napomena: p.napomena,
+        opis: p.opis,
+        ukupnoLitara: p.ukupnoLitara,
+        ukupnoKgGrozdja: p.ukupnoKgGrozdja,
+        pocetnoMjerenjeId: p.pocetnoMjerenjeId,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+        stavke: {
+          create: p.stavke.map((s) => ({
+            izvornaPunjenjeStavkaId: s.id,
+            nazivSorte: s.nazivSorte,
+            sortaId: s.sortaId,
+            opis: s.opis,
+            kolicinaKgGrozdja: s.kolicinaKgGrozdja,
+            kolicinaLitara: s.kolicinaLitara,
+            datumBerbe: s.datumBerbe,
+            godinaBerbe: s.godinaBerbe,
+            polozaj: s.polozaj,
+            parcela: s.parcela,
+            vinograd: s.vinograd,
+            oznakaBerbe: s.oznakaBerbe,
+            secer: s.secer,
+            kiseline: s.kiseline,
+            ph: s.ph,
+            napomenaBerbe: s.napomenaBerbe,
+            createdAt: s.createdAt,
+            updatedAt: s.updatedAt,
+          })),
+        },
+      },
+    });
+  }
+
+  // RADNJE I IZLAZI U ARHIVU — SAMO KOPIJA, ORIGINALI OSTAJU.
+  //
+  // Namjerno se NE brišu. `POST /api/pretok/undo` vraća tankove po
+  // snapshotovima i briše pretok, ali `ArhivaVina` ne dira — dakle poništavanje
+  // ne vraća ništa što je otišlo u arhivu. Dok je tako, brisanje originala je
+  // tihi gubitak. Monitor tanka od granice arhive ionako ne prikazuje starije
+  // radnje i izlaze, pa se na ekranu ništa ne dvostruči.
+  //
+  // `izvorniZadatakId` se sprema OVDJE, a ne u snapshot pretoka: veza
+  // radnja→zadatak pripada vinu, ne pretoku, pa mora preživjeti i brisanje
+  // pretoka. Bez nje se gubi zauvijek — `Radnja.zadatak` je opcijska relacija
+  // bez `onDelete`, pa Prisma na brisanju zadatka postavi `zadatakId` na NULL.
+  if (radnje.length > 0) {
+    await tx.arhivaVinaRadnja.createMany({
+      data: radnje.map((r) => ({
+        arhivaVinaId: arhiva.id,
+        izvornaRadnjaId: r.id,
+        izvorniZadatakId: r.zadatakId,
+        tankId: tank.id,
+        vrsta: r.vrsta,
+        opis: r.opis,
+        napomena: r.napomena,
+        preparatId: r.preparatId,
+        preparatNaziv: r.preparat?.naziv ?? null,
+        jedinicaId: r.jedinicaId,
+        jedinicaNaziv: r.jedinica?.naziv ?? null,
+        kolicina: r.kolicina,
+        korisnikId: r.korisnikId,
+        korisnikIme: r.korisnik?.ime ?? r.korisnik?.email ?? null,
+        createdAt: r.createdAt,
+      })),
+    });
+  }
+
+  if (izlazi.length > 0) {
+    await tx.arhivaVinaIzlaz.createMany({
+      data: izlazi.map((i) => ({
+        arhivaVinaId: arhiva.id,
+        izvorniIzlazId: i.id,
+        tankId: tank.id,
+        tip: i.tip,
+        datum: i.datum,
+        kolicinaLitara: i.kolicinaLitara,
+        brojBoca: i.brojBoca,
+        volumenBoce: i.volumenBoce,
+        napomena: i.napomena,
+        createdAt: i.createdAt,
+      })),
+    });
+  }
+
   await tx.mjerenje.deleteMany({ where: { tankId: tank.id } });
   await tx.zadatak.deleteMany({ where: { tankId: tank.id } });
   await tx.tankSortaUdio.deleteMany({ where: { tankId: tank.id } });
   await tx.document.deleteMany({ where: { tankId: tank.id } });
-  await tx.izlazVina.deleteMany({ where: { tankId: tank.id } });
+  // `izlazVina.deleteMany` je maknut. Prije je brisao izlaze bez ikakve kopije,
+  // pa je na tanku ostajala samo `Radnja` o prodaji, a zapisa o izlazu vina
+  // nije bilo — zatečeno na tanku 16 ("Prodano rinfuza 1.000 L", nula izlaza).
+  // Sada izlaz i njegova radnja idu u arhivu zajedno, a originali ostaju.
 
   await tx.punjenjeStavka.deleteMany({
     where: {
