@@ -790,16 +790,6 @@ export default async function TankIzvjestajPage({
 
                     <div style={gridTwoStyle}>
                       <Row label="Vrsta" value={z.vrsta ? nazivVrste(z.vrsta) : "—"} />
-                      {z.maceracija != null && (
-                        <Row
-                          label="Maceracija"
-                          value={`${z.maceracija ? "da" : "ne"}${
-                            z.maceracijaOpis?.trim()
-                              ? ` — ${z.maceracijaOpis.trim()}`
-                              : ""
-                          }`}
-                        />
-                      )}
                       <Row label="Tip zadatka" value={tipZadatkaLabel(z)} />
                       <Row label="Sažetak" value={sazetakZadatka(z)} />
                       <Row
@@ -937,16 +927,6 @@ export default async function TankIzvjestajPage({
 
                     <div style={gridTwoStyle}>
                       <Row label="Vrsta" value={z.vrsta ? nazivVrste(z.vrsta) : "—"} />
-                      {z.maceracija != null && (
-                        <Row
-                          label="Maceracija"
-                          value={`${z.maceracija ? "da" : "ne"}${
-                            z.maceracijaOpis?.trim()
-                              ? ` — ${z.maceracijaOpis.trim()}`
-                              : ""
-                          }`}
-                        />
-                      )}
                       <Row label="Tip zadatka" value={tipZadatkaLabel(z)} />
                       <Row label="Sažetak" value={sazetakZadatka(z)} />
                       {dolazakIzDrugogTanka && (

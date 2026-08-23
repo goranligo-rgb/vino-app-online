@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import KorekcijaModal from "@/components/KorekcijaModal";
 import {
   akuzativVrste,
-  jeMaceracijskaVrsta,
   jePrijenosVina,
   naslovNovogZadatka,
   naslovVezanogZadatka,
@@ -430,14 +429,6 @@ export default function ZadaciPage() {
 
   const [tipZadatka, setTipZadatka] = useState("STANDARDNI");
 
-  // Maceracija — samo za flotaciju i taloženje. TRI stanja, ne dva:
-  //   null  = kvačica nije dirana (tako i ostaje u bazi)
-  //   false = korisnik je svjesno rekao da maceracije nije bilo
-  //   true  = bilo je maceracije
-  // Zato useState<boolean | null>(null), a ne useState(false): nedirnuta
-  // kvačica ne smije postati "izričito ne". Vidi prisma/schema.prisma.
-  const [maceracija, setMaceracija] = useState<boolean | null>(null);
-  const [maceracijaOpis, setMaceracijaOpis] = useState("");
   const [vezanaVrsta, setVezanaVrsta] = useState("PRETOK");
   const [vezaniBrojDana, setVezaniBrojDana] = useState("");
   const [vezaniNaslov, setVezaniNaslov] = useState("Pretok");
@@ -533,15 +524,6 @@ export default function ZadaciPage() {
 
   useEffect(() => {
     setNaslov(naslovNovogZadatka(vrstaZadatka));
-  }, [vrstaZadatka]);
-
-  // Prebacivanje na vrstu koja maceraciju ne poznaje vraća polja na "nije se
-  // pitalo" — inače bi filtracija tiho ponijela vrijednost upisanu za flotaciju.
-  useEffect(() => {
-    if (!jeMaceracijskaVrsta(vrstaZadatka)) {
-      setMaceracija(null);
-      setMaceracijaOpis("");
-    }
   }, [vrstaZadatka]);
 
   useEffect(() => {
@@ -869,11 +851,6 @@ export default function ZadaciPage() {
           naslov,
           napomena,
           tipZadatka,
-          // null se šalje kao null — server ga tako i zapisuje.
-          maceracija: jeMaceracijskaVrsta(vrstaZadatka) ? maceracija : null,
-          maceracijaOpis: jeMaceracijskaVrsta(vrstaZadatka)
-            ? maceracijaOpis
-            : null,
           vezanaVrsta: tipZadatka === "VEZANI" ? vezanaVrsta : null,
           vezaniBrojDana:
             tipZadatka === "VEZANI" ? Number(vezaniBrojDana) : null,
@@ -1103,46 +1080,6 @@ export default function ZadaciPage() {
                     <option value="OSTALO">Ostalo</option>
                   </select>
                 </div>
-
-                {jeMaceracijskaVrsta(vrstaZadatka) && (
-                  <div style={subSectionStyle}>
-                    <div style={subSectionTitleStyle}>Maceracija</div>
-
-                    <label
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        fontSize: 14,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={maceracija === true}
-                        onChange={(e) => setMaceracija(e.target.checked)}
-                        style={{ width: 18, height: 18 }}
-                      />
-                      Bilo je maceracije
-                    </label>
-
-                    <div>
-                      <label style={labelStyle}>Trajanje / opis</label>
-                      <input
-                        type="text"
-                        value={maceracijaOpis}
-                        onChange={(e) => setMaceracijaOpis(e.target.value)}
-                        placeholder="npr. 12 sati"
-                        style={inputStyle}
-                      />
-                    </div>
-
-                    <div style={{ fontSize: 12, color: "#6b7280" }}>
-                      Bilješka uz zadatak — ne ulazi ni u jedan izračun. Ako
-                      kvačicu ne dirneš, ostaje zapisano da se nije pitalo.
-                    </div>
-                  </div>
-                )}
 
                 <div>
                   <label style={labelStyle}>Tip zadatka</label>

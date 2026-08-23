@@ -42,13 +42,24 @@ type StavkaPunjenja = {
   kiseline: string;
   ph: string;
   napomenaBerbe: string;
+  // --- Maceracija: TRI stanja, ne dva ---
+  //   null  = kvacica nije dirana; tako i ostaje u bazi ("nije se pitalo")
+  //   false = korisnik je svjesno rekao da maceracije nije bilo
+  //   true  = bilo je maceracije; trajanje je u maceracijaSati
+  // Zato boolean | null, a ne boolean: nedirnuta kvacica ne smije postati
+  // "izricito ne". Vidi prisma/schema.prisma.
+  maceracija: boolean | null;
+  maceracijaSati: string;
   // Samo za UI, NIKAD se ne salje: je li korisnik sam dirao godinu berbe.
   // Dok je false, promjena datuma berbe povlaci godinu za sobom.
   godinaRucno: boolean;
 };
 
 // Polja stavke koja su obicni tekstualni inputi — sva idu kroz istu izmjenu.
-type TekstualnoPoljeStavke = Exclude<keyof StavkaPunjenja, "godinaRucno">;
+type TekstualnoPoljeStavke = Exclude<
+  keyof StavkaPunjenja,
+  "godinaRucno" | "maceracija"
+>;
 
 type ZadnjePunjenje = {
   id: string;
@@ -117,6 +128,8 @@ const praznaStavka = (): StavkaPunjenja => ({
   kiseline: "",
   ph: "",
   napomenaBerbe: "",
+  maceracija: null,
+  maceracijaSati: "",
   godinaRucno: false,
 });
 
@@ -258,6 +271,26 @@ export default function PunjenjePage() {
               : String(godinaIzNovog),
         };
       })
+    );
+  }
+
+  /**
+   * Kvacica maceracije. Prvi dodir je izvodi iz stanja "nije se pitalo" i vise
+   * se ne moze vratiti natrag u null — to je namjerno: jednom izgovorena
+   * tvrdnja ostaje tvrdnja. Skidanje kvacice brise sate, da ne ostane broj bez
+   * tvrdnje uz koju pripada.
+   */
+  function promijeniMaceraciju(index: number, ukljucena: boolean) {
+    setStavke((prev) =>
+      prev.map((stavka, i) =>
+        i === index
+          ? {
+              ...stavka,
+              maceracija: ukljucena,
+              maceracijaSati: ukljucena ? stavka.maceracijaSati : "",
+            }
+          : stavka
+      )
     );
   }
 
@@ -436,6 +469,12 @@ export default function PunjenjePage() {
         kiseline: brojIliNull(s.kiseline),
         ph: brojIliNull(s.ph),
         napomenaBerbe: tekstIliNull(s.napomenaBerbe),
+        // Nedirnuta kvacica se salje kao null, NIKAD kao false.
+        maceracija: s.maceracija,
+        // Sati imaju smisla samo uz "da"; inace bi u bazi ostao broj bez
+        // tvrdnje da je maceracije uopce bilo.
+        maceracijaSati:
+          s.maceracija === true ? brojIliNull(s.maceracijaSati) : null,
       }))
       .filter((s) => s.nazivSorte !== "" || s.kolicinaLitara > 0);
 
@@ -885,6 +924,41 @@ export default function PunjenjePage() {
                           </label>
 
                           <label style={labelStyle}>
+                            <span style={labelMini}>Maceracija</span>
+                            <span style={maceracijaKvacicaStyle}>
+                              <input
+                                type="checkbox"
+                                checked={stavka.maceracija === true}
+                                onChange={(e) =>
+                                  promijeniMaceraciju(index, e.target.checked)
+                                }
+                                style={{ width: 18, height: 18 }}
+                                disabled={saving}
+                              />
+                              <span>Bilo je maceracije</span>
+                            </span>
+                          </label>
+
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Sati</span>
+                            <input
+                              value={stavka.maceracijaSati}
+                              onChange={(e) =>
+                                promijeniStavku(
+                                  index,
+                                  "maceracijaSati",
+                                  e.target.value
+                                )
+                              }
+                              onKeyDown={handleEnterMoveNext}
+                              placeholder="npr. 3"
+                              style={inputStyle}
+                              disabled={saving || stavka.maceracija !== true}
+                              inputMode="decimal"
+                            />
+                          </label>
+
+                          <label style={labelStyle}>
                             <span style={labelMini}>Opis kvalitete</span>
                             <input
                               value={stavka.opis}
@@ -1329,6 +1403,16 @@ const labelMini: React.CSSProperties = {
   fontWeight: 600,
   color: "#7b5560",
   fontSize: 13,
+};
+
+/** Kvacica + tekst u istoj celiji mreze, poravnati s ostalim poljima. */
+const maceracijaKvacicaStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  minHeight: 38,
+  fontSize: 14,
+  cursor: "pointer",
 };
 
 const inputStyle: React.CSSProperties = {

@@ -3,7 +3,6 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { citajSesiju } from "@/lib/auth-sesija";
-import { jeMaceracijskaVrsta } from "@/lib/vrste-prijenosa";
 
 type StavkaInput = {
   preparatId?: string | null;
@@ -58,10 +57,6 @@ export async function POST(req: Request) {
       tipKorekcije = null,
       trenutnaVrijednost = null,
       zeljenaVrijednost = null,
-
-      // Maceracija — biljeska, samo za FLOTACIJA i TALOZENJE.
-      maceracija = null,
-      maceracijaOpis = null,
 
       tipZadatka = "STANDARDNI",
       vezanaVrsta = null,
@@ -241,19 +236,10 @@ export async function POST(req: Request) {
             ? toNumber(zeljenaVrijednost)
             : null,
 
-        // Maceracija: samo na flotaciji i talozenju, na svemu ostalom NULL.
-        // NULL znaci "nije se pitalo" i razlikuje se od false ("izricito nije
-        // bilo") — vidi prisma/schema.prisma. Zato se prima SAMO pravi boolean;
-        // sve ostalo (undefined, null, "", 0) ostaje NULL, cime nedirnuta
-        // kvacica ne moze postati false.
-        maceracija: jeMaceracijskaVrsta(vrstaNormalizirana)
-          ? typeof maceracija === "boolean"
-            ? maceracija
-            : null
-          : null,
-        maceracijaOpis: jeMaceracijskaVrsta(vrstaNormalizirana)
-          ? String(maceracijaOpis ?? "").trim() || null
-          : null,
+        // Maceracija se OVDJE vise ne pise. Dogadja se na grozdju, prije nego
+        // most udje u tank, pa zivi na PunjenjeStavka uz podatke berbe.
+        // Kolone Zadatak.maceracija / .maceracijaOpis ostaju u bazi prazne —
+        // vidi prisma/schema.prisma.
 
         tipZadatka:
           String(tipZadatka ?? "STANDARDNI").trim().toUpperCase() === "VEZANI"

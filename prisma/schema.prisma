@@ -573,13 +573,19 @@ model Zadatak {
   gubitakLitara      Float?
   snapshotJson       Json?
   vezaniCiljTankId   String?
-  // --- Maceracija: biljeska na zadatku, samo za FLOTACIJA i TALOZENJE ---
-  // NULL  = nije se pitalo (svi zateceni zadaci, i sve vrste koje maceraciju
-  //         ne prikazuju). Forma NE smije nedirnutu kvacicu poslati kao false.
-  // false = izricito nije bilo maceracije
-  // true  = bilo je maceracije
-  // Cista biljeska: ne ulazi ni u jedan izracun (kalo, sastav, ponderirano
-  // mjerenje, snapshot za ponistavanje).
+  // --- Maceracija: NAPUSTENO, polja se vise ne pisu ni ne citaju ---------
+  // Maceracija se dogadja na GROZDJU, prije nego most uopce udje u tank, dakle
+  // prije nego ijedan zadatak postoji. Ovdje je zavrsila usput uz flotaciju i
+  // to je bilo pogresno: zadatak nastaje nakon punjenja, pa je pitanje na
+  // krivom mjestu i za flotaciju koja se radi dan-dva kasnije.
+  //
+  // Podatak sada zivi na PunjenjeStavka.maceracija / .maceracijaSati, uz
+  // ostale podatke berbe (parcela, vinograd, secer...).
+  //
+  // Kolone OSTAJU u bazi namjerno: nullable su, nijedan zapis ih nema
+  // popunjene (provjereno 23.08.2026: 0 od 11 zadataka), i nista ih ne pise.
+  // Brisanje kolona na produkcijskoj bazi usred berbe nema nikakvu dobit, a
+  // nosi rizik. NE koristiti ih u novom kodu.
   maceracija         Boolean?
   maceracijaOpis     String?
   radnjas            Radnja[]
@@ -848,6 +854,14 @@ model PunjenjeStavka {
   kiseline          Float?
   ph                Float?
   napomenaBerbe     String?
+  // --- Maceracija: dogadja se PRIJE ulaska u tank, pa zivi uz podatke berbe ---
+  // NULL  = nije se pitalo (sve zatecene stavke)
+  // false = izricito nije bilo maceracije
+  // true  = bilo je maceracije; trajanje je u maceracijaSati
+  // Sati su broj, ne tekst, da se maceracije mogu usporedjivati kroz godine.
+  // Slobodan opis ("preko noci", "na kljucu") ide u napomenaBerbe.
+  maceracija        Boolean?
+  maceracijaSati    Float?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @default(now()) @updatedAt
   obrisano          Boolean       @default(false)

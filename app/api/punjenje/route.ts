@@ -21,6 +21,20 @@ function brojIliNull(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Samo PRAVI boolean prolazi; sve ostalo (undefined, null, "", 0, "false")
+ * postaje null.
+ *
+ * Zasto tako strogo: NULL znaci "nije se pitalo" i razlikuje se od false
+ * ("izricito nije bilo"). Da se ovdje radio Boolean(v), nedirnuta kvacica bi
+ * stigla kao false i 11 zatecenih stavki bi tiho dobilo tvrdnju koju nitko
+ * nije izgovorio. Vidi prisma/schema.prisma i migraciju
+ * 20260823_maceracija_na_punjenju.
+ */
+function booleanIliNull(v: unknown): boolean | null {
+  return typeof v === "boolean" ? v : null;
+}
+
 function datumIliNull(v: unknown): Date | null {
   if (!v) return null;
   const d = new Date(String(v));
@@ -165,6 +179,8 @@ export async function POST(req: Request) {
       kiseline: number | null;
       ph: number | null;
       napomenaBerbe: string | null;
+      maceracija: boolean | null;
+      maceracijaSati: number | null;
     }> = [];
 
     for (const s of stavke) {
@@ -183,6 +199,12 @@ export async function POST(req: Request) {
       const secer = brojIliNull(s.secer);
       const kiseline = brojIliNull(s.kiseline);
       const ph = brojIliNull(s.ph);
+
+      const maceracija = booleanIliNull(s.maceracija);
+      // Sati bez potvrdjene maceracije nisu podatak nego smece: broj bez
+      // tvrdnje uz koju pripada. Forma ih vec ne salje, ovo je drugi pojas.
+      const maceracijaSati =
+        maceracija === true ? brojIliNull(s.maceracijaSati) : null;
 
       let nazivSorte = ocistiString(s.nazivSorte) ?? "";
 
@@ -224,6 +246,8 @@ export async function POST(req: Request) {
         kiseline,
         ph,
         napomenaBerbe,
+        maceracija,
+        maceracijaSati,
       });
     }
 
@@ -351,6 +375,8 @@ export async function POST(req: Request) {
               kiseline: s.kiseline,
               ph: s.ph,
               napomenaBerbe: s.napomenaBerbe,
+              maceracija: s.maceracija,
+              maceracijaSati: s.maceracijaSati,
             })),
           },
         },

@@ -45,8 +45,6 @@ export default async function FiltracijaIzvrsenjePage({
       zadanoAt: true,
       zakljucanDo: true,
       kolicinaIzlaz: true,
-      maceracija: true,
-      maceracijaOpis: true,
       tank: {
         select: {
           id: true,
@@ -126,8 +124,6 @@ export default async function FiltracijaIzvrsenjePage({
         zadatak={{
           id: zadatak.id,
           vrsta: zadatak.vrsta,
-          maceracija: zadatak.maceracija,
-          maceracijaOpis: zadatak.maceracijaOpis,
           naslov: zadatak.naslov,
           napomena: zadatak.napomena,
           zadanoAt: zadatak.zadanoAt.toISOString(),

@@ -1,0 +1,73 @@
+-- Maceracija se seli sa ZADATKA na PUNJENJE (stavku berbe).
+--
+-- ZASTO: maceracija se dogadja na GROZDJU — mast stoji na kozici prije nego
+-- most uopce udje u tank. Zadatak (flotacija, talozenje) nastaje TEK POSLIJE
+-- punjenja, cesto dan-dva kasnije. Pitanje je zato bilo na krivom mjestu: vino
+-- moze biti macerirano a da flotacije nikad ne bude, i obrnuto.
+--
+-- Podatak sada stoji uz ostale podatke berbe na PunjenjeStavka (parcela,
+-- vinograd, oznakaBerbe, secer, kiseline, ph, napomenaBerbe) — sve to opisuje
+-- grozdje koje je uslo u tank, a maceracija je isti takav podatak.
+--
+-- ADITIVNO: 2 nullable kolone, bez DEFAULT-a. Bez DROP-a, bez izmjene
+-- postojecih kolona, bez diranja podataka. Zatecene stavke ostaju NULL.
+--
+-- SIGURNOST NA PRODUKCIJI (berba je u tijeku):
+-- ADD COLUMN bez DEFAULT-a je upis u katalog — ne prepisuje tablicu, ne skenira
+-- retke, ne uzima dugu bravu. Traje milisekunde bez obzira na broj redaka.
+-- Idempotentno (IF NOT EXISTS), pa se datoteka smije ponoviti ako stane.
+--
+-- VEZA: pooler na portu 5432 = session mode, DDL prolazi normalno.
+--       (6543 je transaction mode i za DDL se ne koristi.)
+
+-- ---------------------------------------------------------------------------
+-- SEMANTIKA — tri stanja, ne dva (ista kao dosad na zadatku)
+-- ---------------------------------------------------------------------------
+--   NULL   = nije se pitalo. Tako ostaju SVE zatecene stavke punjenja.
+--   false  = pitalo se, izricito NIJE bilo maceracije.
+--   true   = bilo je maceracije; trajanje je u "maceracijaSati".
+--
+-- Razlika NULL/false je nosiva: "ne znam" i "znam da nije" nisu isto. Zato je
+-- kolona nullable BEZ DEFAULT-a — da 30 zatecenih stavki ne dobije lazno
+-- "nije bilo maceracije".
+--
+-- OBAVEZA FORME: nedirnuta kvacica se salje kao NULL, NIKAD kao false. false
+-- nastaje samo ako je korisnik svjesno ostavio kvacicu praznom na stavci koju
+-- je uredjivao.
+--
+-- ---------------------------------------------------------------------------
+-- ZASTO SATI KAO BROJ, A NE TEKST
+-- ---------------------------------------------------------------------------
+-- Zatecena polja na zadatku bila su Boolean + slobodan tekst ("12 sati").
+-- Tekst se ne moze usporediti: na pitanje "koliko smo lani macerirali
+-- Grasevinu" nad tekstom nema odgovora. Sati su mjera, pa idu kao broj.
+--
+-- DOUBLE PRECISION, a ne INTEGER — zbog "sat i pol". Isti tip koji vec nose
+-- secer, kiseline i ph na istoj tablici, pa je i konvencija ista.
+--
+-- Slobodan opis ("preko noci", "na kljucu", "hladna maceracija") ima gdje —
+-- napomenaBerbe na istoj stavci vec postoji i za to sluzi. Zato se ne uvodi
+-- treca kolona.
+--
+-- BEZ CHECK OGRANICENJA, namjerno. CHECK tipa "sati ne smiju postojati bez
+-- kvacice" odbio bi legitiman PUT dok korisnik uredjuje stavku (upise sate pa
+-- makne kvacicu, ili obrnuto). Za polje koje ni na sto ne utjece to je cijena
+-- bez pokrica.
+--
+-- CISTA BILJESKA: ne ulazi ni u jedan izracun — ni u kalo, ni u sastav, ni u
+-- ponderirano mjerenje, ni u snapshot za ponistavanje.
+
+ALTER TABLE "PunjenjeStavka" ADD COLUMN IF NOT EXISTS "maceracija"     BOOLEAN;
+ALTER TABLE "PunjenjeStavka" ADD COLUMN IF NOT EXISTS "maceracijaSati" DOUBLE PRECISION;
+
+-- ---------------------------------------------------------------------------
+-- STARE KOLONE NA "Zadatak" — NAMJERNO SE NE DIRAJU
+-- ---------------------------------------------------------------------------
+-- "Zadatak"."maceracija" i "Zadatak"."maceracijaOpis" (migracija
+-- 20260822_flotacija_talozenje_maceracija) OSTAJU u bazi:
+--   - nullable su i nemaju DEFAULT;
+--   - provjereno 23.08.2026: 0 od 11 zadataka ih ima popunjene;
+--   - od ove izmjene ih vise nista ne pise ni ne cita (unos i prikaz maknuti).
+-- DROP COLUMN na produkcijskoj bazi usred berbe nema nikakvu dobit, a nosi
+-- rizik (revert postaje gubitak podataka ako se u medjuvremenu nesto upise).
+-- Ako se ikad brisu, to je zasebna migracija donesena svjesno.

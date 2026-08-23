@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { opisMaceracije } from "@/lib/berba-polja";
 
 type PunjenjeStavka = {
   id: string;
@@ -21,6 +22,8 @@ type PunjenjeStavka = {
   kiseline?: number | null;
   ph?: number | null;
   napomenaBerbe?: string | null;
+  maceracija?: boolean | null;
+  maceracijaSati?: number | null;
 };
 
 type PocetnoMjerenje = {
@@ -78,6 +81,8 @@ type Red = {
   secer: number | null;
   kiseline: number | null;
   ph: number | null;
+  maceracija: boolean | null;
+  maceracijaSati: number | null;
   opisStavke: string | null;
   napomenaBerbe: string | null;
 
@@ -368,6 +373,8 @@ export default function BerbaPage() {
           ph: stavka.ph ?? null,
           opisStavke: stavka.opis ?? null,
           napomenaBerbe: stavka.napomenaBerbe ?? null,
+          maceracija: stavka.maceracija ?? null,
+          maceracijaSati: stavka.maceracijaSati ?? null,
 
           pocetnoMjerenje: punjenje.pocetnoMjerenje ?? null,
         });
@@ -1262,6 +1269,7 @@ export default function BerbaPage() {
                             <th className="border border-emerald-200 px-3 py-2">Položaj</th>
                             <th className="border border-emerald-200 px-3 py-2">Datum berbe</th>
                             <th className="border border-emerald-200 px-3 py-2">Godina</th>
+                            <th className="border border-emerald-200 px-3 py-2">Maceracija</th>
                             <th className="border border-emerald-200 px-3 py-2">L</th>
                             <th className="border border-emerald-200 px-3 py-2">kg</th>
                             <th className="border border-emerald-200 px-3 py-2">Akcija</th>
@@ -1281,6 +1289,11 @@ export default function BerbaPage() {
                               </td>
                               <td className="border border-emerald-100 px-3 py-2">
                                 {r.godinaBerbe || "-"}
+                              </td>
+                              {/* Prazno je "nije se pitalo" i ostaje crtica —
+                                  ne smije izgledati kao "nije bilo". */}
+                              <td className="border border-emerald-100 px-3 py-2">
+                                {opisMaceracije(r.maceracija, r.maceracijaSati) ?? "-"}
                               </td>
                               <td className="border border-emerald-100 px-3 py-2">
                                 {formatBroj(r.kolicinaLitara, 0)}

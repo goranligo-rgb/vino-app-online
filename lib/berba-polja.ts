@@ -71,3 +71,50 @@ export function godinaIzDatuma(datum: string | null | undefined): number | null 
   const godina = Number(cisto.slice(0, 4));
   return Number.isFinite(godina) ? godina : null;
 }
+
+/**
+ * Maceracija u citljivom obliku, iz dva polja PunjenjeStavka.
+ *
+ * Tri stanja daju tri razlicita ishoda, i to je cijela poanta:
+ *   null   -> null   (nije se pitalo — pozivatelj ne prikazuje nista)
+ *   false  -> "ne"
+ *   true   -> "da" ili "da — 3 sata"
+ *
+ * Zivi ovdje, a ne u komponenti, jer isti tekst treba na monitoru tanka i u
+ * pregledu berbe; dvije kopije bi se razisle prvom izmjenom.
+ */
+export function opisMaceracije(
+  maceracija: boolean | null | undefined,
+  sati: number | null | undefined
+): string | null {
+  if (maceracija == null) return null;
+  if (!maceracija) return "ne";
+  if (sati == null || !Number.isFinite(Number(sati))) return "da";
+  return `da — ${formatSati(Number(sati))}`;
+}
+
+/**
+ * "1 sat", "3 sata", "12 sati", "1,5 sata".
+ *
+ * Hrvatska sklonidba ide po ZADNJOJ znamenki, uz iznimku za 11-14 ("11 sati",
+ * ne "11 sat"). Decimalni broj uvijek ide s "sata" ("1,5 sata").
+ */
+export function formatSati(v: number): string {
+  const broj = Number(v);
+
+  if (!Number.isInteger(broj)) {
+    return `${broj.toLocaleString("hr-HR", { maximumFractionDigits: 2 })} sata`;
+  }
+
+  const zadnja = Math.abs(broj) % 10;
+  const zadnjeDvije = Math.abs(broj) % 100;
+
+  const rijec =
+    zadnja === 1 && zadnjeDvije !== 11
+      ? "sat"
+      : zadnja >= 2 && zadnja <= 4 && (zadnjeDvije < 12 || zadnjeDvije > 14)
+        ? "sata"
+        : "sati";
+
+  return `${broj} ${rijec}`;
+}

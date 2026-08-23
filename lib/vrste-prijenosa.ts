@@ -135,11 +135,15 @@ export const PORUKE_VLASTITI_EKRAN: string[] =
   VRSTE_PRIJENOSA.map(porukaVlastitiEkran);
 
 /**
- * Prikazuje li se na zadatku ove vrste pitanje o MACERACIJI?
+ * NAPUSTENO od 23.08.2026 — ne koristi se nigdje u aplikaciji.
  *
- * Samo flotacija i talozenje. Maceracija je postupak na MOSTU, prije
- * fermentacije; filtracija je na gotovom vinu dva mjeseca kasnije i s njom
- * nema veze, pa se na filtraciji to pitanje ne smije ni pojaviti.
+ * Maceracija se dogadja na GROZDJU, prije nego most uopce udje u tank, dakle
+ * prije nego ijedan zadatak postoji. Pitanje je zato maknuto sa zadatka i
+ * preseljeno na PunjenjeStavka, uz ostale podatke berbe.
+ *
+ * Funkcija i njezini testovi ostaju jer nista ne kostaju i jer bi njihovo
+ * brisanje bilo jedina izmjena u testu koji inace pokriva ostale helpere.
+ * NE koristiti je u novom kodu.
  */
 export function jeMaceracijskaVrsta(vrsta: string | null | undefined): boolean {
   return vrsta === "FLOTACIJA" || vrsta === "TALOZENJE";

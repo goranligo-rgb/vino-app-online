@@ -31,9 +31,6 @@ export type ZadatakZaFormu = {
   id: string;
   /** FILTRACIJA | FLOTACIJA | TALOZENJE — odredjuje samo nazivlje u sucelju. */
   vrsta: string;
-  /** null = nije se pitalo; false = izricito nije bilo; true = bilo je. */
-  maceracija: boolean | null;
-  maceracijaOpis: string | null;
   naslov: string | null;
   napomena: string | null;
   zadanoAt: string;
@@ -257,18 +254,6 @@ export default function FiltracijaForma({
 
         {zadatak.napomena?.trim() && (
           <div style={napomenaStyle}>{zadatak.napomena}</div>
-        )}
-
-        {/* Maceracija se prikazuje SAMO ako se o njoj izjasnilo pri zadavanju.
-            null (nije se pitalo) ne prikazuje ništa. */}
-        {zadatak.maceracija != null && (
-          <div style={napomenaStyle}>
-            <strong>Maceracija:</strong>{" "}
-            {zadatak.maceracija ? "da" : "ne"}
-            {zadatak.maceracijaOpis?.trim()
-              ? ` — ${zadatak.maceracijaOpis.trim()}`
-              : ""}
-          </div>
         )}
 
         <label style={oznakaStyle}>

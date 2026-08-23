@@ -18,6 +18,8 @@ import {
   datumIliNull,
   danasZaDateInput,
   godinaIzDatuma,
+  opisMaceracije,
+  formatSati,
 } from "../lib/berba-polja";
 
 let pao = 0;
@@ -253,6 +255,28 @@ const nulaStavka = normalizirajStavku({
 
 jednako(nulaStavka.kolicinaKgGrozdja, 0, "upisana nula kg ostaje 0");
 jednako(nulaStavka.secer, 0, "upisana nula secera ostaje 0");
+
+// ---------------------------------------------------------------------------
+// Maceracija — tri stanja i hrvatska sklonidba sati
+// ---------------------------------------------------------------------------
+
+jednako(opisMaceracije(null, null), null, "NULL = nije se pitalo, nista se ne pise");
+jednako(opisMaceracije(undefined, 3), null, "undefined se ponasa kao NULL");
+jednako(opisMaceracije(false, null), "ne", "false = izricito nije bilo");
+jednako(opisMaceracije(false, 3), "ne", "sati uz 'ne' se ignoriraju");
+jednako(opisMaceracije(true, null), "da", "true bez sati");
+jednako(opisMaceracije(true, 3), "da — 3 sata", "true sa satima");
+jednako(opisMaceracije(true, 0), "da — 0 sati", "nula sati je podatak, ne praznina");
+
+jednako(formatSati(1), "1 sat", "1 sat");
+jednako(formatSati(2), "2 sata", "2 sata");
+jednako(formatSati(4), "4 sata", "4 sata");
+jednako(formatSati(5), "5 sati", "5 sati");
+jednako(formatSati(11), "11 sati", "11 sati (iznimka, ne '11 sat')");
+jednako(formatSati(12), "12 sati", "12 sati (iznimka, ne '12 sata')");
+jednako(formatSati(21), "21 sat", "21 sat");
+jednako(formatSati(24), "24 sata", "24 sata");
+jednako(formatSati(1.5), "1,5 sata", "decimalni broj ide s 'sata'");
 
 // ---------------------------------------------------------------------------
 
