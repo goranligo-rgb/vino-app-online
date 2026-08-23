@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type React from "react";
 import { prisma } from "@/lib/prisma";
+import Kronologija, { type Dogadaj } from "./kronologija";
 import { notFound, redirect } from "next/navigation";
 import { citajSesiju } from "@/lib/auth-sesija";
 import { unstable_noStore as noStore } from "next/cache";
@@ -55,11 +56,6 @@ function formatDatumBezVremena(value: Date | string | null | undefined) {
   return d.toLocaleDateString("hr-HR");
 }
 
-function formatTipIzlaza(tip: string | null | undefined) {
-  if (tip === "PUNJENJE") return "Punjenje u boce";
-  if (tip === "PRODAJA") return "Prodaja / rinfuza";
-  return tip ?? "—";
-}
 
 function prikaziKorisnika(
   korisnik:
@@ -876,7 +872,15 @@ export default async function TankPregledPage({
     }),
 
     prisma.zadatak.findMany({
-      where: { tankId: id, status: { in: ["IZVRSEN", "OTKAZAN"] } },
+      // Granica arhive, istim rezonom kao na punjenjima i izlazima u fazi 0:
+      // arhiviranje danas brise zadatke, pa je filtar prazan hod — ali ostaje
+      // tocan i kad se to promijeni, a promijenit ce se (brisanje originala je
+      // vec na popisu).
+      where: {
+        tankId: id,
+        status: { in: ["IZVRSEN", "OTKAZAN"] },
+        izvrsenoAt: odGranice,
+      },
       include: {
         preparat: {
           select: {
@@ -895,6 +899,15 @@ export default async function TankPregledPage({
         izlaznaJedinica: true,
         zadaoKorisnik: true,
         izvrsioKorisnik: true,
+        // Ciljni tankovi prijenosa. Bez njih se ne zna je li zadatak premjestio
+        // vino ni kamo — a o tome ovisi je li u kronologiji ZADATAK ili
+        // PRIJENOS_IZLAZ.
+        tankStavke: {
+          include: {
+            ciljTank: { select: { broj: true } },
+          },
+          orderBy: { redoslijed: "asc" },
+        },
         stavke: {
           include: {
             preparat: {
@@ -1109,6 +1122,281 @@ export default async function TankPregledPage({
       : mjerenja
   ).slice(0, 100);
 
+  // ---------------------------------------------------------------------------
+  // KRONOLOGIJA
+  //
+  // Jedan slijed umjesto sest kartica. Sve se slaze OVDJE, na posluzitelju —
+  // kronologija.tsx je klijentska samo zbog filtra i ne racuna nista.
+  //
+  // Svi izvori su vec dohvaceni gore i vec filtrirani granicom arhive, pa
+  // kronologija ne dodaje nijedan upit.
+  //
+  // MJERENJA NISU OVDJE: ostaju vlastita kartica sa svojim grafom po parametru.
+  // ---------------------------------------------------------------------------
+  const dogadaji: Dogadaj[] = [];
+
+  for (const p of punjenja) {
+    const kg = p.stavke.reduce(
+      (zbroj, s) => zbroj + Number(s.kolicinaKgGrozdja ?? 0),
+      0
+    );
+
+    dogadaji.push({
+      id: `pun-${p.id}`,
+      vrsta: "PUNJENJE",
+      vrijeme: p.datumPunjenja.toISOString(),
+      naslov: p.nazivVina || "Punjenje tanka",
+      podnaslov: p.stavke.map((s) => s.nazivSorte).join(", ") || null,
+      // PunjenjeTanka nema polje korisnika — vidi fazu 3b. Radije nista nego
+      // pogadjanje.
+      iznos: `${formatBroj(p.ukupnoLitara, 0)} L`,
+      detalji: [
+        { label: "Ukupno litara", value: `${formatBroj(p.ukupnoLitara)} L` },
+        { label: "Ukupno kg grožđa", value: kg > 0 ? `${formatBroj(kg)} kg` : "—" },
+        { label: "Napomena", value: p.napomena || "—" },
+        ...p.stavke.flatMap((s) => [
+          { label: `— ${s.nazivSorte}`, value: `${formatBroj(s.kolicinaLitara)} L` },
+          {
+            label: "   Kg grožđa",
+            value: s.kolicinaKgGrozdja != null ? `${formatBroj(s.kolicinaKgGrozdja)} kg` : "—",
+          },
+          { label: "   Vinograd", value: s.vinograd || "—" },
+          { label: "   Parcela", value: s.parcela || "—" },
+          { label: "   Položaj", value: s.polozaj || "—" },
+          { label: "   Oznaka berbe", value: s.oznakaBerbe || "—" },
+          { label: "   Datum berbe", value: s.datumBerbe ? formatDatumBezVremena(s.datumBerbe) : "—" },
+          { label: "   Šećer", value: s.secer != null ? formatBroj(s.secer) : "—" },
+          { label: "   Kiseline", value: s.kiseline != null ? formatBroj(s.kiseline) : "—" },
+          { label: "   pH", value: s.ph != null ? formatBroj(s.ph) : "—" },
+          { label: "   Napomena berbe", value: s.napomenaBerbe || "—" },
+        ]),
+      ],
+    });
+  }
+
+  for (const z of izvrseniZadaci) {
+    const preparati =
+      z.stavke.length > 0
+        ? z.stavke
+            .map((s) =>
+              `${s.preparat?.naziv ?? "?"} ${formatBroj(s.izracunataKolicina)} ${
+                s.izlaznaJedinica?.naziv ?? s.jedinica?.naziv ?? ""
+              }`.trim()
+            )
+            .join(" · ")
+        : z.preparat?.naziv ?? null;
+
+    const ciljevi =
+      z.tankStavke.length > 0
+        ? z.tankStavke
+            .map((s) => `tank ${s.ciljTank.broj}: ${formatBroj(s.kolicina)} L`)
+            .join(" · ")
+        : null;
+
+    dogadaji.push({
+      id: `zad-${z.id}`,
+      // Zadatak koji je premjestio vino je prijenos, ne obican zadatak — inace
+      // se u filtru ne razlikuje "dodali smo preparat" od "vino je otislo".
+      vrsta: z.tankStavke.length > 0 ? "PRIJENOS_IZLAZ" : "ZADATAK",
+      vrijeme: (z.izvrsenoAt ?? z.zadanoAt).toISOString(),
+      naslov: `${z.naslov?.trim() || String(z.vrsta)}${
+        z.status === "OTKAZAN" ? " (otkazan)" : ""
+      }`,
+      podnaslov: [preparati, ciljevi].filter(Boolean).join(" → ") || null,
+      tko: z.izvrsenoAt
+        ? `Izvršio: ${prikaziKorisnika(z.izvrsioKorisnik)}`
+        : `Zadao: ${prikaziKorisnika(z.zadaoKorisnik)}`,
+      iznos: z.kolicinaIzlaz != null ? `−${formatBroj(z.kolicinaIzlaz, 0)} L` : null,
+      detalji: [
+        { label: "Vrsta", value: String(z.vrsta) },
+        { label: "Status", value: String(z.status) },
+        {
+          label: "Zadao",
+          value: `${prikaziKorisnika(z.zadaoKorisnik)} · ${formatDatum(z.zadanoAt)}`,
+        },
+        {
+          label: "Izvršio",
+          value: z.izvrsenoAt
+            ? `${prikaziKorisnika(z.izvrsioKorisnik)} · ${formatDatum(z.izvrsenoAt)}`
+            : "—",
+        },
+        ...(z.kolicinaIzlaz != null
+          ? [{ label: "Izašlo", value: `${formatBroj(z.kolicinaIzlaz)} L` }]
+          : []),
+        ...(z.gubitakLitara != null
+          ? [{ label: "Gubitak", value: `${formatBroj(z.gubitakLitara)} L` }]
+          : []),
+        ...(z.maceracija != null
+          ? [
+              {
+                label: "Maceracija",
+                value: z.maceracija
+                  ? `da${z.maceracijaOpis ? ` — ${z.maceracijaOpis}` : ""}`
+                  : "ne",
+              },
+            ]
+          : []),
+        ...z.tankStavke.map((s) => ({
+          label: `→ tank ${s.ciljTank.broj}`,
+          value: `${formatBroj(s.kolicina)} L`,
+        })),
+        ...z.stavke.map((s) => ({
+          label: s.preparat?.naziv ?? "preparat",
+          value: `${formatBroj(s.izracunataKolicina)} ${
+            s.izlaznaJedinica?.naziv ?? s.jedinica?.naziv ?? ""
+          }`.trim(),
+        })),
+        { label: "Napomena", value: z.napomena || "—" },
+      ],
+    });
+  }
+
+  for (const s of dolasciPrijenosom) {
+    dogadaji.push({
+      id: `dol-${s.id}`,
+      vrsta: "PRIJENOS_ULAZ",
+      vrijeme: (s.zadatak.izvrsenoAt ?? s.zadatak.zadanoAt).toISOString(),
+      naslov: `Dolazak vina iz tanka ${s.zadatak.tank.broj}`,
+      podnaslov: `${String(s.zadatak.vrsta)} — ${
+        s.zadatak.naslov?.trim() || "bez naslova"
+      }`,
+      tko: s.zadatak.izvrsenoAt
+        ? `Izvršio: ${prikaziKorisnika(s.zadatak.izvrsioKorisnik)}`
+        : null,
+      iznos: `+${formatBroj(s.kolicina, 0)} L`,
+      detalji: [
+        { label: "Iz tanka", value: String(s.zadatak.tank.broj) },
+        { label: "Količina", value: `${formatBroj(s.kolicina)} L` },
+        { label: "Vrsta prijenosa", value: String(s.zadatak.vrsta) },
+        { label: "Izvršeno", value: formatDatum(s.zadatak.izvrsenoAt) },
+      ],
+    });
+  }
+
+  // Radnja koja pripada zadatku vec je prikazana kao zadatak — inace bi svaki
+  // izvrsen zadatak stajao dvaput. Prikazuju se samo samostalne radnje.
+  for (const r of radnje) {
+    if (r.zadatakId !== null) continue;
+
+    dogadaji.push({
+      id: `rad-${r.id}`,
+      vrsta: "RADNJA",
+      vrijeme: r.createdAt.toISOString(),
+      naslov: r.opis || String(r.vrsta),
+      podnaslov: r.preparat?.naziv
+        ? `${r.preparat.naziv}${
+            r.kolicina != null
+              ? ` — ${formatBroj(r.kolicina)} ${r.jedinica?.naziv ?? ""}`.trimEnd()
+              : ""
+          }`
+        : String(r.vrsta),
+      tko: `Upisao: ${prikaziKorisnika(r.korisnik)}`,
+      // Litre samo kad radnja NIJE o preparatu — inace bi "12,5" iz doze
+      // preparata izgledalo kao litre vina.
+      iznos: r.kolicina != null && !r.preparatId ? `${formatBroj(r.kolicina, 0)} L` : null,
+      detalji: [
+        { label: "Vrsta", value: String(r.vrsta) },
+        { label: "Preparat", value: r.preparat?.naziv || "—" },
+        {
+          label: "Količina",
+          value:
+            r.kolicina != null
+              ? `${formatBroj(r.kolicina)} ${r.jedinica?.naziv ?? ""}`.trim()
+              : "—",
+        },
+        { label: "Napomena", value: r.napomena || "—" },
+      ],
+    });
+  }
+
+  for (const p of pretociUlaz) {
+    const ukupno = p.izvori.reduce((zbroj, i) => zbroj + Number(i.kolicina ?? 0), 0);
+
+    dogadaji.push({
+      id: `pu-${p.id}`,
+      vrsta: "PRETOK_ULAZ",
+      vrijeme: p.datum.toISOString(),
+      naslov: `Pretok u ovaj tank (${p.tip})`,
+      podnaslov:
+        p.izvori
+          .map((i) => `tank ${i.tank.broj}: ${formatBroj(i.kolicina)} L`)
+          .join(" · ") || null,
+      // Pretok nema polje korisnika — vidi fazu 3b.
+      iznos: `+${formatBroj(ukupno, 0)} L`,
+      detalji: [
+        { label: "Tip pretoka", value: String(p.tip) },
+        ...p.izvori.map((i) => ({
+          label: `iz tanka ${i.tank.broj}`,
+          value: `${formatBroj(i.kolicina)} L`,
+        })),
+        { label: "Napomena", value: p.napomena || "—" },
+      ],
+    });
+  }
+
+  for (const i of pretociIzlaz) {
+    dogadaji.push({
+      id: `pi-${i.id}`,
+      vrsta: "PRETOK_IZLAZ",
+      vrijeme: i.pretok.datum.toISOString(),
+      naslov: `Pretok iz ovog tanka u tank ${i.pretok.ciljTank.broj}`,
+      podnaslov: `Tip: ${i.pretok.tip}`,
+      iznos: `−${formatBroj(i.kolicina, 0)} L`,
+      detalji: [
+        { label: "U tank", value: String(i.pretok.ciljTank.broj) },
+        { label: "Količina", value: `${formatBroj(i.kolicina)} L` },
+        { label: "Tip pretoka", value: String(i.pretok.tip) },
+        { label: "Napomena", value: i.pretok.napomena || "—" },
+      ],
+    });
+  }
+
+  for (const x of izlaziZaPrikaz) {
+    dogadaji.push({
+      id: `iz-${x.id}`,
+      vrsta: "IZLAZ",
+      vrijeme: x.datum.toISOString(),
+      naslov: x.tip === "PUNJENJE" ? "Punjenje u boce" : "Prodaja / rinfuza",
+      podnaslov: x.brojBoca
+        ? `${x.brojBoca} boca × ${formatBroj(x.volumenBoce)} L`
+        : null,
+      // IzlazVina nema polje korisnika — vidi fazu 3b.
+      iznos: `−${formatBroj(x.kolicinaLitara, 0)} L`,
+      detalji: [
+        { label: "Tip", value: String(x.tip) },
+        { label: "Litara", value: `${formatBroj(x.kolicinaLitara)} L` },
+        { label: "Broj boca", value: x.brojBoca != null ? String(x.brojBoca) : "—" },
+        { label: "Napomena", value: x.napomena || "—" },
+      ],
+    });
+  }
+
+  // Arhiva ostaje i kao vlastita kartica (ondje je poveznica "Otvori arhivu"),
+  // a ovdje stoji zato sto objasnjava zasto povijest iznad nje prestaje.
+  for (const a of arhive) {
+    dogadaji.push({
+      id: `ar-${a.id}`,
+      vrsta: "ARHIVA",
+      vrijeme: a.arhiviranoAt.toISOString(),
+      naslov: `Arhivirano: ${a.nazivVina ?? "bez naziva"}`,
+      podnaslov: `${a.sorta ?? "—"} · ${formatBroj(
+        a.kolicinaVina,
+        0
+      )} L — tank je tada ispražnjen`,
+      iznos: `${formatBroj(a.kolicinaVina, 0)} L`,
+      detalji: [
+        { label: "Naziv vina", value: a.nazivVina || "—" },
+        { label: "Sorta", value: a.sorta || "—" },
+        { label: "Količina", value: `${formatBroj(a.kolicinaVina)} L` },
+        { label: "Arhivirano", value: formatDatum(a.arhiviranoAt) },
+      ],
+    });
+  }
+
+  dogadaji.sort(
+    (a, b) => new Date(b.vrijeme).getTime() - new Date(a.vrijeme).getTime()
+  );
+
 
   // Zadana koja se prikazuje je STVARNA - ona koju je gateway zadnji put procitao
   // s kontrolera. Tank.zadanaTemp je samo zelja i moze zaostati ako komanda propadne.
@@ -1132,30 +1420,6 @@ export default async function TankPregledPage({
 
   const slobodno =
     Number(tank.kapacitet ?? 0) - Number(tank.kolicinaVinaUTanku ?? 0);
-
-  const ukupnoIzlazLitara = izlaziZaPrikaz.reduce(
-    (sum, stavka) => sum + Number(stavka.kolicinaLitara ?? 0),
-    0
-  );
-
-  const ukupnoPunjenjeLitara = izlaziZaPrikaz.reduce((sum, stavka) => {
-    if (stavka.tip === "PUNJENJE") {
-      return sum + Number(stavka.kolicinaLitara ?? 0);
-    }
-    return sum;
-  }, 0);
-
-  const ukupnoProdajaLitara = izlaziZaPrikaz.reduce((sum, stavka) => {
-    if (stavka.tip === "PRODAJA") {
-      return sum + Number(stavka.kolicinaLitara ?? 0);
-    }
-    return sum;
-  }, 0);
-
-  const ukupnoBoca = izlaziZaPrikaz.reduce(
-    (sum, stavka) => sum + Number(stavka.brojBoca ?? 0),
-    0
-  );
 
   return (
     <div style={pageStyle}>
@@ -1635,163 +1899,20 @@ export default async function TankPregledPage({
           </div>
         )}
       </Card>
-
+      {/* --- KRONOLOGIJA: jedan slijed umjesto sest kartica (Radnje, Pretoci,
+              Dolasci, Punjenja, Izlazi, Izvrseni zadaci). Mjerenja NISU ovdje
+              — ostaju vlastita kartica, vidi kronologija.tsx. --- */}
       <Card
-        title="Izvršeni zadaci"
-        broj={izvrseniZadaci.length}
-        pod="datum i tko je izvršio"
-        sklopljena
+        title="Kronologija"
+        broj={dogadaji.length}
+        pod="sve što se s ovim vinom radilo"
       >
-        {izvrseniZadaci.length === 0 ? (
-          <div style={mutedTextStyle}>Nema odrađenih zadataka.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {izvrseniZadaci.map((z) => {
-              const imaStavke = z.stavke && z.stavke.length > 0;
-
-              return (
-                <details key={z.id} style={detailsStyle}>
-                  <summary style={summaryStyle}>
-                    <div style={{ display: "grid", gap: 2 }}>
-                      <div style={summaryMainTextStyle}>
-                        {z.naslov || z.vrsta || "Zadatak"}
-                      </div>
-                      <div style={summarySubTextStyle}>
-                        {sazetakZadatka(z)}
-                      </div>
-                    </div>
-
-                    <div
-                      style={{ display: "flex", alignItems: "center", gap: 10 }}
-                    >
-                      <div style={summaryRightStyle}>
-                        {z.izvrsenoAt
-                          ? formatDatum(z.izvrsenoAt)
-                          : formatDatum(z.zadanoAt)}
-                      </div>
-                      <span
-                        style={{ ...statusPillStyle, ...statusBadge(z.status) }}
-                      >
-                        {z.status}
-                      </span>
-                    </div>
-                  </summary>
-
-                  <div style={detailsContentStyle}>
-                    <DetailRow label="Vrsta" value={z.vrsta ?? "—"} />
-                    <DetailRow label="Tip zadatka" value={tipZadatkaLabel(z)} />
-                    <DetailRow
-                      label="Zadao"
-                      value={prikaziKorisnika(z.zadaoKorisnik)}
-                    />
-                    <DetailRow
-                      label="Izvršio"
-                      value={prikaziKorisnika(z.izvrsioKorisnik)}
-                    />
-                    <DetailRow label="Zadano" value={formatDatum(z.zadanoAt)} />
-                    <DetailRow
-                      label="Izvršeno"
-                      value={formatDatum(z.izvrsenoAt)}
-                    />
-                    <DetailRow
-                      label="Napomena"
-                      value={z.napomena?.trim() ? z.napomena : "—"}
-                    />
-
-                    {imaStavke ? (
-                      <>
-                        <DetailRow
-                          label="Broj preparata"
-                          value={String(z.stavke.length)}
-                        />
-                        <div style={innerSectionTitleStyle}>Stavke zadatka</div>
-
-                        <div style={{ display: "grid", gap: 8 }}>
-                          {z.stavke.map((s, index) => (
-                            <div key={s.id} style={subBoxStyle}>
-                              <div style={subBoxTopStyle}>
-                                <strong style={{ fontWeight: 600 }}>
-                                  {index + 1}. {s.preparat?.naziv ?? "—"}
-                                </strong>
-                                <span style={{ fontSize: 12, color: "#7f1d1d" }}>
-                                  Vezana stavka
-                                </span>
-                              </div>
-
-                              <div style={{ display: "grid", gap: 4, marginTop: 8 }}>
-                                <div style={subMetaTextStyle}>
-                                  Preporučena doza: {preporucenaDozaText(s.preparat)}
-                                </div>
-                                <div style={subMetaTextStyle}>
-                                  Odabrana doza:{" "}
-                                  {s.doza != null
-                                    ? `${formatBroj(s.doza)} ${s.jedinica?.naziv ?? ""}`.trim()
-                                    : "—"}
-                                </div>
-                                <div style={subMetaTextStyle}>
-                                  Volumen u tanku:{" "}
-                                  {s.volumenUTanku != null
-                                    ? `${formatBroj(s.volumenUTanku)} L`
-                                    : "—"}
-                                </div>
-                                <div style={subMetaTextStyle}>
-                                  Ukupno za dodati:{" "}
-                                  {s.izracunataKolicina != null
-                                    ? `${formatBroj(s.izracunataKolicina)} ${
-                                        s.izlaznaJedinica?.naziv ?? ""
-                                      }`.trim()
-                                    : "—"}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <DetailRow
-                          label="Sredstvo"
-                          value={z.preparat?.naziv ?? "—"}
-                        />
-                        <DetailRow
-                          label="Preporučena doza"
-                          value={preporucenaDozaText(z.preparat)}
-                        />
-                        <DetailRow
-                          label="Odabrana doza"
-                          value={
-                            z.doza != null
-                              ? `${formatBroj(z.doza)} ${z.jedinica?.naziv ?? ""}`.trim()
-                              : "—"
-                          }
-                        />
-                        <DetailRow
-                          label="Volumen u tanku"
-                          value={
-                            z.volumenUTanku != null
-                              ? `${formatBroj(z.volumenUTanku)} L`
-                              : "—"
-                          }
-                        />
-                        <DetailRow
-                          label="Ukupno za dodati"
-                          value={
-                            z.izracunataKolicina != null
-                              ? `${formatBroj(z.izracunataKolicina)} ${
-                                  z.izlaznaJedinica?.naziv ?? ""
-                                }`.trim()
-                              : "—"
-                          }
-                        />
-                      </>
-                    )}
-                  </div>
-                </details>
-              );
-            })}
-          </div>
-        )}
+        <OdZadnjeArhive granica={granicaArhive} />
+        <div style={{ padding: 10 }}>
+          <Kronologija dogadaji={dogadaji} />
+        </div>
       </Card>
+
 
       <Card
         title="Porijeklo vina / sastavnice blenda"
@@ -1980,118 +2101,7 @@ export default async function TankPregledPage({
         </div>
       </Card>
 
-      {/* --- RADNJE: tablica koju postojeci monitor nije citao. --- */}
-      <Card
-        title="Radnje"
-        broj={radnje.length}
-        pod="NOVO — dosad se nisu prikazivale"
-        sklopljena
-      >
-        <OdZadnjeArhive granica={granicaArhive} />
-        {radnje.length === 0 ? (
-          <div style={mutedTextStyle}>Nema radnji.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 6, padding: 10 }}>
-            {radnje.map((r) => (
-              <div key={r.id} style={zapisKarticaStyle}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  {r.opis || String(r.vrsta)}
-                </div>
-                <div style={mutedTextStyle}>
-                  {String(r.vrsta)}
-                  {r.kolicina != null
-                    ? ` · ${formatBroj(r.kolicina)} ${r.jedinica?.naziv ?? ""}`.trimEnd()
-                    : ""}
-                  {r.preparat?.naziv ? ` · ${r.preparat.naziv}` : ""} ·{" "}
-                  {prikaziKorisnika(r.korisnik)} · {formatDatum(r.createdAt)}
-                </div>
-                {r.napomena ? (
-                  <div style={mutedTextStyle}>{r.napomena}</div>
-                ) : null}
-                {r.zadatakId === null ? (
-                  <div style={{ ...mutedTextStyle, color: "#9a3412" }}>
-                    samostalna radnja (bez zadatka)
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
 
-
-      {/* --- PRETOCI: ulazi i izlazi. Postojeci monitor Pretok nije citao. --- */}
-      <Card
-        title="Pretoci"
-        broj={pretociUlaz.length + pretociIzlaz.length}
-        pod="NOVO — dosad se nisu prikazivali"
-        sklopljena
-      >
-        <OdZadnjeArhive granica={granicaArhive} />
-        {pretociUlaz.length + pretociIzlaz.length === 0 ? (
-          <div style={mutedTextStyle}>Nema pretoka.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 6, padding: 10 }}>
-            {pretociUlaz.map((pr) => (
-              <div key={pr.id} style={zapisKarticaStyle}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  ↓ Ulaz ({String(pr.tip)})
-                </div>
-                <div style={mutedTextStyle}>
-                  {pr.izvori
-                    .map((i) => `tank ${i.tank.broj}: ${formatBroj(i.kolicina)} L`)
-                    .join(" · ")}{" "}
-                  · {formatDatum(pr.datum)}
-                </div>
-                {pr.napomena ? (
-                  <div style={mutedTextStyle}>{pr.napomena}</div>
-                ) : null}
-              </div>
-            ))}
-            {pretociIzlaz.map((i) => (
-              <div key={i.id} style={zapisKarticaStyle}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  ↑ Izlaz u tank {i.pretok.ciljTank.broj}
-                </div>
-                <div style={mutedTextStyle}>
-                  {formatBroj(i.kolicina)} L · {String(i.pretok.tip)} ·{" "}
-                  {formatDatum(i.pretok.datum)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-
-      {/* --- DOLASCI PRIJENOSOM: prijenos zivi na IZVORNOM tanku, ciljni ga
-              vidi samo ovuda. --- */}
-      <Card
-        title="Dolasci prijenosom"
-        broj={dolasciPrijenosom.length}
-        pod="NOVO — prijenos živi na izvornom tanku"
-        sklopljena
-      >
-        <OdZadnjeArhive granica={granicaArhive} />
-        {dolasciPrijenosom.length === 0 ? (
-          <div style={mutedTextStyle}>Nema dolazaka prijenosom.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 6, padding: 10 }}>
-            {dolasciPrijenosom.map((st) => (
-              <div key={st.id} style={zapisKarticaStyle}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  Iz tanka {st.zadatak.tank.broj} — {formatBroj(st.kolicina)} L
-                </div>
-                <div style={mutedTextStyle}>
-                  {String(st.zadatak.vrsta)} · izvršio{" "}
-                  {prikaziKorisnika(st.zadatak.izvrsioKorisnik)} ·{" "}
-                  {formatDatum(st.zadatak.izvrsenoAt)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
 
       {/* --- ARHIVE: s monitora dosad nije bilo puta do arhive. --- */}
       <Card
@@ -2122,187 +2132,6 @@ export default async function TankPregledPage({
             ))}
           </div>
         )}
-      </Card>
-
-      <Card
-        title="Punjenja"
-        broj={punjenja.length}
-        pod="SVA — prije se prikazivalo samo najnovije"
-        sklopljena
-      >
-        <OdZadnjeArhive granica={granicaArhive} />
-        <div style={{ display: "grid", gap: 8 }}>
-          {punjenja.map((p) => {
-            const ukupnoLitara = p.stavke.reduce(
-              (sum, s) => sum + Number(s.kolicinaLitara ?? 0),
-              0
-            );
-            const ukupnoKg = p.stavke.reduce(
-              (sum, s) => sum + Number(s.kolicinaKgGrozdja ?? 0),
-              0
-            );
-
-            return (
-              <details key={p.id} style={detailsStyle}>
-                <summary style={summaryStyle}>
-                  <div style={{ display: "grid", gap: 2 }}>
-                    <div style={summaryMainTextStyle}>
-                      {p.nazivVina || "Punjenje bez naziva"}
-                    </div>
-                    <div style={summarySubTextStyle}>
-                      {formatDatum(p.datumPunjenja)}
-                    </div>
-                  </div>
-
-                  <div style={summaryRightStyle}>
-                    {formatBroj(ukupnoLitara)} L · {formatBroj(ukupnoKg)} kg
-                  </div>
-                </summary>
-
-                <div style={detailsContentStyle}>
-                  <DetailRow label="Naziv vina" value={p.nazivVina || "—"} />
-                  <DetailRow
-                    label="Datum punjenja"
-                    value={formatDatum(p.datumPunjenja)}
-                  />
-                  <DetailRow
-                    label="Ukupno litara"
-                    value={`${formatBroj(p.ukupnoLitara)} L`}
-                  />
-                  <DetailRow
-                    label="Ukupno kg grožđa"
-                    value={`${formatBroj(p.ukupnoKgGrozdja)} kg`}
-                  />
-                  <DetailRow label="Napomena" value={p.napomena || "—"} />
-                  <DetailRow label="Opis" value={p.opis || "—"} />
-
-                  <div style={innerSectionTitleStyle}>Stavke punjenja</div>
-
-                  {p.stavke.length === 0 ? (
-                    <div style={mutedTextStyle}>Nema stavki.</div>
-                  ) : (
-                    <div style={{ display: "grid", gap: 6 }}>
-                      {p.stavke.map((s) => (
-                        <div key={s.id} style={subBoxStyle}>
-                          <div style={subBoxTopStyle}>
-                            <strong style={{ fontWeight: 600 }}>
-                              {s.nazivSorte || "—"}
-                            </strong>
-                            <span>{formatBroj(s.kolicinaLitara)} L</span>
-                          </div>
-                          <div style={subMetaTextStyle}>
-                            Kg grožđa: {formatBroj(s.kolicinaKgGrozdja)} kg
-                          </div>
-                          <div style={subMetaTextStyle}>
-                            Položaj: {s.polozaj || "—"}
-                          </div>
-                          <div style={subMetaTextStyle}>
-                            Opis: {s.opis || "—"}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </details>
-            );
-          })}
-        </div>
-      </Card>
-
-      <Card title="Izlazi" broj={izlaziZaPrikaz.length} sklopljena>
-        <OdZadnjeArhive granica={granicaArhive} />
-        <div style={izlazSummaryWrapStyle}>
-          <div style={izlazSummaryBadgeStyle}>
-            Ukupno izašlo: <strong>{formatBroj(ukupnoIzlazLitara, 0)} L</strong>
-          </div>
-          <div style={izlazSummaryBadgeStyle}>
-            Punjenje: <strong>{formatBroj(ukupnoPunjenjeLitara, 0)} L</strong>
-          </div>
-          <div style={izlazSummaryBadgeStyle}>
-            Prodaja / rinfuza:{" "}
-            <strong>{formatBroj(ukupnoProdajaLitara, 0)} L</strong>
-          </div>
-          <div style={izlazSummaryBadgeStyle}>
-            Ukupno boca: <strong>{formatBroj(ukupnoBoca, 0)}</strong>
-          </div>
-        </div>
-
-        <div style={izlazListStyle}>
-          {izlaziZaPrikaz.map((stavka) => (
-            <details key={stavka.id} style={detailsStyle}>
-              <summary style={summaryStyle}>
-                <div style={{ display: "grid", gap: 2 }}>
-                  <div style={summaryMainTextStyle}>
-                    {formatTipIzlaza(stavka.tip)}
-                  </div>
-                  <div style={summarySubTextStyle}>
-                    {formatDatum(stavka.datum)}
-                  </div>
-                </div>
-
-                <div style={summaryRightStyle}>
-                  {formatBroj(stavka.kolicinaLitara, 0)} L
-                </div>
-              </summary>
-
-              <div style={detailsContentStyle}>
-                <div style={izlazInfoGridStyle}>
-                  <div style={izlazInfoCardStyle}>
-                    <div style={izlazInfoLabelStyle}>Tip izlaza</div>
-                    <div style={izlazInfoValueStyle}>
-                      {formatTipIzlaza(stavka.tip)}
-                    </div>
-                  </div>
-
-                  <div style={izlazInfoCardStyle}>
-                    <div style={izlazInfoLabelStyle}>Datum</div>
-                    <div style={izlazInfoValueStyle}>
-                      {formatDatum(stavka.datum)}
-                    </div>
-                  </div>
-
-                  <div style={izlazInfoCardStyle}>
-                    <div style={izlazInfoLabelStyle}>Količina</div>
-                    <div style={izlazInfoValueStyle}>
-                      {formatBroj(stavka.kolicinaLitara, 0)} L
-                    </div>
-                  </div>
-
-                  <div style={izlazInfoCardStyle}>
-                    <div style={izlazInfoLabelStyle}>Broj boca</div>
-                    <div style={izlazInfoValueStyle}>
-                      {stavka.brojBoca != null
-                        ? formatBroj(stavka.brojBoca, 0)
-                        : "—"}
-                    </div>
-                  </div>
-
-                  <div style={izlazInfoCardStyle}>
-                    <div style={izlazInfoLabelStyle}>Volumen boce</div>
-                    <div style={izlazInfoValueStyle}>
-                      {stavka.volumenBoce != null
-                        ? `${formatBroj(stavka.volumenBoce, 2)} L`
-                        : "—"}
-                    </div>
-                  </div>
-
-                  <div style={izlazInfoCardStyle}>
-                    <div style={izlazInfoLabelStyle}>Upisano</div>
-                    <div style={izlazInfoValueStyle}>
-                      {formatDatum(stavka.createdAt)}
-                    </div>
-                  </div>
-                </div>
-
-                <DetailRow
-                  label="Napomena"
-                  value={stavka.napomena?.trim() ? stavka.napomena : "—"}
-                />
-              </div>
-            </details>
-          ))}
-        </div>
       </Card>
 
       <Card
@@ -3140,47 +2969,3 @@ const mjerenjeMiniValueStrongStyle: React.CSSProperties = {
   color: "#2f2f2f",
 };
 
-const izlazSummaryWrapStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-  gap: 6,
-  padding: 8,
-};
-
-const izlazSummaryBadgeStyle: React.CSSProperties = {
-  border: "1px solid rgba(127,29,29,0.18)",
-  background: "#fcfcfc",
-  padding: "8px 10px",
-  fontSize: 12,
-  color: "#44403c",
-};
-
-const izlazListStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 0,
-};
-
-const izlazInfoGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-  gap: 6,
-};
-
-const izlazInfoCardStyle: React.CSSProperties = {
-  border: "1px solid #ececec",
-  background: "#fcfcfc",
-  padding: "8px 10px",
-  display: "grid",
-  gap: 4,
-};
-
-const izlazInfoLabelStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "#6b7280",
-};
-
-const izlazInfoValueStyle: React.CSSProperties = {
-  fontSize: 13,
-  fontWeight: 600,
-  color: "#2f2f2f",
-};
