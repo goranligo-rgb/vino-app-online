@@ -3,6 +3,12 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { izracunajNoviSastavPretoka } from "@/lib/pretok-sastav";
+import { jeMjerenjePrazno, NAPOMENA_BEZ_PARAMETARA } from "@/lib/filtracija";
+import {
+  vrijednostiTankaPoPolju,
+  rasponDatumaIzvora,
+  type IzvorPolja,
+} from "@/lib/mjerenja";
 import { Prisma, TipPretokaDb } from "@prisma/client";
 
 type UlazPretoka = {
@@ -79,11 +85,17 @@ function round6(n: number) {
   return Number(n.toFixed(6));
 }
 
-async function dohvatiZadnjeMjerenjeZaTank(tankId: string) {
-  return prisma.mjerenje.findFirst({
-    where: { tankId },
-    orderBy: { izmjerenoAt: "desc" },
-  });
+/**
+ * Vrijednosti tanka PO POLJU, ne "zadnji redak mjerenja".
+ *
+ * Prije je ovdje stajao `findFirst` s `orderBy: izmjerenoAt desc`, pa je pretok
+ * uzimao samo ono sto je bilo u zadnjem retku. Kako se SO2 mjeri tjedno, a
+ * alkohol/kiseline/secer rijetko, taj je redak gotovo uvijek imao samo SO2 —
+ * i pretok bi u ciljni tank upisao mjerenje bez alkohola, iako alkohol na
+ * izvoru postoji, samo je stariji. Vidi lib/mjerenja.ts.
+ */
+async function dohvatiVrijednostiZaTank(tankId: string) {
+  return vrijednostiTankaPoPolju(prisma, tankId);
 }
 
 function nazivTanka(
@@ -639,9 +651,9 @@ export async function POST(req: Request) {
       ciljTankId,
     });
 
-    const zadnjeMjerenjeCilja = await dohvatiZadnjeMjerenjeZaTank(ciljTankId);
-    const zadnjaMjerenjaIzvora = await Promise.all(
-      izvori.map((i) => dohvatiZadnjeMjerenjeZaTank(i.tankId))
+    const vrijednostiCilja = await dohvatiVrijednostiZaTank(ciljTankId);
+    const vrijednostiIzvora = await Promise.all(
+      izvori.map((i) => dohvatiVrijednostiZaTank(i.tankId))
     );
 
     const trenutnoUCilju = Number(ciljTank.kolicinaVinaUTanku ?? 0);
@@ -650,35 +662,27 @@ export async function POST(req: Request) {
 
     const weightedInputs: MjerenjeWeighted[] = [];
 
-    if (trenutnoUCilju > 0 && zadnjeMjerenjeCilja) {
+    // Podrijetlo svakog polja koje je stvarno uslo u prosjek — sluzi napomeni
+    // da rezultat ne izgleda kao jedno mjerenje uzeto u jednom trenutku.
+    const koristenaPodrijetla: IzvorPolja[] = [];
+
+    if (trenutnoUCilju > 0 && !jeMjerenjePrazno(vrijednostiCilja.vrijednosti)) {
       weightedInputs.push({
         kolicina: trenutnoUCilju,
-        alkohol: zadnjeMjerenjeCilja.alkohol,
-        ukupneKiseline: zadnjeMjerenjeCilja.ukupneKiseline,
-        hlapiveKiseline: zadnjeMjerenjeCilja.hlapiveKiseline,
-        slobodniSO2: zadnjeMjerenjeCilja.slobodniSO2,
-        ukupniSO2: zadnjeMjerenjeCilja.ukupniSO2,
-        secer: zadnjeMjerenjeCilja.secer,
-        ph: zadnjeMjerenjeCilja.ph,
-        temperatura: zadnjeMjerenjeCilja.temperatura,
+        ...vrijednostiCilja.vrijednosti,
       });
+      koristenaPodrijetla.push(vrijednostiCilja.izvorPolja);
     }
 
     izvori.forEach((izvor, index) => {
-      const m = zadnjaMjerenjaIzvora[index];
-      if (!m) return;
+      const v = vrijednostiIzvora[index];
+      if (jeMjerenjePrazno(v.vrijednosti)) return;
 
       weightedInputs.push({
         kolicina: Number(izvor.kolicina),
-        alkohol: m.alkohol,
-        ukupneKiseline: m.ukupneKiseline,
-        hlapiveKiseline: m.hlapiveKiseline,
-        slobodniSO2: m.slobodniSO2,
-        ukupniSO2: m.ukupniSO2,
-        secer: m.secer,
-        ph: m.ph,
-        temperatura: m.temperatura,
+        ...v.vrijednosti,
       });
+      koristenaPodrijetla.push(v.izvorPolja);
     });
 
     const novoMjerenje = {
@@ -723,12 +727,39 @@ export async function POST(req: Request) {
       ),
     };
 
+    // Prenosi li ovaj pretok ijedan parametar? Ako izvori (i zateceni sadrzaj
+    // cilja) nemaju nijednu upisanu vrijednost, ponderiranje vrati osam nulla i
+    // upis bi bio lazan zapis "izmjereno" bez ijednog izmjerenog podatka. Takav
+    // redak k tome postaje NAJNOVIJE mjerenje ciljnog tanka, pa ga svaki iduci
+    // pretok uzme kao polaznu vrijednost i praznina se siri dalje.
+    //
+    // Isti guard filtracija ima od faze 3A (lib/filtracija.ts:1057 i :1252);
+    // pretok ga nije imao, pa je u bazi ostavio 2 posve prazna mjerenja.
+    // `jeMjerenjePrazno` se UVOZI iz lib/filtracija.ts — nema druge kopije.
+    const parametriPreneseni = !jeMjerenjePrazno(novoMjerenje);
+
+    // Rezultat je prosjek preko vise tankova i moguce vise datuma. Bez ovoga bi
+    // izgledao kao jedno mjerenje uzeto u jednom trenutku.
+    const rasponIzvora = rasponDatumaIzvora(koristenaPodrijetla);
+    const dodatakONastanku = rasponIzvora
+      ? ` Vrijednosti su složene iz mjerenja od ${rasponIzvora.od.toLocaleDateString(
+          "hr-HR"
+        )} do ${rasponIzvora.do.toLocaleDateString("hr-HR")}.`
+      : "";
+
     const rezultat = await prisma.$transaction(async (tx) => {
       const pretok = await tx.pretok.create({
         data: {
           ciljTankId,
           tip: tipPretoka,
-          napomena,
+          // Pretok, za razliku od filtracije, ne stvara `Radnja` — pa se podatak
+          // o neprenesenim parametrima dopisuje ovdje. Korisnikov tekst ostaje
+          // netaknut ispred, isti spoj " • " kao u filtraciji.
+          napomena: parametriPreneseni
+            ? napomena
+            : [napomena?.trim() || null, NAPOMENA_BEZ_PARAMETARA]
+                .filter(Boolean)
+                .join(" • "),
           izvori: {
             create: izvori.map((i) => ({
               tankId: i.tankId,
@@ -965,30 +996,38 @@ export async function POST(req: Request) {
           );
         }
 
-        const createdMjerenje = await tx.mjerenje.create({
-          data: {
-            tankId: ciljTankId,
-            korisnikId: null,
-            alkohol: novoMjerenje.alkohol,
-            ukupneKiseline: novoMjerenje.ukupneKiseline,
-            hlapiveKiseline: novoMjerenje.hlapiveKiseline,
-            slobodniSO2: novoMjerenje.slobodniSO2,
-            ukupniSO2: novoMjerenje.ukupniSO2,
-            secer: novoMjerenje.secer,
-            ph: novoMjerenje.ph,
-            temperatura: novoMjerenje.temperatura,
-            napomena: "Automatski izračunato novo mjerenje nakon običnog pretoka.",
-            jeRucno: false,
-          },
-        });
+        // Prazno mjerenje se NE upisuje. `pretokMjerenje.create` mora biti pod
+        // istim uvjetom — inace bi veza pokazivala na mjerenje koje ne postoji.
+        // Prazan popis auto-mjerenja pretok/undo vec podnosi (uvjet `notIn` se
+        // tada ne dodaje), pa ondje nema sto mijenjati.
+        if (parametriPreneseni) {
+          const createdMjerenje = await tx.mjerenje.create({
+            data: {
+              tankId: ciljTankId,
+              korisnikId: null,
+              alkohol: novoMjerenje.alkohol,
+              ukupneKiseline: novoMjerenje.ukupneKiseline,
+              hlapiveKiseline: novoMjerenje.hlapiveKiseline,
+              slobodniSO2: novoMjerenje.slobodniSO2,
+              ukupniSO2: novoMjerenje.ukupniSO2,
+              secer: novoMjerenje.secer,
+              ph: novoMjerenje.ph,
+              temperatura: novoMjerenje.temperatura,
+              napomena:
+                "Automatski izračunato novo mjerenje nakon običnog pretoka." +
+                dodatakONastanku,
+              jeRucno: false,
+            },
+          });
 
-        await tx.pretokMjerenje.create({
-          data: {
-            pretokId: pretok.id,
-            mjerenjeId: createdMjerenje.id,
-            tankId: ciljTankId,
-          },
-        });
+          await tx.pretokMjerenje.create({
+            data: {
+              pretokId: pretok.id,
+              mjerenjeId: createdMjerenje.id,
+              tankId: ciljTankId,
+            },
+          });
+        }
 
         return {
           pretok,
@@ -1123,33 +1162,38 @@ export async function POST(req: Request) {
         });
       }
 
-      const createdMjerenje = await tx.mjerenje.create({
-        data: {
-          tankId: ciljTankId,
-          korisnikId: null,
-          alkohol: novoMjerenje.alkohol,
-          ukupneKiseline: novoMjerenje.ukupneKiseline,
-          hlapiveKiseline: novoMjerenje.hlapiveKiseline,
-          slobodniSO2: novoMjerenje.slobodniSO2,
-          ukupniSO2: novoMjerenje.ukupniSO2,
-          secer: novoMjerenje.secer,
-          ph: novoMjerenje.ph,
-          temperatura: novoMjerenje.temperatura,
-          napomena:
-            tipPretoka === TipPretokaDb.CUVEE
-              ? "Automatski izračunato novo mjerenje nakon cuvéea."
-              : "Automatski izračunato novo mjerenje nakon blenda iste sorte.",
-          jeRucno: false,
-        },
-      });
+      // Isti guard kao na obicnom pretoku gore — cuvée i blend iste sorte
+      // jednako lako proizvedu prazan redak kad izvori nemaju mjerenja.
+      if (parametriPreneseni) {
+        const createdMjerenje = await tx.mjerenje.create({
+          data: {
+            tankId: ciljTankId,
+            korisnikId: null,
+            alkohol: novoMjerenje.alkohol,
+            ukupneKiseline: novoMjerenje.ukupneKiseline,
+            hlapiveKiseline: novoMjerenje.hlapiveKiseline,
+            slobodniSO2: novoMjerenje.slobodniSO2,
+            ukupniSO2: novoMjerenje.ukupniSO2,
+            secer: novoMjerenje.secer,
+            ph: novoMjerenje.ph,
+            temperatura: novoMjerenje.temperatura,
+            napomena:
+              (tipPretoka === TipPretokaDb.CUVEE
+                ? "Automatski izračunato novo mjerenje nakon cuvéea."
+                : "Automatski izračunato novo mjerenje nakon blenda iste sorte.") +
+              dodatakONastanku,
+            jeRucno: false,
+          },
+        });
 
-      await tx.pretokMjerenje.create({
-        data: {
-          pretokId: pretok.id,
-          mjerenjeId: createdMjerenje.id,
-          tankId: ciljTankId,
-        },
-      });
+        await tx.pretokMjerenje.create({
+          data: {
+            pretokId: pretok.id,
+            mjerenjeId: createdMjerenje.id,
+            tankId: ciljTankId,
+          },
+        });
+      }
 
       return {
         pretok,

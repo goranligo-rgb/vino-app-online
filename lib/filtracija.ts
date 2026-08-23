@@ -5,6 +5,18 @@ import {
   jePrijenosVina,
   nazivVrste,
 } from "@/lib/vrste-prijenosa";
+import {
+  vrijednostiTankaPoPolju,
+  rasponDatumaIzvora,
+  POLJA_MJERENJA,
+  type IzvorPolja,
+  type VrijednostiMjerenja,
+} from "@/lib/mjerenja";
+
+// Rjecnik mjerenja je preseljen u lib/mjerenja.ts (inace bi uvoz isao u krug).
+// Re-izvozi se odavde da zateceni uvozi iz ovog modula rade nepromijenjeno.
+export { POLJA_MJERENJA };
+export type { VrijednostiMjerenja };
 
 /**
  * Prijenos vina: FILTRACIJA, FLOTACIJA i TALOZENJE.
@@ -68,21 +80,8 @@ export function uLitre(ml: number): number {
 // je identican jer je rijec o omjeru — jedinica se dijeljenjem skrati. Ovdje su
 // mililitri zato sto cijeli modul racuna u njima; to drzi test-ponderirano.ts.
 
-/** Osam polja koja se ponderiraju. Bentotest i napomena se NE prenose. */
-export const POLJA_MJERENJA = [
-  "alkohol",
-  "ukupneKiseline",
-  "hlapiveKiseline",
-  "slobodniSO2",
-  "ukupniSO2",
-  "secer",
-  "ph",
-  "temperatura",
-] as const;
-
-export type VrijednostiMjerenja = {
-  [K in (typeof POLJA_MJERENJA)[number]]: number | null;
-};
+// POLJA_MJERENJA i VrijednostiMjerenja su definirani u lib/mjerenja.ts i
+// re-izvezeni na vrhu ovog modula. Bentotest i napomena se NE prenose.
 
 /** Jedan ulaz u prosjek: koliko ga ima (ml) i s kojim vrijednostima. */
 export type UlazMjerenja = {
@@ -1037,17 +1036,17 @@ export async function izvrsiFiltraciju(
   const zbrojUlazaMl = unos.stavke.reduce((s, v) => s + v.kolicinaMl, 0);
   const gubitakMl = unos.kolicinaIzlazMl - zbrojUlazaMl;
 
-  // Zadnje mjerenje IZVORA — cita se JEDNOM, prije petlje po ciljevima. Vino
+  // Vrijednosti IZVORA — citaju se JEDNOM, prije petlje po ciljevima. Vino
   // koje izlazi iz tanka je homogeno, pa svaki ciljni tank dobiva vino istih
   // parametara; citanje po cilju bio bi cist visak upita.
-  const zadnjeMjerenjeIzvora = await tx.mjerenje.findFirst({
-    where: { tankId: izvor.id },
-    orderBy: { izmjerenoAt: "desc" },
-  });
-
-  const vrijednostiIzvora = zadnjeMjerenjeIzvora
-    ? vrijednostiIzMjerenja(zadnjeMjerenjeIzvora)
-    : null;
+  //
+  // PO POLJU, ne "zadnji redak": prije je ovdje stajao findFirst orderBy desc,
+  // pa je izvor doprinosio samo onim sto je bilo u zadnjem retku. Kako se SO2
+  // mjeri tjedno, a alkohol/kiseline/secer rijetko, taj redak gotovo uvijek
+  // nosi samo SO2 — i ciljni tank bi dobio mjerenje bez alkohola iako alkohol
+  // na izvoru postoji, samo je stariji. Vidi lib/mjerenja.ts.
+  const izvorPoPolju = await vrijednostiTankaPoPolju(tx, izvor.id);
+  const vrijednostiIzvora = izvorPoPolju.vrijednosti;
 
   // Izvor bez ijednog mjerenja — ili s mjerenjem u kojem su sva polja prazna —
   // ciljnim tankovima NE upisuje nista. Racun bi dao ili prazan redak (prazan
@@ -1060,6 +1059,18 @@ export async function izvrsiFiltraciju(
   // Automatska mjerenja koja ce ovaj prijenos stvoriti; zavrsavaju u
   // snapshotJson (vidi FiltracijaSnapshot.autoMjerenjaIds).
   const autoMjerenjaIds: string[] = [];
+
+  // Rezultat je prosjek preko izvora i (kad ga ima) zatecenog sadrzaja cilja,
+  // moguce iz vise datuma. Bez ovoga bi izgledao kao jedno mjerenje uzeto u
+  // jednom trenutku. Poziva se po cilju, s podrijetlima bas tog cilja.
+  const dodatakONastankuZa = (podrijetla: IzvorPolja[]) => {
+    const raspon = rasponDatumaIzvora(podrijetla);
+    return raspon
+      ? ` Vrijednosti su složene iz mjerenja od ${raspon.od.toLocaleDateString(
+          "hr-HR"
+        )} do ${raspon.do.toLocaleDateString("hr-HR")}.`
+      : "";
+  };
 
   // JEDAN trenutak za sve: izvrsenoAt zadatka i izmjerenoAt svih automatskih
   // mjerenja. Time granica u ponistavanju (izmjerenoAt > izvrsenoAt) ne moze
@@ -1221,22 +1232,25 @@ export async function izvrsiFiltraciju(
     if (parametriPreneseni && vrijednostiIzvora) {
       const ulaziMjerenja: UlazMjerenja[] = [];
 
-      if (ciljPrijeMl > 0) {
-        const zadnjeMjerenjeCilja = await tx.mjerenje.findFirst({
-          where: { tankId: cilj.tank.id },
-          orderBy: { izmjerenoAt: "desc" },
-        });
+      // Podrijetlo polja koja ulaze u prosjek OVOG cilja. Namjerno lokalno za
+      // svaki cilj — zajednicki popis bi se nakupljao kroz petlju, pa bi drugi
+      // ciljni tank u napomeni nosio i datume prvoga.
+      const podrijetlaOvogCilja: IzvorPolja[] = [izvorPoPolju.izvorPolja];
 
-        // Cilj koji ima vina ali nema svoje mjerenje ne doprinosi nicim, pa
+      if (ciljPrijeMl > 0) {
+        const ciljPoPolju = await vrijednostiTankaPoPolju(tx, cilj.tank.id);
+
+        // Cilj koji ima vina ali nema nijedno mjerenje ne doprinosi nicim, pa
         // rezultat opisuje samo dolazni dio, a upisuje se kao mjerenje cijelog
-        // tanka. Ista netocnost postoji i u pretoku (app/api/pretok/route.ts
-        // :645) i namjerno se preslikava — bolje isto ponasanje na oba puta
-        // nego dva razlicita.
-        if (zadnjeMjerenjeCilja) {
+        // tanka. Ista netocnost postoji i u pretoku (app/api/pretok/route.ts)
+        // i namjerno se preslikava — bolje isto ponasanje na oba puta nego dva
+        // razlicita.
+        if (!jeMjerenjePrazno(ciljPoPolju.vrijednosti)) {
           ulaziMjerenja.push({
             kolicinaMl: ciljPrijeMl,
-            vrijednosti: vrijednostiIzMjerenja(zadnjeMjerenjeCilja),
+            vrijednosti: ciljPoPolju.vrijednosti,
           });
+          podrijetlaOvogCilja.push(ciljPoPolju.izvorPolja);
         }
       }
 
@@ -1257,9 +1271,10 @@ export async function izvrsiFiltraciju(
             ...novoMjerenje,
             izmjerenoAt: datumIzvrsenja,
             jeRucno: false,
-            napomena: `Automatski izračunato nakon ${genitivVrste(
-              zadatak.vrsta
-            )} iz tanka ${izvor.broj}.`,
+            napomena:
+              `Automatski izračunato nakon ${genitivVrste(
+                zadatak.vrsta
+              )} iz tanka ${izvor.broj}.` + dodatakONastankuZa(podrijetlaOvogCilja),
           },
         });
 

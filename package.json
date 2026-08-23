@@ -12,7 +12,8 @@
     "postinstall": "prisma generate",
     "test:ponderirano": "tsx scripts/test-ponderirano.ts",
     "test:filtracija:baza": "tsx scripts/test-filtracija-baza.ts",
-    "test:berba": "tsx scripts/test-berba-polja.ts"
+    "test:berba": "tsx scripts/test-berba-polja.ts",
+    "test:fallback": "tsx scripts/test-mjerenja-fallback.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
