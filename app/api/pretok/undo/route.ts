@@ -9,6 +9,7 @@ export const maxDuration = 60;
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, smijeUpravljati } from "@/lib/zadatak-auth";
+import { razlogZabranePonistavanja } from "@/lib/pretok-ponistavanje";
 
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.filter(Boolean))) as string[];
@@ -239,6 +240,15 @@ export async function POST(req: Request) {
         },
         { status: 400 }
       );
+    }
+
+    // BRANA: pretok koji je arhivirao izvorni tank se ne smije ponistiti.
+    // Ide POSLIJE svih provjera kasnijih promjena — tek tada je sigurno da
+    // arhiva na izvornom tanku moze biti samo od ovog pretoka.
+    const zabrana = await razlogZabranePonistavanja(prisma, pretok);
+
+    if (zabrana) {
+      return NextResponse.json({ error: zabrana }, { status: 400 });
     }
 
     await prisma.$transaction(async (tx) => {

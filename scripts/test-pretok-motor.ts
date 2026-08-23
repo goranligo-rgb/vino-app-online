@@ -25,6 +25,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { FiltracijaGreska, uMl } from "../lib/filtracija";
 import { izvrsiPretok, provjeriUlazPretoka } from "../lib/pretok-motor";
+import { razlogZabranePonistavanja } from "../lib/pretok-ponistavanje";
 
 type Tx = Prisma.TransactionClient;
 
@@ -615,9 +616,156 @@ async function main() {
     );
   });
 
+
   // -------------------------------------------------------------------------
   console.log("");
-  console.log("=== DIO 3: cista provjera ulaza, bez baze ===");
+  console.log("=== DIO 4: brana na ponistavanju (faza 5b) ===");
+  console.log("");
+
+  await scenarij("DOKAZ 9: pretok BEZ arhiviranog izvora se smije ponistiti", async (tx) => {
+    const izvor = await napraviTank(tx, { kolicina: 1000, nazivVina: "TEST vino", sorta: "Grasevina" });
+    const cilj = await napraviTank(tx, { kolicina: 0 });
+
+    const pretok = await tx.pretok.create({
+      data: {
+        ciljTankId: cilj.id,
+        tip: "OBICNI",
+        izvori: { create: [{ tankId: izvor.id, kolicina: 400 }] },
+        ciljevi: { create: [{ tankId: cilj.id, kolicina: 400, redoslijed: 0 }] },
+      },
+      include: { izvori: true, ciljevi: true },
+    });
+
+    const razlog = await razlogZabranePonistavanja(tx, pretok);
+    jednako(razlog, null, "nema arhive → ponistavanje dopusteno");
+  });
+
+  await scenarij("DOKAZ 10: pretok koji je ARHIVIRAO izvor se NE smije ponistiti", async (tx) => {
+    const izvor = await napraviTank(tx, { kolicina: 1000, nazivVina: "TEST vino", sorta: "Grasevina" });
+    const cilj = await napraviTank(tx, { kolicina: 0 });
+
+    const pretok = await tx.pretok.create({
+      data: {
+        ciljTankId: cilj.id,
+        tip: "OBICNI",
+        izvori: { create: [{ tankId: izvor.id, kolicina: 1000 }] },
+        ciljevi: { create: [{ tankId: cilj.id, kolicina: 1000, redoslijed: 0 }] },
+      },
+      include: { izvori: true, ciljevi: true },
+    });
+
+    // Arhiva nastala u istom trenutku kao pretok — tocno ono sto
+    // arhivirajPotroseniTank napravi kad izvor padne na nulu.
+    await tx.arhivaVina.create({
+      data: {
+        tankId: izvor.id,
+        brojTanka: izvor.broj,
+        nazivVina: "TEST vino",
+        sorta: "Grasevina",
+        kolicinaVina: 1000,
+        tipArhive: "PRIVREMENA",
+        arhiviranoAt: pretok.createdAt,
+      },
+    });
+
+    const razlog = await razlogZabranePonistavanja(tx, pretok);
+
+    tvrdi(razlog !== null, "arhiva postoji → ponistavanje odbijeno");
+    tvrdi(
+      (razlog ?? "").includes(`tank ${izvor.broj}`),
+      "poruka imenuje arhivirani tank"
+    );
+    tvrdi(
+      (razlog ?? "").includes(`tanka ${cilj.broj}`),
+      "poruka kaze iz kojeg tanka vino treba vratiti"
+    );
+    tvrdi(
+      (razlog ?? "").includes("napravi novi pretok"),
+      "poruka kaze STO korisnik moze umjesto toga"
+    );
+    tvrdi((razlog ?? "").includes("1000 L"), "poruka navodi kolicinu");
+  });
+
+  await scenarij("DOKAZ 11: STARIJA arhiva istog tanka ne blokira ponistavanje", async (tx) => {
+    const izvor = await napraviTank(tx, { kolicina: 1000, nazivVina: "TEST vino", sorta: "Grasevina" });
+    const cilj = await napraviTank(tx, { kolicina: 0 });
+
+    const pretok = await tx.pretok.create({
+      data: {
+        ciljTankId: cilj.id,
+        tip: "OBICNI",
+        izvori: { create: [{ tankId: izvor.id, kolicina: 400 }] },
+        ciljevi: { create: [{ tankId: cilj.id, kolicina: 400, redoslijed: 0 }] },
+      },
+      include: { izvori: true, ciljevi: true },
+    });
+
+    // Arhiva od PRIJE — neko ranije vino istog tanka. Nema veze s ovim pretokom.
+    await tx.arhivaVina.create({
+      data: {
+        tankId: izvor.id,
+        brojTanka: izvor.broj,
+        nazivVina: "Prethodno vino",
+        kolicinaVina: 500,
+        tipArhive: "PRIVREMENA",
+        arhiviranoAt: new Date(pretok.createdAt.getTime() - 60 * 60 * 1000),
+      },
+    });
+
+    const razlog = await razlogZabranePonistavanja(tx, pretok);
+    jednako(razlog, null, "arhiva starija od sat vremena ne blokira");
+  });
+
+  await scenarij("DOKAZ 12: arhiviran JEDAN od vise izvora vec blokira", async (tx) => {
+    const i1 = await napraviTank(tx, { kolicina: 600, nazivVina: "A", sorta: "Grasevina" });
+    const i2 = await napraviTank(tx, { kolicina: 400, nazivVina: "B", sorta: "Sauvignon" });
+    const c1 = await napraviTank(tx, { kolicina: 0 });
+    const c2 = await napraviTank(tx, { kolicina: 0 });
+
+    const pretok = await tx.pretok.create({
+      data: {
+        ciljTankId: c1.id,
+        tip: "CUVEE",
+        izvori: {
+          create: [
+            { tankId: i1.id, kolicina: 600 },
+            { tankId: i2.id, kolicina: 400 },
+          ],
+        },
+        ciljevi: {
+          create: [
+            { tankId: c1.id, kolicina: 500, redoslijed: 0 },
+            { tankId: c2.id, kolicina: 480, redoslijed: 1 },
+          ],
+        },
+      },
+      include: { izvori: true, ciljevi: true },
+    });
+
+    await tx.arhivaVina.create({
+      data: {
+        tankId: i2.id,
+        brojTanka: i2.broj,
+        nazivVina: "B",
+        kolicinaVina: 400,
+        tipArhive: "PRIVREMENA",
+        arhiviranoAt: pretok.createdAt,
+      },
+    });
+
+    const razlog = await razlogZabranePonistavanja(tx, pretok);
+
+    tvrdi(razlog !== null, "arhiviran drugi izvor blokira ponistavanje");
+    tvrdi((razlog ?? "").includes(`tank ${i2.broj}`), "poruka imenuje bas taj izvor");
+    tvrdi(
+      (razlog ?? "").includes(`tankova ${[c1.broj, c2.broj].sort((a, b) => a - b).join(", ")}`),
+      "poruka nabraja OBA ciljna tanka"
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  console.log("");
+  console.log("=== DIO 5: cista provjera ulaza, bez baze ===");
   console.log("");
 
   const osnovni = {
