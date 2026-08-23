@@ -503,8 +503,11 @@ async function main() {
           izvori: [{ tankId: a.id, kolicina: 100 }],
           ciljevi: [{ tankId: b.id, kolicina: 100 }],
         }),
-      "napomena o načinu",
-      "nacin bez napomene"
+      // Napomena o nacinu je NEOBAVEZNA — vidi obrazlozenje u
+      // lib/pretok-motor.ts. Ovdje se dokazuje da NE pada na napomeni nego tek
+      // na drugom vinu u cilju.
+      "već sadrži drugo vino",
+      "nacin bez napomene ne pada na napomeni"
     );
 
     await ocekujGresku(

@@ -18,6 +18,43 @@ type IzvorRed = {
   kolicina: string;
 };
 
+/** Ciljni red je zrcalo izvornog — isti oblik, druga strana. */
+type CiljRed = {
+  tankId: string;
+  kolicina: string;
+};
+
+/**
+ * KAKO je pretok izveden. Neovisno o vrsti: cuvée se moze raditi kroz filtar i
+ * bez njega.
+ */
+type Nacin = "BEZ" | "FILTRACIJA" | "FLOTACIJA";
+
+/**
+ * Prag iznad kojeg se kalo zuti — VEZAN UZ NACIN, ne konstanta.
+ *
+ * Talozenje kod korisnika normalno ima 10–15 % kala, pa bi ga jedan prag od 5 %
+ * stalno zutio bez razloga. Ako se nacin ikad prosiri, prag se dodaje ovdje, a
+ * ne u uvjet nize.
+ */
+const PRAG_KALA: Record<Nacin, number> = {
+  BEZ: 5,
+  FILTRACIJA: 5,
+  FLOTACIJA: 15,
+};
+
+const NACINI: Array<{ id: Nacin; naziv: string }> = [
+  { id: "BEZ", naziv: "Bez" },
+  { id: "FILTRACIJA", naziv: "Filtracija" },
+  { id: "FLOTACIJA", naziv: "Flotacija" },
+];
+
+const VRSTE: Array<{ id: TipPretoka; naziv: string }> = [
+  { id: "OBICNI", naziv: "Obični" },
+  { id: "CUVEE", naziv: "Cuvée" },
+  { id: "BLEND_ISTE_SORTE", naziv: "Ista sorta" },
+];
+
 type TipPretoka = "OBICNI" | "CUVEE" | "BLEND_ISTE_SORTE";
 
 type ZadnjiPretok = {
@@ -110,29 +147,6 @@ function nazivTipaPretoka(tip?: string | null) {
   return "Obični pretok";
 }
 
-function Kartica({
-  naslov,
-  vrijednost,
-  podnaslov,
-}: {
-  naslov: string;
-  vrijednost: string;
-  podnaslov?: string;
-}) {
-  return (
-    <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 px-4 py-4">
-      <div className="text-[11px] uppercase tracking-[0.14em] text-orange-800/70">
-        {naslov}
-      </div>
-      <div className="mt-1 text-[24px] leading-none font-semibold text-stone-800">
-        {vrijednost}
-      </div>
-      {podnaslov ? (
-        <div className="mt-2 text-[12px] text-stone-500">{podnaslov}</div>
-      ) : null}
-    </div>
-  );
-}
 
 function Oznaka({ children }: { children: React.ReactNode }) {
   return (
@@ -312,11 +326,44 @@ function ZadnjiPretociPanel({
   );
 }
 
+/**
+ * Cip za izbor. Jedan dodir umjesto dva kao kod padajuceg izbornika — isto kao
+ * filtri u kronologiji. Prelama se u vise redova umjesto da se stisne.
+ */
+function Cip({
+  aktivan,
+  onClick,
+  children,
+}: {
+  aktivan: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={aktivan}
+      className={`border px-4 py-2 text-[14px] transition ${
+        aktivan
+          ? "border-orange-500 bg-orange-100 font-semibold text-orange-900"
+          : "border-orange-200 bg-white text-stone-600 hover:bg-orange-50"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function PretokPage() {
   const [tankovi, setTankovi] = useState<Tank[]>([]);
   const [zadnjiPretoci, setZadnjiPretoci] = useState<ZadnjiPretok[]>([]);
   const [tipPretoka, setTipPretoka] = useState<TipPretoka>("OBICNI");
-  const [cilj, setCilj] = useState("");
+  const [ciljevi, setCiljevi] = useState<CiljRed[]>([
+    { tankId: "", kolicina: "" },
+  ]);
+  const [nacin, setNacin] = useState<Nacin>("BEZ");
+  const [nacinNapomena, setNacinNapomena] = useState("");
   const [izvori, setIzvori] = useState<IzvorRed[]>([
     { tankId: "", kolicina: "" },
   ]);
@@ -384,15 +431,48 @@ export default function PretokPage() {
     });
   }
 
+  function dodajCilj() {
+    setCiljevi((prev) => [...prev, { tankId: "", kolicina: "" }]);
+  }
+
+  function obrisiCilj(index: number) {
+    setCiljevi((prev) => {
+      if (prev.length === 1) return [{ tankId: "", kolicina: "" }];
+      return prev.filter((_, i) => i !== index);
+    });
+  }
+
+  function updateCilj(index: number, field: keyof CiljRed, value: string) {
+    setCiljevi((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, [field]: value } : row))
+    );
+  }
+
   function update(index: number, field: keyof IzvorRed, value: string) {
     setIzvori((prev) =>
       prev.map((r, i) => (i === index ? { ...r, [field]: value } : r))
     );
   }
 
-  const ciljTank = useMemo(
-    () => tankovi.find((t) => t.id === cilj) ?? null,
-    [tankovi, cilj]
+  const odabraniCiljevi = useMemo(() => {
+    return ciljevi
+      .map((row, index) => {
+        const tank = tankovi.find((t) => t.id === row.tankId) ?? null;
+        const kolicina = Number(row.kolicina || 0);
+        return { index, tankId: row.tankId, tank, kolicina };
+      })
+      .filter((r) => r.tank && r.kolicina > 0);
+  }, [ciljevi, tankovi]);
+
+  /** Prvi odabrani cilj — sluzi predlaganju sorte i pregledu prije spremanja. */
+  const prviCiljTank = useMemo(
+    () => tankovi.find((t) => t.id === ciljevi[0]?.tankId) ?? null,
+    [tankovi, ciljevi]
+  );
+
+  const odabraniCiljIds = useMemo(
+    () => new Set(ciljevi.map((c) => c.tankId).filter(Boolean)),
+    [ciljevi]
   );
 
   const odabraniIzvori = useMemo(() => {
@@ -415,16 +495,32 @@ export default function PretokPage() {
     return odabraniIzvori.reduce((sum, r) => sum + r.kolicina, 0);
   }, [odabraniIzvori]);
 
-  const novoStanjeCilja = useMemo(() => {
-    return Number(ciljTank?.kolicinaVinaUTanku ?? 0) + ukupnoPretok;
-  }, [ciljTank, ukupnoPretok]);
+  const ukupnoUCiljeve = useMemo(() => {
+    return odabraniCiljevi.reduce((sum, r) => sum + r.kolicina, 0);
+  }, [odabraniCiljevi]);
 
-  const slobodnoUCilju = useMemo(() => {
-    return (
-      Number(ciljTank?.kapacitet ?? 0) -
-      Number(ciljTank?.kolicinaVinaUTanku ?? 0)
-    );
-  }, [ciljTank]);
+  /**
+   * KALO ispada iz razlike — nikad se ne upisuje. Da se upisuje, forma i server
+   * mogli bi tvrditi razlicite brojke.
+   */
+  const kalo = useMemo(
+    () => Number((ukupnoPretok - ukupnoUCiljeve).toFixed(3)),
+    [ukupnoPretok, ukupnoUCiljeve]
+  );
+
+  const kaloPostotak = useMemo(
+    () => (ukupnoPretok > 0 ? (kalo / ukupnoPretok) * 100 : 0),
+    [kalo, ukupnoPretok]
+  );
+
+  /** Iznad praga se zuti; prag ovisi o nacinu, ne o konstanti. */
+  const kaloVisok = kalo > 0 && kaloPostotak > PRAG_KALA[nacin];
+
+  /** Koliko je od izaslog jos nerasporedjeno — sluzi gumbu ostatak. */
+  const nerasporedjeno = useMemo(
+    () => Number((ukupnoPretok - ukupnoUCiljeve).toFixed(3)),
+    [ukupnoPretok, ukupnoUCiljeve]
+  );
 
   const sorteIzvora = Array.from(
     new Set(
@@ -436,7 +532,7 @@ export default function PretokPage() {
 
   const sveSorte = Array.from(
     new Set(
-      [ciljTank?.sorta, ...odabraniIzvori.map((r) => r.tank?.sorta)].filter(
+      [prviCiljTank?.sorta, ...odabraniIzvori.map((r) => r.tank?.sorta)].filter(
         (s): s is string => Boolean(s)
       )
     )
@@ -456,7 +552,7 @@ export default function PretokPage() {
         const jedinaSorta =
           sorteIzvora.length === 1
             ? sorteIzvora[0]
-            : ciljTank?.sorta || predlozenaSorta || "";
+            : prviCiljTank?.sorta || predlozenaSorta || "";
         if (jedinaSorta) {
           setSortaNovogVina(jedinaSorta);
         }
@@ -468,13 +564,22 @@ export default function PretokPage() {
         setSortaNovogVina(predlozenaSorta || "Cuvée");
       }
     }
-  }, [tipPretoka, sorteIzvora, ciljTank, predlozenaSorta, sortaNovogVina]);
+  }, [tipPretoka, sorteIzvora, prviCiljTank, predlozenaSorta, sortaNovogVina]);
 
   async function spremi() {
     setPoruka("");
 
-    if (!cilj) {
-      setPoruka("Odaberi ciljni tank.");
+    const cistiCiljevi = ciljevi
+      .map((c) => ({ tankId: c.tankId, kolicina: Number(c.kolicina) }))
+      .filter((c) => c.tankId && c.kolicina > 0);
+
+    if (cistiCiljevi.length === 0) {
+      setPoruka("Dodaj barem jedan ciljni tank i količinu.");
+      return;
+    }
+
+    if (new Set(cistiCiljevi.map((c) => c.tankId)).size !== cistiCiljevi.length) {
+      setPoruka("Isti ciljni tank ne može biti odabran više puta.");
       return;
     }
 
@@ -490,8 +595,8 @@ export default function PretokPage() {
       return;
     }
 
-    if (cistiIzvori.some((i) => i.tankId === cilj)) {
-      setPoruka("Ciljni tank ne može biti ujedno i izvorni tank.");
+    if (cistiIzvori.some((i) => cistiCiljevi.some((c) => c.tankId === i.tankId))) {
+      setPoruka("Isti tank ne može biti i izvor i cilj.");
       return;
     }
 
@@ -518,10 +623,36 @@ export default function PretokPage() {
       }
     }
 
-    if (ciljTank && novoStanjeCilja > ciljTank.kapacitet) {
+    for (const c of cistiCiljevi) {
+      const tank = tankovi.find((t) => t.id === c.tankId);
+
+      if (!tank) {
+        setPoruka("Jedan od odabranih ciljnih tankova ne postoji.");
+        return;
+      }
+
+      const slobodno =
+        Number(tank.kapacitet ?? 0) - Number(tank.kolicinaVinaUTanku ?? 0);
+
+      if (c.kolicina > slobodno) {
+        setPoruka(
+          `U tank ${tank.broj} ne stane ${formatL(c.kolicina)} L — slobodno je ${formatL(
+            slobodno
+          )} L.`
+        );
+        return;
+      }
+    }
+
+    // Negativan kalo znaci da u ciljeve ulazi vise nego sto iz izvora izlazi —
+    // vino niotkuda. Server to isto odbija; ovdje se samo kaze ranije i jasnije.
+    const izlazUkupno = cistiIzvori.reduce((z, i) => z + i.kolicina, 0);
+    const ulazUkupno = cistiCiljevi.reduce((z, c) => z + c.kolicina, 0);
+
+    if (ulazUkupno > izlazUkupno) {
       setPoruka(
-        `Ciljni tank nema dovoljno kapaciteta. Maksimalno slobodno: ${formatL(
-          slobodnoUCilju
+        `U ciljeve ulazi ${formatL(ulazUkupno)} L, a iz izvora izlazi samo ${formatL(
+          izlazUkupno
         )} L.`
       );
       return;
@@ -548,11 +679,14 @@ export default function PretokPage() {
           : "Novo vino – ista sorta"
       }`,
       "",
-      ciljTank
-        ? `Cilj: Tank ${ciljTank.broj} — ${nazivTankaKratko(
-            ciljTank
-          )} — trenutno ${formatL(Number(ciljTank.kolicinaVinaUTanku ?? 0))} L`
-        : "",
+      "Ciljevi:",
+      ...cistiCiljevi.map((c) => {
+        const t = tankovi.find((x) => x.id === c.tankId);
+        const uTanku = Number(t?.kolicinaVinaUTanku ?? 0);
+        return `- Tank ${t?.broj} — ${nazivTankaKratko(t)} — ulazi ${formatL(
+          c.kolicina
+        )} L, bit će ${formatL(uTanku + c.kolicina)} L`;
+      }),
       "",
       ...(trebaNovoVino
         ? [
@@ -569,8 +703,12 @@ export default function PretokPage() {
         )} — pretok ${formatL(r.kolicina)} L od ${formatL(dostupno)} L`;
       }),
       "",
-      `Ukupno za pretok: ${formatL(ukupnoPretok)} L`,
-      `Novo stanje ciljnog tanka: ${formatL(novoStanjeCilja)} L`,
+      `Izlazi: ${formatL(izlazUkupno)} L`,
+      `Ulazi: ${formatL(ulazUkupno)} L`,
+      `Kalo: ${formatL(izlazUkupno - ulazUkupno)} L`,
+      `Način: ${NACINI.find((n) => n.id === nacin)?.naziv ?? "Bez"}${
+        nacinNapomena.trim() ? ` — ${nacinNapomena.trim()}` : ""
+      }`,
       `Napomena: ${napomena || "-"}`,
     ].join("\n");
 
@@ -587,7 +725,12 @@ export default function PretokPage() {
         },
         body: JSON.stringify({
           tipPretoka,
-          ciljTankId: cilj,
+          // Glavni cilj se i dalje salje radi kompatibilnosti; pravi popis je
+          // `ciljevi`.
+          ciljTankId: cistiCiljevi[0].tankId,
+          ciljevi: cistiCiljevi,
+          nacin,
+          nacinNapomena: nacinNapomena.trim() || null,
           nazivNovogVina: trebaNovoVino ? nazivNovogVina.trim() : null,
           sortaNovogVina: trebaNovoVino ? sortaNovogVina.trim() : null,
           napomena: napomena.trim() || null,
@@ -604,7 +747,7 @@ export default function PretokPage() {
 
       await ucitajPretoke();
       alert("Pretok uspješan!");
-      location.href = `/tankovi/${cilj}`;
+      location.href = `/tankovi/${cistiCiljevi[0].tankId}`;
     } catch (e) {
       console.error(e);
       setPoruka("Greška kod pretoka.");
@@ -705,29 +848,56 @@ export default function PretokPage() {
             Pretoci / spajanja
           </h1>
           <div className="mt-1 text-[13px] text-stone-500">
-            Odaberi tip pretoka, ciljni tank i izvore iz kojih pretačeš vino.
+            Odaberi vrstu i način, pa upiši iz kojih tankova vino izlazi i u
+            koje ulazi. Kalo ispada iz razlike.
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
-          <Kartica
-            naslov="Tip pretoka"
-            vrijednost={
-              tipPretoka === "OBICNI"
-                ? "Obični"
-                : tipPretoka === "CUVEE"
-                ? "Cuvée"
-                : "Ista sorta"
-            }
-          />
-          <Kartica
-            naslov="Ukupno za pretok"
-            vrijednost={`${formatL(ukupnoPretok)} L`}
-          />
-          <Kartica
-            naslov="Novo stanje cilja"
-            vrijednost={ciljTank ? `${formatL(novoStanjeCilja)} L` : "-"}
-          />
+        {/* TRAKA S KALOM. Na mobitelu je ljepljiva na dnu, jer je to jedini
+            broj koji se provjerava dok se tipka. */}
+        <div className="sticky bottom-0 z-10 -mx-4 border-y border-orange-200 bg-white/95 px-4 py-3 backdrop-blur md:static md:mx-0 md:rounded-none md:border">
+          <div className="flex flex-wrap items-baseline justify-center gap-x-6 gap-y-1 text-[15px]">
+            <span>
+              <span className="text-stone-500">Izlazi </span>
+              <strong className="text-stone-800">{formatL(ukupnoPretok)} L</strong>
+            </span>
+            <span className="text-stone-300">·</span>
+            <span>
+              <span className="text-stone-500">ulazi </span>
+              <strong className="text-stone-800">{formatL(ukupnoUCiljeve)} L</strong>
+            </span>
+            <span className="text-stone-300">·</span>
+            <span
+              className={
+                kalo < 0
+                  ? "font-semibold text-red-700"
+                  : kaloVisok
+                    ? "font-semibold text-amber-800"
+                    : "text-stone-700"
+              }
+            >
+              <span className="text-stone-500">kalo </span>
+              <strong>{formatL(kalo)} L</strong>
+              {ukupnoPretok > 0 && (
+                <span className="ml-1 text-[13px]">
+                  ({kaloPostotak.toFixed(1).replace(".", ",")} %)
+                </span>
+              )}
+            </span>
+          </div>
+
+          {kalo < 0 && (
+            <div className="mt-2 border border-red-200 bg-red-50 px-3 py-2 text-center text-[13px] font-medium text-red-800">
+              U ciljeve ulazi više nego što iz izvora izlazi.
+            </div>
+          )}
+
+          {kaloVisok && (
+            <div className="mt-2 border border-amber-300 bg-amber-50 px-3 py-2 text-center text-[13px] text-amber-900">
+              Kalo je iznad {PRAG_KALA[nacin]} % — provjeri brojke. Ovo ne
+              sprječava spremanje.
+            </div>
+          )}
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -735,18 +905,48 @@ export default function PretokPage() {
             <div className="border border-orange-200 bg-gradient-to-b from-white to-orange-50 p-4">
               <div className="grid gap-4">
                 <div>
-                  <label className="mb-1 block text-[13px] font-semibold text-stone-700">
-                    Tip pretoka
+                  <label className="mb-2 block text-[13px] font-semibold text-stone-700">
+                    Vrsta
                   </label>
-                  <select
-                    value={tipPretoka}
-                    onChange={(e) => setTipPretoka(e.target.value as TipPretoka)}
-                    className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
-                  >
-                    <option value="OBICNI">Obični pretok</option>
-                    <option value="CUVEE">Novo vino – cuvée</option>
-                    <option value="BLEND_ISTE_SORTE">Novo vino – ista sorta</option>
-                  </select>
+                  <div className="flex flex-wrap gap-2">
+                    {VRSTE.map((v) => (
+                      <Cip
+                        key={v.id}
+                        aktivan={tipPretoka === v.id}
+                        onClick={() => setTipPretoka(v.id)}
+                      >
+                        {v.naziv}
+                      </Cip>
+                    ))}
+                  </div>
+
+                  <label className="mt-4 mb-2 block text-[13px] font-semibold text-stone-700">
+                    Način
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {NACINI.map((n) => (
+                      <Cip
+                        key={n.id}
+                        aktivan={nacin === n.id}
+                        onClick={() => setNacin(n.id)}
+                      >
+                        {n.naziv}
+                      </Cip>
+                    ))}
+                  </div>
+
+                  {nacin !== "BEZ" && (
+                    <input
+                      value={nacinNapomena}
+                      onChange={(e) => setNacinNapomena(e.target.value)}
+                      placeholder={
+                        nacin === "FILTRACIJA"
+                          ? "npr. kroz pločasti filtar (neobavezno)"
+                          : "npr. s bentonitom (neobavezno)"
+                      }
+                      className="mt-2 w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
+                    />
+                  )}
                 </div>
 
                 {trebaNovoVino && (
@@ -784,97 +984,128 @@ export default function PretokPage() {
                 )}
 
                 <div>
-                  <label className="mb-1 block text-[13px] font-semibold text-stone-700">
-                    Ciljni tank
-                  </label>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <label className="text-[13px] font-semibold text-stone-700">
+                      Ciljni tankovi
+                    </label>
 
-                  <select
-                    value={cilj}
-                    onChange={(e) => setCilj(e.target.value)}
-                    className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
-                  >
-                    <option value="">Odaberi ciljni tank</option>
-                    {tankovi.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {opisTanka(t)}
-                      </option>
-                    ))}
-                  </select>
+                    <button
+                      type="button"
+                      onClick={dodajCilj}
+                      className="border border-orange-300 bg-white px-3 py-2 text-[13px] font-medium text-stone-700 hover:bg-orange-50"
+                    >
+                      + Dodaj cilj
+                    </button>
+                  </div>
 
-                  {ciljTank && (
-                    <div className="mt-3 border border-orange-200 bg-white p-4">
-                      <div className="mb-3 text-[14px] font-semibold text-stone-800">
-                        Podaci o ciljnom tanku
-                      </div>
+                  <div className="space-y-3">
+                    {ciljevi.map((row, i) => {
+                      const odabrani =
+                        tankovi.find((t) => t.id === row.tankId) ?? null;
 
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                        <div className="border border-orange-100 bg-orange-50/40 px-3 py-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-orange-800/70">
-                            Tank
+                      const uTanku = Number(odabrani?.kolicinaVinaUTanku ?? 0);
+                      const kapacitet = Number(odabrani?.kapacitet ?? 0);
+                      const slobodno = kapacitet - uTanku;
+                      const trazeno = Number(row.kolicina || 0);
+                      const nePrima = odabrani != null && trazeno > slobodno;
+
+                      return (
+                        <div
+                          key={i}
+                          className="grid gap-3 border border-orange-200 bg-white p-4 md:grid-cols-[minmax(0,1fr)_180px_110px]"
+                        >
+                          <div className="grid gap-2">
+                            <select
+                              value={row.tankId}
+                              onChange={(e) => updateCilj(i, "tankId", e.target.value)}
+                              className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
+                            >
+                              <option value="">Odaberi ciljni tank</option>
+                              {tankovi.map((t) => {
+                                const zauzetKaoIzvor = izvori.some(
+                                  (r) => r.tankId === t.id
+                                );
+                                const zauzetKaoCilj = ciljevi.some(
+                                  (r, idx) => idx !== i && r.tankId === t.id
+                                );
+
+                                return (
+                                  <option
+                                    key={t.id}
+                                    value={t.id}
+                                    disabled={zauzetKaoIzvor || zauzetKaoCilj}
+                                  >
+                                    {opisTanka(t)}
+                                  </option>
+                                );
+                              })}
+                            </select>
+
+                            {odabrani && (
+                              <div className="text-[13px] text-stone-500">
+                                {formatL(uTanku)} / {formatL(kapacitet)} L ·
+                                slobodno {formatL(slobodno)} L
+                                {odabrani.nazivVina?.trim()
+                                  ? ` · ${odabrani.nazivVina.trim()}`
+                                  : " · prazan"}
+                              </div>
+                            )}
+
+                            {nePrima && (
+                              <div className="text-[12px] font-medium text-red-700">
+                                Ne stane — slobodno je {formatL(slobodno)} L.
+                              </div>
+                            )}
                           </div>
-                          <div className="mt-1 text-[16px] font-semibold text-stone-800">
-                            {ciljTank.broj}
+
+                          <div className="grid gap-2">
+                            <input
+                              type="number"
+                              step="0.01"
+                              inputMode="decimal"
+                              placeholder="L"
+                              value={row.kolicina}
+                              onChange={(e) => updateCilj(i, "kolicina", e.target.value)}
+                              className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
+                            />
+
+                            {/* "Ostatak" radi i s jednim i s tri cilja: upises
+                                prvom, drugom, a zadnji uzme sto je preostalo. */}
+                            {odabrani && nerasporedjeno + trazeno > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateCilj(
+                                    i,
+                                    "kolicina",
+                                    String(
+                                      Math.min(
+                                        Number((nerasporedjeno + trazeno).toFixed(3)),
+                                        slobodno
+                                      )
+                                    )
+                                  )
+                                }
+                                className="border border-orange-200 bg-orange-50 px-2 py-1 text-[12px] text-stone-600 hover:bg-orange-100"
+                              >
+                                ostatak
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="flex items-start">
+                            <button
+                              type="button"
+                              onClick={() => obrisiCilj(i)}
+                              className="w-full border border-red-200 bg-red-50 px-3 py-3 text-[13px] font-semibold text-red-700 hover:bg-red-100"
+                            >
+                              Obriši
+                            </button>
                           </div>
                         </div>
-
-                        <div className="border border-orange-100 bg-orange-50/40 px-3 py-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-orange-800/70">
-                            Kapacitet
-                          </div>
-                          <div className="mt-1 text-[16px] font-semibold text-stone-800">
-                            {formatL(Number(ciljTank.kapacitet ?? 0))} L
-                          </div>
-                        </div>
-
-                        <div className="border border-orange-100 bg-orange-50/40 px-3 py-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-orange-800/70">
-                            Trenutno unutra
-                          </div>
-                          <div className="mt-1 text-[16px] font-semibold text-stone-800">
-                            {formatL(Number(ciljTank.kolicinaVinaUTanku ?? 0))} L
-                          </div>
-                        </div>
-
-                        <div className="border border-orange-100 bg-orange-50/40 px-3 py-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-orange-800/70">
-                            Slobodno
-                          </div>
-                          <div className="mt-1 text-[16px] font-semibold text-stone-800">
-                            {formatL(slobodnoUCilju)} L
-                          </div>
-                        </div>
-
-                        <div className="border border-orange-100 bg-orange-50/40 px-3 py-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-orange-800/70">
-                            Tip
-                          </div>
-                          <div className="mt-1 text-[16px] font-semibold text-stone-800">
-                            {ciljTank.tip || "-"}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 grid gap-3 md:grid-cols-2">
-                        <div className="border border-orange-100 bg-orange-50/30 px-3 py-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-orange-800/70">
-                            Naziv vina
-                          </div>
-                          <div className="mt-1 text-[15px] font-semibold text-stone-800">
-                            {ciljTank.nazivVina?.trim() || "-"}
-                          </div>
-                        </div>
-
-                        <div className="border border-orange-100 bg-orange-50/30 px-3 py-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-orange-800/70">
-                            Sorta
-                          </div>
-                          <div className="mt-1 text-[15px] font-semibold text-stone-800">
-                            {ciljTank.sorta || "-"}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -926,7 +1157,9 @@ export default function PretokPage() {
                             );
 
                             const disabled =
-                              t.id === cilj || kolicina <= 0 || zauzetUDrugomRedu;
+                              odabraniCiljIds.has(t.id) ||
+                              kolicina <= 0 ||
+                              zauzetUDrugomRedu;
 
                             return (
                               <option
@@ -994,7 +1227,7 @@ export default function PretokPage() {
               />
             </div>
 
-            {ciljTank && (
+            {odabraniCiljevi.length > 0 && (
               <div className="border border-orange-300 bg-gradient-to-b from-orange-50 to-amber-50 p-4">
                 <div className="mb-3 text-[18px] font-semibold text-stone-800">
                   Pregled pretoka prije spremanja
@@ -1041,25 +1274,38 @@ export default function PretokPage() {
                     )}
 
                     <div className="flex items-center justify-between gap-4">
-                      <span className="text-stone-500">Ciljni tank</span>
-                      <span>
-                        Tank {ciljTank.broj} — {nazivTankaKratko(ciljTank)}
-                      </span>
+                      <span className="text-stone-500">Način</span>
+                      <strong>
+                        {NACINI.find((n) => n.id === nacin)?.naziv ?? "Bez"}
+                        {nacinNapomena.trim() ? ` — ${nacinNapomena.trim()}` : ""}
+                      </strong>
                     </div>
 
-                    <div className="flex items-center justify-between gap-4">
-                      <span className="text-stone-500">Trenutno u ciljnom tanku</span>
-                      <span>{formatL(Number(ciljTank.kolicinaVinaUTanku ?? 0))} L</span>
-                    </div>
+                    {odabraniCiljevi.map((c) => {
+                      const uTanku = Number(c.tank?.kolicinaVinaUTanku ?? 0);
 
-                    <div className="flex items-center justify-between gap-4">
-                      <span className="text-stone-500">Kapacitet ciljnog tanka</span>
-                      <span>{formatL(Number(ciljTank.kapacitet ?? 0))} L</span>
-                    </div>
+                      return (
+                        <div
+                          key={c.tankId}
+                          className="flex items-center justify-between gap-4"
+                        >
+                          <span className="text-stone-500">
+                            U tank {c.tank?.broj} — {nazivTankaKratko(c.tank)}
+                          </span>
+                          <span>
+                            {formatL(c.kolicina)} L → bit će{" "}
+                            {formatL(uTanku + c.kolicina)} L
+                          </span>
+                        </div>
+                      );
+                    })}
 
-                    <div className="flex items-center justify-between gap-4">
-                      <span className="text-stone-500">Slobodno mjesta</span>
-                      <span>{formatL(slobodnoUCilju)} L</span>
+                    <div className="flex items-center justify-between gap-4 border-t border-orange-200 pt-2">
+                      <span className="text-stone-500">Izlazi / ulazi / kalo</span>
+                      <strong>
+                        {formatL(ukupnoPretok)} L / {formatL(ukupnoUCiljeve)} L /{" "}
+                        {formatL(kalo)} L
+                      </strong>
                     </div>
                   </div>
 
@@ -1104,13 +1350,17 @@ export default function PretokPage() {
                         </div>
 
                         <div className="flex items-center justify-between gap-4">
-                          <span className="text-stone-500">Novo stanje cilja</span>
-                          <strong>{formatL(novoStanjeCilja)} L</strong>
+                          <span className="text-stone-500">Ukupno u ciljeve</span>
+                          <strong>{formatL(ukupnoUCiljeve)} L</strong>
                         </div>
 
-                        {novoStanjeCilja > ciljTank.kapacitet && (
+                        {odabraniCiljevi.some(
+                          (c) =>
+                            Number(c.tank?.kolicinaVinaUTanku ?? 0) + c.kolicina >
+                            Number(c.tank?.kapacitet ?? 0)
+                        ) && (
                           <div className="border border-orange-300 bg-orange-50 px-4 py-3 text-[13px] font-semibold text-orange-800">
-                            Upozorenje: nakon pretoka ciljni tank prelazi kapacitet.
+                            Upozorenje: barem jedan ciljni tank prelazi kapacitet.
                           </div>
                         )}
                       </div>

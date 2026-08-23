@@ -86,6 +86,12 @@ export type UlazPretoka = {
   ciljevi: UlazTanka[];
   vrsta: VrstaPretoka;
   nacin: NacinPretoka;
+  /**
+   * Detalj o nacinu — koji filtar, kakve ploce. NEOBAVEZNA.
+   *
+   * Da je obavezna, upisivalo bi se "filtracija" ili tocka samo da se prode, pa
+   * bi polje izgubilo smisao. Sama cinjenica filtriranja vec je u `nacin`.
+   */
   nacinNapomena?: string | null;
   napomena?: string | null;
   korisnikId: string;
@@ -212,12 +218,6 @@ export function provjeriUlazPretoka(ulaz: UlazPretoka): ProvjereniUlaz {
     if (!norm(ulaz.noviIdentitet?.sorta)) {
       throw new FiltracijaGreska("Cuvée mora dobiti sortu novog vina.");
     }
-  }
-
-  if (ulaz.nacin !== "BEZ" && !norm(ulaz.nacinNapomena)) {
-    throw new FiltracijaGreska(
-      "Kad način nije „bez”, napomena o načinu je obavezna."
-    );
   }
 
   return { izvori, ciljevi, izlazMl, ulazMl, gubitakMl };

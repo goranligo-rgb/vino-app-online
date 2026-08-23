@@ -229,15 +229,9 @@ export async function POST(req: Request) {
         ? body.nacin
         : "BEZ";
 
+    // Neobavezna: detalj o nacinu, ne uvjet. Vidi lib/pretok-motor.ts.
     const nacinNapomena =
       typeof body?.nacinNapomena === "string" ? body.nacinNapomena.trim() : "";
-
-    if (nacin !== "BEZ" && !nacinNapomena) {
-      return NextResponse.json(
-        { error: "Kad način nije „bez”, napomena o načinu je obavezna." },
-        { status: 400 }
-      );
-    }
 
     if (
       (!ciljTankId && ciljeviMap.size === 0) ||
