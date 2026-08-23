@@ -207,7 +207,43 @@ export async function POST(req: Request) {
         ? Number(body.godiste)
         : null;
 
-    if (!ciljTankId || !Array.isArray(body?.izvori) || body.izvori.length === 0) {
+    // CILJEVI. Novi oblik je `ciljevi: [{ tankId, kolicina }]`; stari
+    // `ciljTankId` bez kolicine i dalje radi i znaci "sve sto izadje ide onamo".
+    // Forma se prebacuje u 5e-2, a stari oblik ostaje dok se ne uvjerimo da
+    // nista drugo ne gadja ovu rutu.
+    const ciljeviMap = new Map<string, number>();
+
+    if (Array.isArray(body?.ciljevi) && body.ciljevi.length > 0) {
+      for (const raw of body.ciljevi as Array<Record<string, unknown>>) {
+        const tankId = String(raw?.tankId ?? "").trim();
+        const kolicina = Number(raw?.kolicina ?? 0);
+
+        if (!tankId || !Number.isFinite(kolicina) || kolicina <= 0) continue;
+
+        ciljeviMap.set(tankId, Number((ciljeviMap.get(tankId) ?? 0) + kolicina));
+      }
+    }
+
+    const nacin =
+      body?.nacin === "FILTRACIJA" || body?.nacin === "FLOTACIJA"
+        ? body.nacin
+        : "BEZ";
+
+    const nacinNapomena =
+      typeof body?.nacinNapomena === "string" ? body.nacinNapomena.trim() : "";
+
+    if (nacin !== "BEZ" && !nacinNapomena) {
+      return NextResponse.json(
+        { error: "Kad način nije „bez”, napomena o načinu je obavezna." },
+        { status: 400 }
+      );
+    }
+
+    if (
+      (!ciljTankId && ciljeviMap.size === 0) ||
+      !Array.isArray(body?.izvori) ||
+      body.izvori.length === 0
+    ) {
       return NextResponse.json(
         { error: "Neispravni podaci." },
         { status: 400 }
@@ -242,7 +278,21 @@ export async function POST(req: Request) {
       );
     }
 
-    if (izvori.some((i) => i.tankId === ciljTankId)) {
+    const ukupnoIzIzvora = izvori.reduce((z, i) => z + Number(i.kolicina), 0);
+
+    // Stari oblik: jedan cilj koji prima sve sto je izaslo.
+    if (ciljeviMap.size === 0) ciljeviMap.set(ciljTankId, ukupnoIzIzvora);
+
+    const ciljevi = Array.from(ciljeviMap.entries()).map(([tankId, kolicina]) => ({
+      tankId,
+      kolicina,
+    }));
+
+    // GLAVNI cilj je prvi — on ide u `Pretok.ciljTankId`. Puni popis je u
+    // `PretokCilj`, koji od faze 4 nosi istinu.
+    const glavniCiljId = ciljevi[0].tankId;
+
+    if (izvori.some((i) => ciljeviMap.has(i.tankId))) {
       return NextResponse.json(
         { error: "Ciljni tank ne može istovremeno biti i izvor." },
         { status: 400 }
@@ -277,8 +327,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const ciljTank = await prisma.tank.findUnique({
-      where: { id: ciljTankId },
+    const ciljniTankovi = await prisma.tank.findMany({
+      where: { id: { in: ciljevi.map((c) => c.tankId) } },
       include: {
         udjeliSorti: {
           orderBy: { postotak: "desc" },
@@ -289,12 +339,15 @@ export async function POST(req: Request) {
       },
     });
 
-    if (!ciljTank) {
+    if (ciljniTankovi.length !== ciljevi.length) {
       return NextResponse.json(
-        { error: "Ciljni tank nije pronađen." },
+        { error: "Jedan ili više ciljnih tankova nisu pronađeni." },
         { status: 404 }
       );
     }
+
+    const ciljById = new Map(ciljniTankovi.map((t) => [t.id, t]));
+
 
     const sourceTankIds = izvori.map((i) => i.tankId);
 
@@ -341,23 +394,41 @@ export async function POST(req: Request) {
       }
     }
 
+    // Kapacitet ciljeva se provjerava TEK nakon dostupnosti u izvorima —
+    // inace bi zahtjev s prevelikom kolicinom javio "ne stane u cilj" umjesto
+    // "izvor nema toliko vina", a to je krivi uzrok.
+    for (const c of ciljevi) {
+      const t = ciljById.get(c.tankId)!;
+      const uTanku = Number(t.kolicinaVinaUTanku ?? 0);
+      const slobodno = Number(t.kapacitet ?? 0) - uTanku;
+
+      if (c.kolicina > slobodno) {
+        return NextResponse.json(
+          {
+            error: `U tank ${t.broj} ne stane ${c.kolicina} L — slobodno je ${slobodno} L.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Guard se provjerava za SVAKI cilj. Motor bi ga svejedno uhvatio, ali
+    // ovdje je poruka konkretnija i pada prije nego transakcija uopce pocne.
     if (tipPretoka === TipPretokaDb.OBICNI) {
       const sourceTank = sourceTankovi[0];
-      const ciljImaVino = Number(ciljTank.kolicinaVinaUTanku ?? 0) > 0;
 
-      if (ciljImaVino) {
-        const istaSorta =
-          (ciljTank.sorta ?? "").trim() === (sourceTank.sorta ?? "").trim();
+      for (const c of ciljevi) {
+        const t = ciljById.get(c.tankId)!;
+        if (Number(t.kolicinaVinaUTanku ?? 0) <= 0) continue;
 
+        const istaSorta = (t.sorta ?? "").trim() === (sourceTank.sorta ?? "").trim();
         const istiNaziv =
-          (ciljTank.nazivVina ?? "").trim() ===
-          (sourceTank.nazivVina ?? "").trim();
+          (t.nazivVina ?? "").trim() === (sourceTank.nazivVina ?? "").trim();
 
         if (!istaSorta || !istiNaziv) {
           return NextResponse.json(
             {
-              error:
-                "Ciljni tank već sadrži drugo vino. Za ovakvo spajanje koristi 'Novo vino – cuvée' ili 'Novo vino – ista sorta'.",
+              error: `Tank ${t.broj} već sadrži drugo vino. Za ovakvo spajanje koristi 'Novo vino – cuvée' ili 'Novo vino – ista sorta'.`,
             },
             { status: 400 }
           );
@@ -365,80 +436,78 @@ export async function POST(req: Request) {
       }
     }
 
-    const vrijednostiCilja = await dohvatiVrijednostiZaTank(ciljTankId);
     const vrijednostiIzvora = await Promise.all(
       izvori.map((i) => dohvatiVrijednostiZaTank(i.tankId))
     );
 
-    const trenutnoUCilju = Number(ciljTank.kolicinaVinaUTanku ?? 0);
-    const ukupnoDodano = izvori.reduce((sum, i) => sum + Number(i.kolicina), 0);
+    const ukupnoDodano = ciljevi.reduce((z, c) => z + Number(c.kolicina), 0);
 
-    const weightedInputs: MjerenjeWeighted[] = [];
-
-    // Podrijetlo svakog polja koje je stvarno uslo u prosjek — sluzi napomeni
-    // da rezultat ne izgleda kao jedno mjerenje uzeto u jednom trenutku.
+    // MJERENJE SE RACUNA PO CILJU.
+    //
+    // Svaki cilj ima svoj zatecen sadrzaj, pa i svoj ponderirani prosjek. Udio
+    // pojedinog izvora u pojedinom cilju je razmjeran tome koliko je u taj cilj
+    // uslo od ukupnog ulaza — isto kako motor dijeli blend i sastav.
+    //
+    // Uz jedan cilj i bez kala ovo daje TOCNO isti broj kao prije: tezina
+    // izvora je `kolicina * ulaz / ulaz`, dakle nepromijenjena.
     const koristenaPodrijetla: IzvorPolja[] = [];
 
-    if (trenutnoUCilju > 0 && !jeMjerenjePrazno(vrijednostiCilja.vrijednosti)) {
-      weightedInputs.push({
-        kolicina: trenutnoUCilju,
-        ...vrijednostiCilja.vrijednosti,
-      });
-      koristenaPodrijetla.push(vrijednostiCilja.izvorPolja);
-    }
+    const mjerenjaPoCilju = await Promise.all(
+      ciljevi.map(async (c) => {
+        const t = ciljById.get(c.tankId)!;
+        const trenutnoUCilju = Number(t.kolicinaVinaUTanku ?? 0);
+        const vrijednostiCilja = await dohvatiVrijednostiZaTank(c.tankId);
 
-    izvori.forEach((izvor, index) => {
-      const v = vrijednostiIzvora[index];
-      if (jeMjerenjePrazno(v.vrijednosti)) return;
+        const weightedInputs: MjerenjeWeighted[] = [];
 
-      weightedInputs.push({
-        kolicina: Number(izvor.kolicina),
-        ...v.vrijednosti,
-      });
-      koristenaPodrijetla.push(v.izvorPolja);
-    });
+        if (trenutnoUCilju > 0 && !jeMjerenjePrazno(vrijednostiCilja.vrijednosti)) {
+          weightedInputs.push({
+            kolicina: trenutnoUCilju,
+            ...vrijednostiCilja.vrijednosti,
+          });
+          koristenaPodrijetla.push(vrijednostiCilja.izvorPolja);
+        }
 
-    const novoMjerenje = {
-      alkohol: weightedAverage(
-        weightedInputs.map((x) => ({ kolicina: x.kolicina, value: x.alkohol }))
-      ),
-      ukupneKiseline: weightedAverage(
-        weightedInputs.map((x) => ({
-          kolicina: x.kolicina,
-          value: x.ukupneKiseline,
-        }))
-      ),
-      hlapiveKiseline: weightedAverage(
-        weightedInputs.map((x) => ({
-          kolicina: x.kolicina,
-          value: x.hlapiveKiseline,
-        }))
-      ),
-      slobodniSO2: weightedAverage(
-        weightedInputs.map((x) => ({
-          kolicina: x.kolicina,
-          value: x.slobodniSO2,
-        }))
-      ),
-      ukupniSO2: weightedAverage(
-        weightedInputs.map((x) => ({
-          kolicina: x.kolicina,
-          value: x.ukupniSO2,
-        }))
-      ),
-      secer: weightedAverage(
-        weightedInputs.map((x) => ({ kolicina: x.kolicina, value: x.secer }))
-      ),
-      ph: weightedAverage(
-        weightedInputs.map((x) => ({ kolicina: x.kolicina, value: x.ph }))
-      ),
-      temperatura: weightedAverage(
-        weightedInputs.map((x) => ({
-          kolicina: x.kolicina,
-          value: x.temperatura,
-        }))
-      ),
-    };
+        izvori.forEach((izvor, index) => {
+          const v = vrijednostiIzvora[index];
+          if (jeMjerenjePrazno(v.vrijednosti)) return;
+
+          const udio =
+            ukupnoDodano > 0
+              ? (Number(izvor.kolicina) * Number(c.kolicina)) / ukupnoDodano
+              : 0;
+
+          if (udio <= 0) return;
+
+          weightedInputs.push({ kolicina: udio, ...v.vrijednosti });
+          koristenaPodrijetla.push(v.izvorPolja);
+        });
+
+        const polje = (uzmi: (x: MjerenjeWeighted) => number | null) =>
+          weightedAverage(
+            weightedInputs.map((x) => ({ kolicina: x.kolicina, value: uzmi(x) }))
+          );
+
+        const vrijednosti = {
+          alkohol: polje((x) => x.alkohol),
+          ukupneKiseline: polje((x) => x.ukupneKiseline),
+          hlapiveKiseline: polje((x) => x.hlapiveKiseline),
+          slobodniSO2: polje((x) => x.slobodniSO2),
+          ukupniSO2: polje((x) => x.ukupniSO2),
+          secer: polje((x) => x.secer),
+          ph: polje((x) => x.ph),
+          temperatura: polje((x) => x.temperatura),
+        };
+
+        return { ciljTankId: c.tankId, vrijednosti, prazno: jeMjerenjePrazno(vrijednosti) };
+      })
+    );
+
+    // Odgovor i dalje nosi jedno mjerenje — ono glavnog cilja. Forma ga tako i
+    // prikazuje; puni popis po ciljevima se upisuje u bazu nize.
+    const novoMjerenje =
+      mjerenjaPoCilju.find((m) => m.ciljTankId === glavniCiljId)?.vrijednosti ??
+      mjerenjaPoCilju[0].vrijednosti;
 
     // Prenosi li ovaj pretok ijedan parametar? Ako izvori (i zateceni sadrzaj
     // cilja) nemaju nijednu upisanu vrijednost, ponderiranje vrati osam nulla i
@@ -446,10 +515,9 @@ export async function POST(req: Request) {
     // redak k tome postaje NAJNOVIJE mjerenje ciljnog tanka, pa ga svaki iduci
     // pretok uzme kao polaznu vrijednost i praznina se siri dalje.
     //
-    // Isti guard filtracija ima od faze 3A (lib/filtracija.ts:1057 i :1252);
-    // pretok ga nije imao, pa je u bazi ostavio 2 posve prazna mjerenja.
-    // `jeMjerenjePrazno` se UVOZI iz lib/filtracija.ts — nema druge kopije.
-    const parametriPreneseni = !jeMjerenjePrazno(novoMjerenje);
+    // Isti guard filtracija ima od faze 3A. `jeMjerenjePrazno` se UVOZI iz
+    // lib/filtracija.ts — nema druge kopije.
+    const parametriPreneseni = mjerenjaPoCilju.some((m) => !m.prazno);
 
     // Rezultat je prosjek preko vise tankova i moguce vise datuma. Bez ovoga bi
     // izgledao kao jedno mjerenje uzeto u jednom trenutku.
@@ -465,7 +533,7 @@ export async function POST(req: Request) {
         data: {
           // `ciljTankId` ostaje GLAVNI cilj — jos ga se pise, i dalje je jedini
           // koji zna `Pretok.ciljTank`. Pravi popis ciljeva je `ciljevi` nize.
-          ciljTankId,
+          ciljTankId: glavniCiljId,
           tip: tipPretoka,
           // Tko je pretocio. Zateceni pretoci ostaju NULL — vidi migraciju
           // 20260823_korisnik_na_pretok_punjenje_izlaz.
@@ -491,14 +559,14 @@ export async function POST(req: Request) {
           //
           // `kolicinaIzlaz` i `gubitakLitara` ostaju NULL: kalo jos nitko ne
           // racuna, a lazna nula bi tvrdila da gubitka nije bilo.
+          nacin,
+          nacinNapomena: nacinNapomena || null,
           ciljevi: {
-            create: [
-              {
-                tankId: ciljTankId,
-                kolicina: ukupnoDodano,
-                redoslijed: 0,
-              },
-            ],
+            create: ciljevi.map((c, i) => ({
+              tankId: c.tankId,
+              kolicina: Number(c.kolicina),
+              redoslijed: i,
+            })),
           },
         },
         include: {
@@ -506,34 +574,40 @@ export async function POST(req: Request) {
         },
       });
 
-      await spremiSnapshotTanka(
-        tx,
-        pretok.id,
-        {
-          id: ciljTank.id,
-          broj: ciljTank.broj,
-          kapacitet: ciljTank.kapacitet,
-          kolicinaVinaUTanku: ciljTank.kolicinaVinaUTanku,
-          tip: ciljTank.tip,
-          opis: ciljTank.opis,
-          sorta: ciljTank.sorta,
-          nazivVina: ciljTank.nazivVina,
-          godiste: ciljTank.godiste,
-          udjeliSorti: ciljTank.udjeliSorti.map((u) => ({
-            nazivSorte: u.nazivSorte,
-            postotak: u.postotak,
-          })),
-          blendIzvori: ciljTank.blendIzvori.map((b) => ({
-            izvorTankId: b.izvorTankId ?? null,
-            izvorArhivaVinaId: b.izvorArhivaVinaId ?? null,
-            nazivVina: b.nazivVina ?? null,
-            sorta: b.sorta ?? null,
-            kolicina: Number(b.kolicina),
-            postotak: Number(b.postotak),
-          })),
-        },
-        "CILJ"
-      );
+      // Snapshot po SVAKOM cilju — ponistavanje vraca tank po tank, pa mu za
+      // svaki treba njegovo stanje prije.
+      for (const c of ciljevi) {
+        const t = ciljById.get(c.tankId)!;
+
+        await spremiSnapshotTanka(
+          tx,
+          pretok.id,
+          {
+            id: t.id,
+            broj: t.broj,
+            kapacitet: t.kapacitet,
+            kolicinaVinaUTanku: t.kolicinaVinaUTanku,
+            tip: t.tip,
+            opis: t.opis,
+            sorta: t.sorta,
+            nazivVina: t.nazivVina,
+            godiste: t.godiste,
+            udjeliSorti: t.udjeliSorti.map((u) => ({
+              nazivSorte: u.nazivSorte,
+              postotak: u.postotak,
+            })),
+            blendIzvori: t.blendIzvori.map((b) => ({
+              izvorTankId: b.izvorTankId ?? null,
+              izvorArhivaVinaId: b.izvorArhivaVinaId ?? null,
+              nazivVina: b.nazivVina ?? null,
+              sorta: b.sorta ?? null,
+              kolicina: Number(b.kolicina),
+              postotak: Number(b.postotak),
+            })),
+          },
+          "CILJ"
+        );
+      }
 
       for (const sourceTank of sourceTankovi) {
         await spremiSnapshotTanka(
@@ -581,18 +655,18 @@ export async function POST(req: Request) {
           tankId: i.tankId,
           kolicina: Number(i.kolicina),
         })),
-        // Forma jos salje jedan cilj; motor ih prima vise od faze 4. Prosirenje
-        // forme na N→M je faza 5e.
-        ciljevi: [{ tankId: ciljTankId, kolicina: ukupnoDodano }],
+        ciljevi: ciljevi.map((c) => ({
+          tankId: c.tankId,
+          kolicina: Number(c.kolicina),
+        })),
         vrsta:
           tipPretoka === TipPretokaDb.CUVEE
             ? "CUVEE"
             : tipPretoka === TipPretokaDb.BLEND_ISTE_SORTE
             ? "ISTA_SORTA"
             : "OBICNI",
-        // Nacin jos ne dolazi iz forme — dodaje ga faza 5e. Do tada "BEZ", sto
-        // je i istina za sve dosadasnje pretoke.
-        nacin: "BEZ",
+        nacin,
+        nacinNapomena: nacinNapomena || null,
         napomena,
         korisnikId: user.id,
         noviIdentitet: trebaNovoVino
@@ -616,19 +690,23 @@ export async function POST(req: Request) {
 
       // Prazno mjerenje se NE upisuje. `pretokMjerenje.create` mora biti pod
       // istim uvjetom — inace bi veza pokazivala na mjerenje koje ne postoji.
-      if (parametriPreneseni) {
+      // Mjerenje po cilju. Prazno se NE upisuje — `pretokMjerenje.create` je pod
+      // istim uvjetom, inace bi veza pokazivala na mjerenje koje ne postoji.
+      for (const m of mjerenjaPoCilju) {
+        if (m.prazno) continue;
+
         const createdMjerenje = await tx.mjerenje.create({
           data: {
-            tankId: ciljTankId,
+            tankId: m.ciljTankId,
             korisnikId: null,
-            alkohol: novoMjerenje.alkohol,
-            ukupneKiseline: novoMjerenje.ukupneKiseline,
-            hlapiveKiseline: novoMjerenje.hlapiveKiseline,
-            slobodniSO2: novoMjerenje.slobodniSO2,
-            ukupniSO2: novoMjerenje.ukupniSO2,
-            secer: novoMjerenje.secer,
-            ph: novoMjerenje.ph,
-            temperatura: novoMjerenje.temperatura,
+            alkohol: m.vrijednosti.alkohol,
+            ukupneKiseline: m.vrijednosti.ukupneKiseline,
+            hlapiveKiseline: m.vrijednosti.hlapiveKiseline,
+            slobodniSO2: m.vrijednosti.slobodniSO2,
+            ukupniSO2: m.vrijednosti.ukupniSO2,
+            secer: m.vrijednosti.secer,
+            ph: m.vrijednosti.ph,
+            temperatura: m.vrijednosti.temperatura,
             napomena:
               (tipPretoka === TipPretokaDb.OBICNI
                 ? "Automatski izračunato novo mjerenje nakon običnog pretoka."
@@ -644,7 +722,7 @@ export async function POST(req: Request) {
           data: {
             pretokId: pretok.id,
             mjerenjeId: createdMjerenje.id,
-            tankId: ciljTankId,
+            tankId: m.ciljTankId,
           },
         });
       }
@@ -652,7 +730,7 @@ export async function POST(req: Request) {
       // Sastav i blend se citaju IZ BAZE, ne racunaju napamet — odgovor tako
       // ne moze tvrditi nesto drugo od onoga sto je upisano.
       const ciljPoslije = await tx.tank.findUniqueOrThrow({
-        where: { id: ciljTankId },
+        where: { id: glavniCiljId },
         include: {
           udjeliSorti: { orderBy: { postotak: "desc" } },
           blendIzvori: { orderBy: { kolicina: "desc" } },
