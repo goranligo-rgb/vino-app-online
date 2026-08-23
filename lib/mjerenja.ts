@@ -47,9 +47,34 @@ export type RedakMjerenja = {
   id: string;
   izmjerenoAt: Date;
   jeRucno: boolean;
+  /** Bentotest ne ulazi u POLJA_MJERENJA — nije brojka koja se ponderira,
+   *  nego zaseban postupak s vlastitim datumom. Nosi se uz vrijednosti. */
+  bentotestDatum?: Date | null;
+  bentotestStatus?: string | null;
 } & {
   [K in (typeof POLJA_MJERENJA)[number]]: number | null;
 };
+
+/** Zadnji bentotest — vlastiti datum, pa se ne moze zaliti u mrezu polja. */
+export type Bentotest = {
+  datum: Date | null;
+  status: string | null;
+  /** Kad je zapisan (izmjerenoAt retka iz kojeg je uzet). */
+  izmjerenoAt: Date;
+} | null;
+
+/** Najnoviji redak koji uopce ima bentotest. Ocekuje sortirano po desc. */
+export function zadnjiBentotest(mjerenja: RedakMjerenja[]): Bentotest {
+  const m = mjerenja.find(
+    (x) => x.bentotestDatum != null || (x.bentotestStatus ?? "") !== ""
+  );
+  if (!m) return null;
+  return {
+    datum: m.bentotestDatum ?? null,
+    status: m.bentotestStatus ?? null,
+    izmjerenoAt: m.izmjerenoAt,
+  };
+}
 
 /** Odakle je pojedino polje doslo — da vrijednost nikad ne stoji gola. */
 export type PodrijetloPolja = {
@@ -67,6 +92,8 @@ export type IzvorPolja = Record<
 export type MjerenjePoPolju = {
   vrijednosti: VrijednostiMjerenja;
   izvorPolja: IzvorPolja;
+  /** Zadnji bentotest, ako ga ima. */
+  bentotest: Bentotest;
   /** Granica arhive koja je primijenjena, ako je postojala. */
   granicaArhive: Date | null;
   /** Koliko je redaka uopce razmatrano (nakon granice). */
@@ -200,6 +227,8 @@ export async function vrijednostiTankaPoPolju(
       secer: true,
       ph: true,
       temperatura: true,
+      bentotestDatum: true,
+      bentotestStatus: true,
     },
   })) as RedakMjerenja[];
 
@@ -208,6 +237,7 @@ export async function vrijednostiTankaPoPolju(
   return {
     vrijednosti,
     izvorPolja,
+    bentotest: zadnjiBentotest(mjerenja),
     granicaArhive,
     brojRazmatranih: mjerenja.length,
   };
@@ -273,12 +303,28 @@ export type PokrivenostPolja = {
 };
 
 export type SastavnicaBlenda = {
+  /** `BlendIzvor.id` — jedini pouzdan spoj s popisom sastavnica na stranici,
+   *  jer se ovdje sortira po kolicini, a ondje po vremenu upisa. */
+  id: string;
   naziv: string;
   kolicina: number;
   /** Polja za koja ova sastavnica ima podatak. */
   polja: (typeof POLJA_MJERENJA)[number][];
   /** Zivi tank cije se vino u medjuvremenu promijenilo — podatak je sumnjiv. */
   sumnjiv: boolean;
+  /**
+   * SVE vrijednosti te sastavnice, ne samo popis popunjenih polja.
+   *
+   * Zasto: monitor po svakoj sastavnici prikazuje njezino zadnje mjerenje.
+   * Prije se to citalo posebno, ugnijezdjenim `mjerenja: take 30` u glavnom
+   * upitu stranice — ista mjerenja koja ova funkcija ionako procita. Vracanjem
+   * ovdje taj ugnijezdjeni dio ispada bez ijednog dodatnog upita.
+   */
+  vrijednosti: VrijednostiMjerenja;
+  /** Datum po polju — da se vidi kad je koja vrijednost izmjerena. */
+  izvorPolja: IzvorPolja;
+  /** Zadnji bentotest te sastavnice. */
+  bentotest: Bentotest;
 };
 
 export type ParametriBlenda = {
@@ -297,7 +343,11 @@ export async function vrijednostiArhivePoPolju(
   db: Pick<Prisma.TransactionClient, "arhivaVinaMjerenje">,
   arhivaVinaId: string,
   opts?: { limit?: number }
-): Promise<{ vrijednosti: VrijednostiMjerenja; izvorPolja: IzvorPolja }> {
+): Promise<{
+  vrijednosti: VrijednostiMjerenja;
+  izvorPolja: IzvorPolja;
+  bentotest: Bentotest;
+}> {
   const mjerenja = (await db.arhivaVinaMjerenje.findMany({
     where: { arhivaVinaId },
     orderBy: { izmjerenoAt: "desc" },
@@ -313,13 +363,17 @@ export async function vrijednostiArhivePoPolju(
       secer: true,
       ph: true,
       temperatura: true,
+      bentotestDatum: true,
+      bentotestStatus: true,
     },
     // ArhivaVinaMjerenje nema `jeRucno` — arhiva ga ne prenosi. Sve se tretira
     // kao rucno, sto je za prednost-rucnom pravilo bez posljedice: kad su svi
     // redovi "rucni", pravilo se svodi na "najnoviji ne-null".
   })) as unknown as Array<Omit<RedakMjerenja, "jeRucno">>;
 
-  return sloziPoPolju(mjerenja.map((m) => ({ ...m, jeRucno: true })));
+  const redci = mjerenja.map((m) => ({ ...m, jeRucno: true }));
+
+  return { ...sloziPoPolju(redci), bentotest: zadnjiBentotest(redci) };
 }
 
 /**
@@ -341,7 +395,10 @@ export async function vrijednostiArhivePoPolju(
  */
 export async function parametriBlenda(
   db: CitacBlenda,
-  tankId: string
+  tankId: string,
+  /** `sirina` — koliko sastavnica citati usporedno. Snizi je kad se ovo vrti
+   *  ISTOVREMENO s drugim upitima, da zbroj ostane daleko od granice veza. */
+  opts?: { sirina?: number }
 ): Promise<ParametriBlenda | null> {
   const izvori = await db.blendIzvor.findMany({
     where: { ciljTankId: tankId },
@@ -376,31 +433,39 @@ export async function parametriBlenda(
       const kolicina = Number(b.kolicina ?? 0);
 
       let vrijednosti: VrijednostiMjerenja;
+      let izvorPolja: IzvorPolja;
+      let bentotest: Bentotest = null;
       let naziv: string;
       let sumnjiv = false;
 
       if (b.izvorArhivaVinaId) {
         naziv = `arhiva tanka ${b.izvorArhivaVina?.brojTanka ?? "?"}`;
-        vrijednosti = (await vrijednostiArhivePoPolju(db, b.izvorArhivaVinaId))
-          .vrijednosti;
+        const a = await vrijednostiArhivePoPolju(db, b.izvorArhivaVinaId);
+        vrijednosti = a.vrijednosti;
+        izvorPolja = a.izvorPolja;
+        bentotest = a.bentotest;
       } else if (b.izvorTankId) {
         naziv = `tank ${b.izvorTank?.broj ?? "?"}`;
-        vrijednosti = (await vrijednostiTankaPoPolju(db, b.izvorTankId))
-          .vrijednosti;
+        const t = await vrijednostiTankaPoPolju(db, b.izvorTankId);
+        vrijednosti = t.vrijednosti;
+        izvorPolja = t.izvorPolja;
+        bentotest = t.bentotest;
 
         // Zapis kaze jedno vino, tank sada drzi drugo -> podatak je tudji.
-        const t = b.izvorTank;
-        if (t && b.izvorTankId !== tankId) {
+        const tk = b.izvorTank;
+        if (tk && b.izvorTankId !== tankId) {
           const prazan =
-            Number(t.kolicinaVinaUTanku ?? 0) <= 0 && !t.nazivVina && !t.sorta;
-          if (!prazan && (norm(t.nazivVina) !== norm(b.nazivVina) ||
-              norm(t.sorta) !== norm(b.sorta))) {
+            Number(tk.kolicinaVinaUTanku ?? 0) <= 0 && !tk.nazivVina && !tk.sorta;
+          if (!prazan && (norm(tk.nazivVina) !== norm(b.nazivVina) ||
+              norm(tk.sorta) !== norm(b.sorta))) {
             sumnjiv = true;
           }
         }
       } else {
         naziv = b.nazivVina ?? "nepoznat izvor";
-        vrijednosti = sloziPoPolju([]).vrijednosti;
+        const prazno = sloziPoPolju([]);
+        vrijednosti = prazno.vrijednosti;
+        izvorPolja = prazno.izvorPolja;
       }
 
       const polja = POLJA_MJERENJA.filter((p) => vrijednosti[p] != null);
@@ -408,9 +473,19 @@ export async function parametriBlenda(
       return {
         kolicina,
         vrijednosti,
-        opis: { naziv, kolicina, polja: [...polja], sumnjiv } as SastavnicaBlenda,
+        opis: {
+          id: b.id,
+          naziv,
+          kolicina,
+          polja: [...polja],
+          sumnjiv,
+          vrijednosti,
+          izvorPolja,
+          bentotest,
+        } as SastavnicaBlenda,
       };
-    })
+    }),
+    opts?.sirina ?? 4
   );
 
   const ukupnoL = ulazi.reduce((s, u) => s + u.kolicina, 0);
