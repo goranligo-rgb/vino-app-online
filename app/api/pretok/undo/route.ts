@@ -1,5 +1,11 @@
 export const dynamic = "force-dynamic";
 
+// Ista granica kao u POST /api/pretok — ponistavanje vraca isti opseg zapisa
+// koji je pretok napravio, pa mu treba isti budzet:
+//   Prisma najgori slucaj = maxWait 5 s + timeout 30 s = 35 s
+//   maxDuration           = 60 s
+export const maxDuration = 60;
+
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
@@ -281,7 +287,7 @@ export async function POST(req: Request) {
       await tx.pretok.delete({
         where: { id: pretok.id },
       });
-    });
+    }, { timeout: 30_000, maxWait: 5_000 });
 
     return NextResponse.json({
       ok: true,

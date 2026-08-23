@@ -1,9 +1,30 @@
 export const dynamic = "force-dynamic";
 
+// Vercel prekida funkciju bez obzira na to sto Prisma radi. Ako platforma
+// istekne prva, korisnik dobije grubi 504 FUNCTION_INVOCATION_TIMEOUT umjesto
+// nase poruke, i ne zna je li pretok prosao ili je ostao napola. Zato gornja
+// granica funkcije mora biti OSJETNO veca od Prisminog budzeta:
+//   Prisma najgori slucaj = maxWait 5 s + timeout 30 s = 35 s
+//   maxDuration           = 60 s
+// Prisma tako uvijek istekne prva, s rezervom. 60 s je i najveca vrijednost
+// koju dopusta najnizi Vercel plan, pa vrijedi na svakom.
+//
+// Isti obrazac kao app/api/zadatak/filtracija/izvrsi/route.ts, samo je ovdje
+// Prismin budzet veci (30 s umjesto 20 s): pretok koji isprazni izvorni tank
+// jos i arhivira cijelu njegovu sezonu — mjerenja, zadatke sa stavkama,
+// dokumente i punjenja — pa dosegne nekoliko stotina upita.
+export const maxDuration = 60;
+
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { izracunajNoviSastavPretoka } from "@/lib/pretok-sastav";
-import { jeMjerenjePrazno, NAPOMENA_BEZ_PARAMETARA } from "@/lib/filtracija";
+import {
+  blendKojiOstaje,
+  jeMjerenjePrazno,
+  uLitre,
+  uMl,
+  NAPOMENA_BEZ_PARAMETARA,
+} from "@/lib/filtracija";
 import {
   vrijednostiTankaPoPolju,
   rasponDatumaIzvora,
@@ -150,6 +171,35 @@ function normalizirajBlendStavke(
     ...s,
     postotak: ukupno > 0 ? Number(((s.kolicina / ukupno) * 100).toFixed(2)) : 0,
   }));
+}
+
+/**
+ * Preusmjeri pokazivace s tanka na arhivu.
+ *
+ * Kad pretok isprazni izvorni tank, taj se tank arhivira i ODMAH je slobodan za
+ * novo vino. Pokazivac `izvorTankId` tada vise ne vodi do vina od kojeg je
+ * blend nastao nego do onoga sto u tom tanku bude sljedece — "Porijeklo vina"
+ * na ciljnom tanku pokazuje tude vino. Zato pokazivac mora prijeci na arhivu,
+ * koja je od tog trenutka jedino stabilno mjesto te povijesti.
+ *
+ * Cuvée grana to radi otpocetka (vidi `izvorArhivaVinaId = arhiva.id` nize);
+ * obicni pretok nije, pa je ovo izjednacavanje.
+ *
+ * Prolazi kroz SVE stavke, ne samo kroz onu koja se sad prenosi: u ciljnom
+ * blendu moze vec stajati stariji redak koji pokazuje na isti tank. I on je od
+ * ovog trenutka kriv, a nakon preusmjeravanja se s novim spoji u jedan redak
+ * (isti kljuc u `normalizirajBlendStavke`).
+ */
+function preusmjeriNaArhivu<
+  T extends { izvorTankId: string | null; izvorArhivaVinaId: string | null }
+>(stavke: T[], izvorTankId: string, arhivaId: string | null): T[] {
+  if (!arhivaId) return stavke;
+
+  return stavke.map((s) =>
+    s.izvorTankId === izvorTankId
+      ? { ...s, izvorTankId: null, izvorArhivaVinaId: arhivaId }
+      : s
+  );
 }
 
 function proporcionalniBlendIzvori(
@@ -944,22 +994,52 @@ export async function POST(req: Request) {
           }
         }
 
-        const noviCiljniBlend = normalizirajBlendStavke([
-          ...postojeciCiljniBlend.map((b) => ({
-            izvorTankId: b.izvorTankId,
-            izvorArhivaVinaId: b.izvorArhivaVinaId,
-            nazivVina: b.nazivVina,
-            sorta: b.sorta,
-            kolicina: b.kolicina,
-          })),
-          ...preneseniBlend.map((b) => ({
-            izvorTankId: b.izvorTankId,
-            izvorArhivaVinaId: b.izvorArhivaVinaId,
-            nazivVina: b.nazivVina,
-            sorta: b.sorta,
-            kolicina: b.kolicina,
-          })),
-        ]);
+        // Arhiviranje ide PRIJE upisa ciljnog blenda, jer tek tada postoji
+        // arhiva na koju se pokazivaci mogu preusmjeriti. Redoslijed je bio
+        // obrnut, pa je blend ostajao vezan na tank koji je vec bio slobodan za
+        // novo vino.
+        const arhivaIzvora =
+          preostalo <= 0
+            ? await arhivirajPotroseniTank(
+                tx,
+                {
+                  id: sourceTank.id,
+                  broj: sourceTank.broj,
+                  sorta: sourceTank.sorta ?? null,
+                  nazivVina: sourceTank.nazivVina ?? null,
+                  godiste: sourceTank.godiste ?? null,
+                  kapacitet: sourceTank.kapacitet,
+                  tip: sourceTank.tip ?? null,
+                },
+                stanjeIzvoraPrije,
+                `Automatski arhivirano nakon običnog pretoka u tank ${ciljTank.broj}.`
+              )
+            : null;
+
+        // Preusmjeravanje ide PRIJE normalizacije da se stari i novi redak
+        // istog porijekla spoje u jedan umjesto da ostanu dva ista.
+        const noviCiljniBlend = normalizirajBlendStavke(
+          preusmjeriNaArhivu(
+            [
+              ...postojeciCiljniBlend.map((b) => ({
+                izvorTankId: b.izvorTankId,
+                izvorArhivaVinaId: b.izvorArhivaVinaId,
+                nazivVina: b.nazivVina,
+                sorta: b.sorta,
+                kolicina: b.kolicina,
+              })),
+              ...preneseniBlend.map((b) => ({
+                izvorTankId: b.izvorTankId,
+                izvorArhivaVinaId: b.izvorArhivaVinaId,
+                nazivVina: b.nazivVina,
+                sorta: b.sorta,
+                kolicina: b.kolicina,
+              })),
+            ],
+            sourceTank.id,
+            arhivaIzvora?.id ?? null
+          )
+        );
 
         await tx.blendIzvor.deleteMany({
           where: { ciljTankId },
@@ -977,23 +1057,6 @@ export async function POST(req: Request) {
               postotak: b.postotak,
             })),
           });
-        }
-
-        if (preostalo <= 0) {
-          await arhivirajPotroseniTank(
-            tx,
-            {
-              id: sourceTank.id,
-              broj: sourceTank.broj,
-              sorta: sourceTank.sorta ?? null,
-              nazivVina: sourceTank.nazivVina ?? null,
-              godiste: sourceTank.godiste ?? null,
-              kapacitet: sourceTank.kapacitet,
-              tip: sourceTank.tip ?? null,
-            },
-            stanjeIzvoraPrije,
-            `Automatski arhivirano nakon običnog pretoka u tank ${ciljTank.broj}.`
-          );
         }
 
         // Prazno mjerenje se NE upisuje. `pretokMjerenje.create` mora biti pod
@@ -1092,6 +1155,42 @@ export async function POST(req: Request) {
             },
           },
         });
+
+        // Izvorni tank je predao dio vina, pa mu se i blend mora proporcionalno
+        // smanjiti. Obicna grana to radi od pocetka, cuvée nije — pa je u
+        // izvorima ostajalo vise litara blenda nego vina u tanku. Zateceno na
+        // tankovima 15, 32 i 43.
+        //
+        // Racun dolazi iz lib/filtracija.ts, ne iz lokalnog
+        // proporcionalniBlendIzvori: razdioba po mililitrima jamci da je zbroj
+        // ostatka tocno jednak onome sto je u tanku ostalo, dok dijeljenje
+        // decimala po stavci ostavlja drift (upravo takav drift i jesu zateceni
+        // 4369,879518 L na tankovima 15 i 32).
+        if (preostalo > 0 && sourceTank.blendIzvori.length > 0) {
+          const ostatakBlenda = blendKojiOstaje(
+            sourceTank,
+            uMl(preostalo),
+            uMl(stanjePrije)
+          );
+
+          await tx.blendIzvor.deleteMany({
+            where: { ciljTankId: sourceTank.id },
+          });
+
+          if (ostatakBlenda.length > 0) {
+            await tx.blendIzvor.createMany({
+              data: ostatakBlenda.map((b) => ({
+                ciljTankId: sourceTank.id,
+                izvorTankId: b.izvorTankId,
+                izvorArhivaVinaId: b.izvorArhivaVinaId,
+                nazivVina: b.nazivVina,
+                sorta: b.sorta,
+                kolicina: uLitre(b.kolicinaMl),
+                postotak: b.postotak,
+              })),
+            });
+          }
+        }
 
         if (preostalo <= 0) {
           const arhiva = await arhivirajPotroseniTank(
@@ -1199,7 +1298,15 @@ export async function POST(req: Request) {
         pretok,
         noviBlendIzvori,
       };
-    });
+      // Zadani Prismin timeout je 5 s. Pretok koji arhivira potroseni izvorni
+      // tank to redovito probije, i to TIHO — transakcija se povuce natrag, a
+      // korisnik vidi samo "Greska kod pretoka". Arhivski dio je preko 40 upita
+      // s mreznom latencijom Supabase poolera.
+      //   timeout 30 s — s rezervom za arhiviranje tanka s cijelom sezonom.
+      //   maxWait  5 s — cekanje na slobodnu vezu iz poola PRIJE nego
+      //                  transakcija pocne. Nije dio timeouta, ali JEST dio
+      //                  trajanja funkcije, pa se drzi nisko.
+    }, { timeout: 30_000, maxWait: 5_000 });
 
     return NextResponse.json({
       success: true,

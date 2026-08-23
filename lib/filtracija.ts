@@ -615,8 +615,14 @@ function blendKojiOdlazi(
   ];
 }
 
-/** Blend koji ostaje u izvoru nakon odlaska dijela vina — proporcionalno smanjen. */
-function blendKojiOstaje(
+/**
+ * Blend koji ostaje u izvoru nakon odlaska dijela vina — proporcionalno smanjen.
+ *
+ * Izvezeno jer isti racun treba i app/api/pretok/route.ts (cuvée grana). Racun
+ * se NE prepisuje ondje: razdioba po mililitrima jamci da je zbroj ostatka
+ * tocno `ostatakMl`, a to je invarijanta koju pokriva scripts/test-filtracija.ts.
+ */
+export function blendKojiOstaje(
   izvor: TankSaSastavom,
   ostatakMl: number,
   ukupnoPrijeMl: number
