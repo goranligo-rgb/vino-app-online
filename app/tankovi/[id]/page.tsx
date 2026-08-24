@@ -20,6 +20,7 @@ import {
   nizPolja,
   parametriBlenda,
   zadnjiBentotest,
+  mjerenjaTrenutnogVina,
   type RedakMjerenja,
 } from "@/lib/mjerenja";
 import ParametriPoPolju, { type ParametarPrikaz } from "./parametri-po-polju";
@@ -1018,10 +1019,21 @@ export default async function TankPregledPage({
   //
   // Brana na arhiviranju: ne poseze se ispred zadnjeg `arhiviranoAt`, jer
   // starija mjerenja pripadaju PRETHODNOM vinu u istom tanku.
-  const mjerenjaZaParametre = (
-    granicaArhive
-      ? mjerenja.filter((m) => m.izmjerenoAt >= granicaArhive)
-      : mjerenja
+  // Pocetna mjerenja punjenja koja su SAMA nakon granice arhive. `punjenja` je
+  // vec filtrirano granicom (`datumPunjenja: odGranice`), pa je svako punjenje
+  // u ovom popisu po definiciji dio trenutnog vina — a s njim i njegovo
+  // pocetno mjerenje, bez obzira sto ono nosi datum berbe (UTC ponoc) koji zna
+  // biti raniji od sata arhiviranja. Vidi `mjerenjaTrenutnogVina`.
+  const pocetnaMjerenjaNovogVina = new Set(
+    punjenja
+      .map((p) => p.pocetnoMjerenjeId)
+      .filter((x): x is string => x !== null)
+  );
+
+  const mjerenjaZaParametre = mjerenjaTrenutnogVina(
+    mjerenja,
+    granicaArhive,
+    pocetnaMjerenjaNovogVina
   ) as unknown as RedakMjerenja[];
 
   const poPolju = sloziPoPolju(mjerenjaZaParametre);

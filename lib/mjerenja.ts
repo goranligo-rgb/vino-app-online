@@ -135,6 +135,40 @@ export function sloziPoPolju(mjerenja: RedakMjerenja[]): {
 }
 
 /**
+ * Mjerenja koja pripadaju TRENUTNOM vinu u tanku.
+ *
+ * Pravilo je i dalje "ne poseži ispred zadnjeg arhiviranja" — starija mjerenja
+ * pripadaju prethodnom vinu u istom tanku. Ali ima jedna iznimka, i bez nje
+ * granica sakriva upravo ono zbog cega je punjenje uopce upisano:
+ *
+ *   Pocetno mjerenje punjenja nosi DATUM BERBE, jer su secer, kiseline i pH
+ *   izmjereni na grozdju. Datum berbe je datum bez sata, dakle UTC ponoc. Kad
+ *   je tank arhiviran isti dan (pretok -> arhiva -> ponovno punjenje, sto je
+ *   uobicajen tijek u berbi), granica je npr. 05:37, a mjerenje 00:00 — pa
+ *   pada ispod granice i monitor ga ne pokazuje, iako opisuje grozdje koje je
+ *   USLO NAKON arhiviranja.
+ *
+ * Zato pocetna mjerenja punjenja koja su SAMA nakon granice prolaze bez obzira
+ * na svoj `izmjerenoAt`. Pozivatelj salje njihove id-eve; punjenja su vec
+ * filtrirana granicom, pa je pripadnost novom vinu utvrdjena punjenjem, a ne
+ * satom mjerenja.
+ *
+ * Izmjereno 24.08.2026: tank 7 je bio tocno u tom stanju (arhiviran 05:37).
+ */
+export function mjerenjaTrenutnogVina<T extends { id: string; izmjerenoAt: Date }>(
+  mjerenja: T[],
+  granicaArhive: Date | null,
+  /** Id-evi `pocetnoMjerenjeId` punjenja koja su nakon granice. */
+  pocetnaMjerenjaNovogVina: ReadonlySet<string> = new Set()
+): T[] {
+  if (!granicaArhive) return mjerenja;
+
+  return mjerenja.filter(
+    (m) => m.izmjerenoAt >= granicaArhive || pocetnaMjerenjaNovogVina.has(m.id)
+  );
+}
+
+/**
  * Niz vrijednosti jednog polja kroz vrijeme — za graf tog parametra.
  * Ulaz je isti popis redaka; izlaz je poredan od NAJSTARIJEG prema najnovijem,
  * jer se graf tako crta.

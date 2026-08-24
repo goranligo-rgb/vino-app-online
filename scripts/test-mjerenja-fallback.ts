@@ -14,6 +14,7 @@ import {
   sloziPoPolju,
   nizPolja,
   napomenaOMijesanimDatumima,
+  mjerenjaTrenutnogVina,
   type RedakMjerenja,
   type VrijednostiMjerenja,
 } from "../lib/mjerenja";
@@ -216,6 +217,84 @@ jednako(fermGore.vrijednosti.secer, 12, "fermentacija: secer od danas");
 jednako(fermGore.izvorPolja.secer?.mjerenjeId, "f4", "fermentacija: secer datum danas");
 jednako(fermGore.vrijednosti.alkohol, 4.2, "fermentacija: alkohol od prekjucer");
 jednako(fermGore.izvorPolja.alkohol?.mjerenjeId, "f2", "fermentacija: alkohol stariji datum");
+
+
+// ---------------------------------------------------------------------------
+// mjerenjaTrenutnogVina — granica arhive ne smije pojesti pocetno mjerenje
+// ---------------------------------------------------------------------------
+// Pocetno mjerenje punjenja nosi DATUM BERBE (UTC ponoc). Kad je tank arhiviran
+// isti dan — pretok -> arhiva -> ponovno punjenje, uobicajen tijek u berbi —
+// granica je npr. 05:37, a mjerenje 00:00. Bez iznimke bi ispalo iz prikaza.
+
+const red = (id: string, iso: string) => ({ id, izmjerenoAt: new Date(iso) });
+
+const granica = new Date("2026-08-24T05:37:32.361Z");
+
+const popis = [
+  red("staro", "2026-08-20T10:00:00.000Z"), // prethodno vino
+  red("berba", "2026-08-24T00:00:00.000Z"), // pocetno mjerenje, datum berbe
+  red("novo", "2026-08-24T09:21:00.000Z"), // rucno, nakon arhiviranja
+];
+
+// Bez granice sve prolazi.
+jednako(
+  mjerenjaTrenutnogVina(popis, null).length,
+  3,
+  "bez granice arhive prolaze sva mjerenja"
+);
+
+// Granica bez iznimke: berba ispada — to je zatecen bug.
+jednako(
+  mjerenjaTrenutnogVina(popis, granica)
+    .map((m) => m.id)
+    .join(","),
+  "novo",
+  "granica bez iznimke propusta samo mjerenje nakon arhiviranja"
+);
+
+// S iznimkom: berba prolazi, staro i dalje NE.
+jednako(
+  mjerenjaTrenutnogVina(popis, granica, new Set(["berba"]))
+    .map((m) => m.id)
+    .sort()
+    .join(","),
+  "berba,novo",
+  "pocetno mjerenje punjenja prolazi granicu, staro vino i dalje ne"
+);
+
+// Iznimka NE smije propustiti mjerenje prethodnog vina samo zato sto je
+// navedeno — ali ako jest navedeno, punjenje mu je vec potvrdilo pripadnost.
+// Ovdje se drzi doslovno sto funkcija radi, da se promjena vidi.
+jednako(
+  mjerenjaTrenutnogVina(popis, granica, new Set(["staro", "berba"]))
+    .map((m) => m.id)
+    .sort()
+    .join(","),
+  "berba,novo,staro",
+  "navedeni id prolazi (pozivatelj salje samo punjenja nakon granice)"
+);
+
+// Redoslijed ulaza se cuva — sloziPoPolju racuna na desc.
+jednako(
+  mjerenjaTrenutnogVina(popis, granica, new Set(["berba"]))[0].id,
+  "berba",
+  "redoslijed ulaznog popisa se ne mijenja"
+);
+
+// Prazan popis i prazan skup ne pucaju.
+jednako(mjerenjaTrenutnogVina([], granica).length, 0, "prazan popis");
+jednako(
+  mjerenjaTrenutnogVina(popis, granica, new Set()).length,
+  1,
+  "prazan skup iznimki = ponasanje kao prije"
+);
+
+// Mjerenje TOCNO na granici pripada novom vinu (>=, ne >).
+jednako(
+  mjerenjaTrenutnogVina([red("tocno", granica.toISOString())], granica).length,
+  1,
+  "mjerenje tocno na granici pripada novom vinu"
+);
 
 // ---------------------------------------------------------------------------
 

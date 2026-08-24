@@ -161,6 +161,11 @@ export async function arhivirajPrazanTank(
               kiseline: s.kiseline,
               ph: s.ph,
               napomenaBerbe: s.napomenaBerbe,
+              // Druga kopija arhiviranja (prva je lib/pretok-arhiviranje.ts).
+              // Mora prenositi ista polja — inace se maceracija gubi ovisno o
+              // tome je li tank ispraznjen pretokom ili izlazom vina.
+              maceracija: s.maceracija,
+              maceracijaSati: s.maceracijaSati,
               createdAt: s.createdAt,
               updatedAt: s.updatedAt,
             })),

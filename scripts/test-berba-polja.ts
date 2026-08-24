@@ -20,6 +20,7 @@ import {
   godinaIzDatuma,
   opisMaceracije,
   formatSati,
+  pocetnoMjerenjeIzStavki,
 } from "../lib/berba-polja";
 
 let pao = 0;
@@ -277,6 +278,154 @@ jednako(formatSati(12), "12 sati", "12 sati (iznimka, ne '12 sata')");
 jednako(formatSati(21), "21 sat", "21 sat");
 jednako(formatSati(24), "24 sata", "24 sata");
 jednako(formatSati(1.5), "1,5 sata", "decimalni broj ide s 'sata'");
+
+
+// ---------------------------------------------------------------------------
+// pocetnoMjerenjeIzStavki — secer/kiseline/pH iz berbe moraju postati Mjerenje
+// ---------------------------------------------------------------------------
+// Kartica "Parametri vina" cita samo `Mjerenje`. Dok punjenje nije slalo
+// `pocetnoMjerenje`, ovi brojevi nisu bili vidljivi nigdje kao parametri.
+
+const stavka = (
+  litara: number,
+  secer: number | null,
+  kiseline: number | null,
+  ph: number | null,
+  datumBerbe: string | null = null
+) => ({ kolicinaLitara: litara, secer, kiseline, ph, datumBerbe });
+
+// Nista upisano -> nema mjerenja.
+jednako(
+  pocetnoMjerenjeIzStavki([stavka(5200, null, null, null)], "2026-08-21T09:00"),
+  null,
+  "bez ijednog parametra nema mjerenja"
+);
+jednako(
+  pocetnoMjerenjeIzStavki([], "2026-08-21T09:00"),
+  null,
+  "prazan popis stavki nema mjerenja"
+);
+
+// SAMO JEDAN parametar je dovoljan — bolje mjerenje s jednim poljem nego nijedno.
+const samoSecer = pocetnoMjerenjeIzStavki(
+  [stavka(5200, 90, null, null)],
+  "2026-08-21T09:00"
+);
+jednako(samoSecer?.secer, 90, "samo secer: mjerenje ipak nastaje");
+jednako(samoSecer?.ukupneKiseline, null, "samo secer: kiseline ostaju null");
+jednako(samoSecer?.ph, null, "samo secer: pH ostaje null");
+
+const samoPh = pocetnoMjerenjeIzStavki(
+  [stavka(5200, null, null, 3.4)],
+  "2026-08-21T09:00"
+);
+jednako(samoPh?.ph, 3.4, "samo pH: mjerenje nastaje");
+jednako(samoPh?.secer, null, "samo pH: secer ostaje null");
+
+// Kiseline berbe idu u ukupneKiseline (na mostu hlapivih nema).
+const jedna = pocetnoMjerenjeIzStavki(
+  [stavka(5200, 90, 5.6, 3.4)],
+  "2026-08-21T09:00"
+);
+jednako(jedna?.secer, 90, "jedna stavka: secer");
+jednako(jedna?.ukupneKiseline, 5.6, "jedna stavka: kiseline -> ukupneKiseline");
+jednako(jedna?.ph, 3.4, "jedna stavka: pH");
+
+// --- Ponderiranje po litrama ---
+// 1000 L @ 80 + 3000 L @ 100 = (80000 + 300000) / 4000 = 95
+const dvije = pocetnoMjerenjeIzStavki(
+  [stavka(1000, 80, null, null), stavka(3000, 100, null, null)],
+  "2026-08-21T09:00"
+);
+jednako(dvije?.secer, 95, "dvije stavke: ponderirano po litrama, ne aritmeticki");
+
+// PRAZNO NIJE NULA. Ako bi prazno uslo kao 0, ovo bi dalo 22.5 umjesto 90.
+const jednaPrazna = pocetnoMjerenjeIzStavki(
+  [stavka(1000, 90, null, null), stavka(3000, null, null, null)],
+  "2026-08-21T09:00"
+);
+jednako(
+  jednaPrazna?.secer,
+  90,
+  "stavka bez secera NE ulazi u nazivnik (prazno nije nula)"
+);
+
+// Polje po polje, ne sve-ili-nista: A ima secer, B ima pH.
+const poPolju = pocetnoMjerenjeIzStavki(
+  [stavka(1000, 90, null, null), stavka(3000, null, null, 3.2)],
+  "2026-08-21T09:00"
+);
+jednako(poPolju?.secer, 90, "polje po polju: secer samo iz A");
+jednako(poPolju?.ph, 3.2, "polje po polju: pH samo iz B");
+
+// Upisana nula je podatak i MORA se ponderirati kao 0.
+const snula = pocetnoMjerenjeIzStavki(
+  [stavka(1000, 0, null, null), stavka(1000, 100, null, null)],
+  "2026-08-21T09:00"
+);
+jednako(snula?.secer, 50, "upisana nula ulazi u prosjek kao 0");
+
+// Stavka bez litara nema tezinu; ne smije srusiti prosjek dijeljenjem s nulom.
+jednako(
+  pocetnoMjerenjeIzStavki([stavka(0, 90, null, null)], "2026-08-21T09:00"),
+  null,
+  "stavka bez litara ne moze nositi parametar (nema tezine)"
+);
+
+// Zaokruzivanje: 1000@21.7 + 1000@21.9 = 21.8, ne 21.799999999999997
+const zaokruzeno = pocetnoMjerenjeIzStavki(
+  [stavka(1000, 21.7, null, null), stavka(1000, 21.9, null, null)],
+  "2026-08-21T09:00"
+);
+jednako(zaokruzeno?.secer, 21.8, "prosjek se zaokruzuje na dvije decimale");
+
+// --- Datum: parametri su izmjereni NA GROZDJU ---
+jednako(
+  pocetnoMjerenjeIzStavki(
+    [stavka(5200, 90, null, null, "2026-08-21")],
+    "2026-08-24T09:00"
+  )?.izmjerenoAt,
+  "2026-08-21",
+  "datum berbe ima prednost pred datumom punjenja"
+);
+jednako(
+  pocetnoMjerenjeIzStavki([stavka(5200, 90, null, null, null)], "2026-08-24T09:00")
+    ?.izmjerenoAt,
+  "2026-08-24T09:00",
+  "bez datuma berbe pada na datum punjenja"
+);
+jednako(
+  pocetnoMjerenjeIzStavki(
+    [
+      stavka(1000, 90, null, null, "2026-08-23"),
+      stavka(1000, 88, null, null, "2026-08-21"),
+    ],
+    "2026-08-24T09:00"
+  )?.izmjerenoAt,
+  "2026-08-21",
+  "vise datuma berbe -> uzima se najraniji"
+);
+// Stavka bez ijednog parametra ne smije diktirati datum mjerenja.
+jednako(
+  pocetnoMjerenjeIzStavki(
+    [
+      stavka(1000, null, null, null, "2026-08-19"),
+      stavka(1000, 90, null, null, "2026-08-21"),
+    ],
+    "2026-08-24T09:00"
+  )?.izmjerenoAt,
+  "2026-08-21",
+  "datum dolazi samo od stavki koje su dale parametar"
+);
+// Smece u datumu berbe pada na datum punjenja, ne u Invalid Date.
+jednako(
+  pocetnoMjerenjeIzStavki(
+    [stavka(5200, 90, null, null, "21.08.2026")],
+    "2026-08-24T09:00"
+  )?.izmjerenoAt,
+  "2026-08-24T09:00",
+  "neispravan datum berbe pada na datum punjenja"
+);
 
 // ---------------------------------------------------------------------------
 

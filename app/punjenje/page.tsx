@@ -9,6 +9,7 @@ import {
   datumIliNull,
   danasZaDateInput,
   godinaIzDatuma,
+  pocetnoMjerenjeIzStavki,
 } from "@/lib/berba-polja";
 
 type Tank = {
@@ -512,6 +513,31 @@ export default function PunjenjePage() {
       return;
     }
 
+    // Secer, kiseline i pH upisani uz berbu MORAJU postati i `Mjerenje`, ne
+    // samo stupci u `PunjenjeStavka`.
+    //
+    // Zasto: kartica "Parametri vina" na monitoru tanka cita ISKLJUCIVO
+    // `Mjerenje`. Dok punjenje nije stvaralo mjerenje, Ivanini brojevi su
+    // zivjeli samo u `PunjenjeStavka` i nijedan ekran ih nije pokazivao kao
+    // parametre — ni na tanku u koji su upisani, ni nakon pretoka.
+    //
+    // API to zna primiti od pocetka (`body.pocetnoMjerenje`, /api/punjenje:133
+    // i :292-334) — forma mu to nikad nije slala. Ovo je ta veza.
+    //
+    // Salje se cim BAREM JEDAN od tri parametra ima vrijednost; API koristi
+    // `.some()`, ne `.every()`, pa djelomicno mjerenje prolazi. Mjerenje s
+    // jednim poljem je i dalje podatak.
+    const pocetnoMjerenje = pocetnoMjerenjeIzStavki(
+      cisteStavke.map((s) => ({
+        kolicinaLitara: s.kolicinaLitara,
+        secer: s.secer,
+        kiseline: s.kiseline,
+        ph: s.ph,
+        datumBerbe: s.datumBerbe,
+      })),
+      datumPunjenja
+    );
+
     try {
       setSaving(true);
 
@@ -528,6 +554,10 @@ export default function PunjenjePage() {
           datumPunjenja,
           napomena: napomena.trim() || null,
           stavke: cisteStavke,
+          // Nema parametara -> kljuc se ne salje uopce, pa API ne stvara
+          // mjerenje. Prazan objekt bi prosao kroz `typeof === "object"` i
+          // svejedno zavrsio na provjeri, ali `null` je jasniji.
+          ...(pocetnoMjerenje ? { pocetnoMjerenje } : {}),
         }),
       });
 

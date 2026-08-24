@@ -3,6 +3,7 @@ import React from "react";
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
+import { opisMaceracije } from "@/lib/berba-polja";
 
 function boja(value: number | null, min?: number, max?: number) {
   if (value == null) return "#ffffff";
@@ -630,6 +631,9 @@ export default async function ArhivaDetaljPage({
                               <th className="border-b border-rose-100 px-3 py-2">Šećer</th>
                               <th className="border-b border-rose-100 px-3 py-2">Kiseline</th>
                               <th className="border-b border-rose-100 px-3 py-2">pH</th>
+                              <th className="border-b border-rose-100 px-3 py-2">
+                                Maceracija
+                              </th>
                             </tr>
                           </thead>
                           <tbody>
@@ -677,6 +681,15 @@ export default async function ArhivaDetaljPage({
                                 </td>
                                 <td className="border-b border-rose-100 px-3 py-2">
                                   {s.ph == null ? "-" : formatBroj(s.ph)}
+                                </td>
+                                {/* NULL ("nije se pitalo") i false ("nije je
+                                    bilo") su razlicite tvrdnje — opisMaceracije
+                                    vraca null samo za prvo, pa se tada pise "-".
+                                    Arhive starije od 24.08.2026. su sve NULL:
+                                    stupca dotad nije bilo. */}
+                                <td className="border-b border-rose-100 px-3 py-2">
+                                  {opisMaceracije(s.maceracija, s.maceracijaSati) ??
+                                    "-"}
                                 </td>
                               </tr>
                             ))}

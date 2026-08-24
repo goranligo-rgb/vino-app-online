@@ -118,3 +118,119 @@ export function formatSati(v: number): string {
 
   return `${broj} ${rijec}`;
 }
+
+// ---------------------------------------------------------------------------
+// Pocetno mjerenje iz stavki berbe
+// ---------------------------------------------------------------------------
+
+/** Ono sto forma zna o parametrima jedne stavke, vec normalizirano na broj|null. */
+export type ParametriStavke = {
+  kolicinaLitara: number;
+  secer: number | null;
+  kiseline: number | null;
+  ph: number | null;
+  /** "YYYY-MM-DD" ili null — datum berbe te stavke. */
+  datumBerbe: string | null;
+};
+
+/** Tijelo koje /api/punjenje ocekuje pod `pocetnoMjerenje`. */
+export type PocetnoMjerenjeTijelo = {
+  secer: number | null;
+  /**
+   * Kiselina grozdja je UKUPNA kiselina. `hlapiveKiseline` se namjerno ne
+   * salju — na mostu ne postoje, a poslati ih kao null bi bilo isto kao ne
+   * poslati ih.
+   */
+  ukupneKiseline: number | null;
+  ph: number | null;
+  /** ISO ili "YYYY-MM-DD"; API ga parsira s `datumIliNull`. */
+  izmjerenoAt: string;
+};
+
+/**
+ * Prosjek jednog polja PONDERIRAN LITRAMA, samo preko stavki koje to polje
+ * stvarno imaju.
+ *
+ * Prazno polje NE ulazi ni u brojnik ni u nazivnik. Da ulazi kao nula, dvije
+ * stavke od kojih je samo jedna izmjerena dale bi pola stvarnog secera — sto
+ * je gore od "nema podataka", jer izgleda kao podatak.
+ *
+ * Stavke bez litara (ili s nulom) se preskacu: bez tezine nemaju sto pridonijeti,
+ * a bile bi jedini clan nazivnika ako su jedine s tim poljem -> dijeljenje s 0.
+ */
+function ponderiraniProsjek(
+  stavke: ParametriStavke[],
+  kljuc: "secer" | "kiseline" | "ph"
+): number | null {
+  let zbrojUmnozaka = 0;
+  let zbrojTezina = 0;
+
+  for (const s of stavke) {
+    const v = s[kljuc];
+    const litara = Number(s.kolicinaLitara);
+
+    if (v == null || !Number.isFinite(v)) continue;
+    if (!Number.isFinite(litara) || litara <= 0) continue;
+
+    zbrojUmnozaka += v * litara;
+    zbrojTezina += litara;
+  }
+
+  if (zbrojTezina <= 0) return null;
+
+  // Zaokruzeno na dvije decimale: ponderiranje zna dati 21.799999999999997,
+  // a to nije preciznija istina nego 21,8 — samo ruznija.
+  return Math.round((zbrojUmnozaka / zbrojTezina) * 100) / 100;
+}
+
+/**
+ * Sastavi `pocetnoMjerenje` za /api/punjenje iz stavki berbe.
+ *
+ * Vraca `null` kad NIJEDNA stavka nema nijedan od tri parametra — tada se
+ * kljuc uopce ne salje i API ne stvara mjerenje.
+ *
+ * ZASTO JEDNO MJERENJE, A NE JEDNO PO STAVCI: `PunjenjeTanka.pocetnoMjerenjeId`
+ * je jedan FK, a `Mjerenje` ima samo `tankId` — nema kamo zakvaciti drugo.
+ * K tome monitor tanka uzima najnoviju vrijednost PO POLJU (`sloziPoPolju`),
+ * pa bi dva mjerenja s istim trenutkom dala secer jedne sorte kao secer
+ * cijelog tanka, i to proizvoljno koje.
+ *
+ * OGRANICENJE, namjerno: ako se puni u tank u kojem vec ima vina, ovo opisuje
+ * ONO STO JE USLO, ne mjesavinu. Zateceno vino nema pouzdane parametre za
+ * mijesanje, a "pocetno mjerenje punjenja" i znaci upravo to.
+ *
+ * Datum: najraniji datum berbe medju stavkama koje su ista dale parametar,
+ * jer su parametri izmjereni NA GROZDJU, ne u trenutku unosa. Kad datuma
+ * berbe nema, pada na datum punjenja.
+ */
+export function pocetnoMjerenjeIzStavki(
+  stavke: ParametriStavke[],
+  datumPunjenja: string
+): PocetnoMjerenjeTijelo | null {
+  const secer = ponderiraniProsjek(stavke, "secer");
+  const ukupneKiseline = ponderiraniProsjek(stavke, "kiseline");
+  const ph = ponderiraniProsjek(stavke, "ph");
+
+  // Dovoljan je JEDAN parametar. Mjerenje s jednim popunjenim poljem je i
+  // dalje podatak; nijedno mjerenje je rupa koju nista kasnije ne zatvara.
+  if (secer == null && ukupneKiseline == null && ph == null) return null;
+
+  const datumiBerbe = stavke
+    .filter(
+      (s) =>
+        (s.secer != null || s.kiseline != null || s.ph != null) &&
+        Number(s.kolicinaLitara) > 0
+    )
+    .map((s) => datumIliNull(s.datumBerbe))
+    .filter((d): d is string => d !== null)
+    .sort();
+
+  return {
+    secer,
+    ukupneKiseline,
+    ph,
+    // "YYYY-MM-DD" se parsira kao UTC ponoc, pa datum ostaje tocan u
+    // Hrvatskoj — isti razlog kao u `datumIliNull`.
+    izmjerenoAt: datumiBerbe[0] ?? datumPunjenja,
+  };
+}

@@ -287,6 +287,12 @@ export async function arhivirajPotroseniTank(
             kiseline: s.kiseline,
             ph: s.ph,
             napomenaBerbe: s.napomenaBerbe,
+            // Maceracija se do 24.08.2026. NIJE kopirala — arhivska tablica
+            // nije imala te stupce, pa je arhiviranje (koje original brise
+            // nize, :358-368) tvrdnju o maceraciji trajno unistavalo.
+            // Prenosi se doslovno, ukljucujuci NULL: null i false nisu isto.
+            maceracija: s.maceracija,
+            maceracijaSati: s.maceracijaSati,
             createdAt: s.createdAt,
             updatedAt: s.updatedAt,
           })),

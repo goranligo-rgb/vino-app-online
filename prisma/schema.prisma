@@ -1027,6 +1027,14 @@ model ArhivaPunjenjeStavka {
   kiseline                Float?
   ph                      Float?
   napomenaBerbe           String?
+  // --- Maceracija: zrcalo PunjenjeStavka.maceracija/maceracijaSati ---
+  // Ova dva stupca su NEDOSTAJALA. Arhiviranje kopira stavku pa brise original
+  // (lib/pretok-arhiviranje.ts), a kopija ova polja nije imala gdje primiti —
+  // pa se maceracija pri arhiviranju TRAJNO gubila, bez ijednog traga.
+  // Zatecene arhivske stavke ostaju NULL: to je istina ("ne zna se"), jer
+  // original vise ne postoji i nema se odakle popuniti.
+  maceracija              Boolean?
+  maceracijaSati          Float?
   createdAt               DateTime            @default(now()) @db.Timestamptz(6)
   updatedAt               DateTime            @default(now()) @updatedAt @db.Timestamptz(6)
   arhivaPunjenje          ArhivaPunjenjeTanka @relation(fields: [arhivaPunjenjeId], references: [id], onDelete: Cascade)
