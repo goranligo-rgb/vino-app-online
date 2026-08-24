@@ -6,6 +6,8 @@ import { notFound, redirect } from "next/navigation";
 import { citajSesiju } from "@/lib/auth-sesija";
 import { unstable_noStore as noStore } from "next/cache";
 import TankSwitcher from "./tank-switcher";
+import { Card } from "./kartica";
+import BerbaPrekidac from "./berba-prekidac";
 import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
 import TankRoleActions from "./tank-role-actions";
 import TankRoleSastavModal from "./tank-role-sastav-modal";
@@ -238,59 +240,6 @@ function ParamTop({
         {hasValue ? value : "—"}
         {hasValue && unit ? ` ${unit}` : ""}
       </div>
-    </div>
-  );
-}
-
-/**
- * Kartica sadrzaja.
- *
- * `broj` — broj zapisa ide u SAM NASLOV: "Izvrseni zadaci (12)". Sklopljena
- * kartica bez toga ne kaze ima li unutra ista, pa se otvara napamet.
- *
- * `sklopljena` — prikazuje se kao <details>. Otvorene ostaju samo one koje se
- * gledaju svaki put: parametri, berba, temperatura i otvoreni zadaci. Povijest
- * se otvara po potrebi — na mobitelu je to razlika izmedju jednog ekrana i
- * beskrajnog listanja.
- */
-function Card({
-  title,
-  broj,
-  pod,
-  sklopljena,
-  children,
-}: {
-  title: string;
-  broj?: number;
-  pod?: string | null;
-  sklopljena?: boolean;
-  children: React.ReactNode;
-}) {
-  const zaglavlje = (
-    <>
-      <span>
-        {title}
-        {broj != null ? <span style={cardBrojStyle}> ({broj})</span> : null}
-      </span>
-      {pod ? <span style={cardPodStyle}>{pod}</span> : null}
-    </>
-  );
-
-  if (sklopljena) {
-    return (
-      <details style={cardStyle}>
-        <summary style={{ ...cardTitleStyle, cursor: "pointer", marginBottom: 0 }}>
-          {zaglavlje}
-        </summary>
-        <div style={{ marginTop: 12 }}>{children}</div>
-      </details>
-    );
-  }
-
-  return (
-    <div style={cardStyle}>
-      <div style={cardTitleStyle}>{zaglavlje}</div>
-      {children}
     </div>
   );
 }
@@ -1796,8 +1745,7 @@ export default async function TankPregledPage({
       {/* --- BERBA: fiksni podaci o grozdju koje je uslo u tank. Stoje GORE,
               otvoreno, i ne mijesaju se s tekucim mjerenjima. --- */}
       {prikaziBerbu ? (
-        <Card
-          title="Berba"
+        <BerbaPrekidac
           broj={stavkeBerbe.length + naslijedenoStavki}
           pod={
             naslijedenoStavki > 0
@@ -1915,7 +1863,7 @@ export default async function TankPregledPage({
               </>
             ) : null}
           </div>
-        </Card>
+        </BerbaPrekidac>
       ) : null}
 
       <div id="hladjenje" style={{ scrollMarginTop: 16 }} />
@@ -2971,38 +2919,6 @@ const zapisKarticaStyle: React.CSSProperties = {
   padding: 9,
   display: "grid",
   gap: 3,
-};
-
-const cardStyle: React.CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid rgba(127,29,29,0.18)",
-  marginTop: 10,
-  borderRadius: 0,
-};
-
-const cardTitleStyle: React.CSSProperties = {
-  padding: "8px 10px",
-  borderBottom: "1px solid rgba(127,29,29,0.18)",
-  fontSize: 13,
-  fontWeight: 600,
-  display: "flex",
-  alignItems: "baseline",
-  justifyContent: "space-between",
-  gap: 8,
-  flexWrap: "wrap",
-};
-
-const cardBrojStyle: React.CSSProperties = {
-  fontVariantNumeric: "tabular-nums",
-  fontWeight: 800,
-};
-
-const cardPodStyle: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 600,
-  color: "#6b7280",
-  textTransform: "none",
-  letterSpacing: 0,
 };
 
 const metaBlockStyle: React.CSSProperties = {
