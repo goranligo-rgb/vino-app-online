@@ -384,13 +384,11 @@ export default function ParametriPoPolju({
       </div>
 
       {/* Legenda stoji ODMAH ispod mreze, ne na dnu stranice — inace nitko ne
-          spoji stil s njegovim znacenjem. */}
+          spoji stil s njegovim znacenjem. Uzorak je ZNAK, nikad broj: izmisljen
+          broj se cita kao stvarna vrijednost ovog tanka, a pravi broj bi samo
+          ponovio mrezu. Sto je koja plocica pise u njezinom podnozju. */}
       {imaIzracunatih ? (
         <div style={legendaMreze}>
-          <span style={legendaStavka}>
-            <span style={{ ...legendaUzorak, color: BOJA_MJERENO }}>34</span>
-            izmjereno u ovom tanku
-          </span>
           <span style={legendaStavka}>
             <span
               style={{
@@ -399,9 +397,12 @@ export default function ParametriPoPolju({
                 color: BOJA_RACUN,
               }}
             >
-              ≈11,63
+              ≈
             </span>
-            procjena — nije mjereno, izračunato iz sastavnica
+            <span>
+              znači procjenu — polje nije mjereno u ovom tanku, nego izračunato
+              iz sastavnica blenda. Broj bez oznake je izmjeren.
+            </span>
           </span>
         </div>
       ) : null}
@@ -572,7 +573,7 @@ const legendaMreze: React.CSSProperties = {
 
 const legendaStavka: React.CSSProperties = {
   display: "inline-flex",
-  alignItems: "center",
+  alignItems: "flex-start",
   gap: 6,
   minWidth: 0,
 };

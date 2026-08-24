@@ -1717,11 +1717,6 @@ export default async function TankPregledPage({
             alkohol i kiseline rjeđe, pa ne pripadaju istom mjerenju.
           </div>
           <div>
-            Polje bez vlastitog mjerenja popunjava prosjek blenda i tada nosi{" "}
-            <strong>≈</strong>, drugu boju i iscrtkan okvir — <strong>≈</strong>{" "}
-            nikad ne znači izmjereno.
-          </div>
-          <div>
             Zadnje klasično mjerenje:{" "}
             {zadnje?.izmjerenoAt ? formatDatum(zadnje.izmjerenoAt) : "nema mjerenja"}
           </div>
