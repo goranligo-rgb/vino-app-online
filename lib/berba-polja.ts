@@ -94,10 +94,35 @@ export function opisMaceracije(
 }
 
 /**
+ * Hrvatska sklonidba uz CIJELI broj: "1 zapis", "3 zapisa", "12 zapisa".
+ *
+ * Ide po ZADNJOJ znamenki, uz iznimku za 11-14 ("11 sati", ne "11 sat").
+ * Vraca samo rijec, bez broja — pozivatelj sam odlucuje kako broj formatira.
+ *
+ * Zivi ovdje jer je nastao za `formatSati`, a treba i sazetku naslijedjene
+ * berbe na monitoru tanka ("5 zapisa berbe iz 3 izvora").
+ */
+export function hrvatskiOblik(
+  n: number,
+  jedan: string,
+  dva: string,
+  pet: string
+): string {
+  const zadnja = Math.abs(n) % 10;
+  const zadnjeDvije = Math.abs(n) % 100;
+
+  if (zadnja === 1 && zadnjeDvije !== 11) return jedan;
+  if (zadnja >= 2 && zadnja <= 4 && (zadnjeDvije < 12 || zadnjeDvije > 14)) {
+    return dva;
+  }
+  return pet;
+}
+
+/**
  * "1 sat", "3 sata", "12 sati", "1,5 sata".
  *
- * Hrvatska sklonidba ide po ZADNJOJ znamenki, uz iznimku za 11-14 ("11 sati",
- * ne "11 sat"). Decimalni broj uvijek ide s "sata" ("1,5 sata").
+ * Decimalni broj uvijek ide s "sata" ("1,5 sata") — sklonidba po znamenki
+ * vrijedi samo za cijele brojeve.
  */
 export function formatSati(v: number): string {
   const broj = Number(v);
@@ -106,17 +131,7 @@ export function formatSati(v: number): string {
     return `${broj.toLocaleString("hr-HR", { maximumFractionDigits: 2 })} sata`;
   }
 
-  const zadnja = Math.abs(broj) % 10;
-  const zadnjeDvije = Math.abs(broj) % 100;
-
-  const rijec =
-    zadnja === 1 && zadnjeDvije !== 11
-      ? "sat"
-      : zadnja >= 2 && zadnja <= 4 && (zadnjeDvije < 12 || zadnjeDvije > 14)
-        ? "sata"
-        : "sati";
-
-  return `${broj} ${rijec}`;
+  return `${broj} ${hrvatskiOblik(broj, "sat", "sata", "sati")}`;
 }
 
 // ---------------------------------------------------------------------------

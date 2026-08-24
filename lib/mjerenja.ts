@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { izvorJeSumnjiv } from "@/lib/berba-lanac";
 import { uValovima } from "@/lib/paralelno";
 
 /**
@@ -447,8 +448,6 @@ export async function parametriBlenda(
 
   if (izvori.length === 0) return null;
 
-  const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
-
   // USPOREDNO, ali OGRANICENO — ne u petlji s `await` u tijelu, a ni golim
   // `Promise.all`.
   //
@@ -486,14 +485,16 @@ export async function parametriBlenda(
         bentotest = t.bentotest;
 
         // Zapis kaze jedno vino, tank sada drzi drugo -> podatak je tudji.
-        const tk = b.izvorTank;
-        if (tk && b.izvorTankId !== tankId) {
-          const prazan =
-            Number(tk.kolicinaVinaUTanku ?? 0) <= 0 && !tk.nazivVina && !tk.sorta;
-          if (!prazan && (norm(tk.nazivVina) !== norm(b.nazivVina) ||
-              norm(tk.sorta) !== norm(b.sorta))) {
-            sumnjiv = true;
-          }
+        //
+        // Samo pravilo zivi u lib/berba-lanac.ts: ista provjera treba i tamo,
+        // pri obilasku lanca, a dvije kopije bi se razisle prvom izmjenom.
+        // Sastavnica koja pokazuje na SAM ovaj tank nije sumnjiva — ona je
+        // ciklus, i njime se bavi obilazak, ne ova provjera.
+        if (b.izvorTankId !== tankId) {
+          sumnjiv = izvorJeSumnjiv(
+            { nazivVina: b.nazivVina, sorta: b.sorta },
+            b.izvorTank
+          );
         }
       } else {
         naziv = b.nazivVina ?? "nepoznat izvor";

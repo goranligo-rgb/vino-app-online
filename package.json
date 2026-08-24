@@ -13,6 +13,7 @@
     "test:ponderirano": "tsx scripts/test-ponderirano.ts",
     "test:filtracija:baza": "tsx scripts/test-filtracija-baza.ts",
     "test:berba": "tsx scripts/test-berba-polja.ts",
+    "test:berba:lanac": "tsx scripts/test-berba-lanac.ts",
     "test:fallback": "tsx scripts/test-mjerenja-fallback.ts",
     "test:arhiviranje:baza": "tsx scripts/test-arhiviranje-baza.ts",
     "test:pretok:motor": "tsx scripts/test-pretok-motor.ts",

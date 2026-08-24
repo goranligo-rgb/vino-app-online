@@ -12,7 +12,15 @@ import TankRoleSastavModal from "./tank-role-sastav-modal";
 import TankRoleDokumentiUpload from "./tank-role-dokumenti-upload";
 import HladjenjeGraf from "./hladjenje-graf";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
-import { opisMaceracije } from "@/lib/berba-polja";
+import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
+import {
+  berbaKrozLanac,
+  usporediPoBerbi,
+  PRAZAN_LANAC,
+  type KarikaLanca,
+  type StavkaBerbe,
+  type StavkaULancu,
+} from "@/lib/berba-lanac";
 import {
   sloziPoPolju,
   POLJA_MJERENJA,
@@ -498,6 +506,143 @@ function MaceracijaPolje({
         {tekst}
       </div>
     </div>
+  );
+}
+
+/**
+ * Jedna stavka berbe — zaglavlje sa sortom i litrama, pa mreza polja.
+ *
+ * ZAJEDNICKA je vlastitim stavkama ovog tanka i onima naslijedjenima kroz
+ * lanac blenda. Prije je ovaj blok postojao samo jednom, ugradjen u karticu;
+ * naslijedjene stavke bi ga morale prepisati, a dvije bi se kopije razisle
+ * prvom izmjenom (maceracija je vec jednom tako ispala iz jednog prikaza).
+ */
+function BerbaStavkaKartica({
+  s,
+  podnaslov,
+  podrijetlo,
+  rub,
+}: {
+  s: StavkaBerbe;
+  podnaslov: React.ReactNode;
+  /** Put kojim je stavka dosla — stoji uz stavku, ne iznad grupe. */
+  podrijetlo?: React.ReactNode;
+  rub?: string;
+}) {
+  return (
+    <div
+      style={rub ? { ...berbaKarticaStyle, borderLeftColor: rub } : berbaKarticaStyle}
+    >
+      <div style={{ fontSize: 14, fontWeight: 700 }}>
+        {s.nazivSorte} — {formatBroj(s.kolicinaLitara, 0)} L
+        {s.kolicinaKgGrozdja != null
+          ? ` · ${formatBroj(s.kolicinaKgGrozdja, 0)} kg`
+          : ""}
+      </div>
+      {podrijetlo}
+      <div style={mutedTextStyle}>{podnaslov}</div>
+
+      <div style={berbaMrezaStyle}>
+        <BerbaPolje label="Vinograd" value={s.vinograd} />
+        <BerbaPolje label="Parcela" value={s.parcela} />
+        <BerbaPolje label="Položaj" value={s.polozaj} />
+        <BerbaPolje label="Oznaka berbe" value={s.oznakaBerbe} />
+        <BerbaPolje
+          label="Datum berbe"
+          value={s.datumBerbe ? formatDatumBezVremena(s.datumBerbe) : null}
+        />
+        <BerbaPolje
+          label="Godina berbe"
+          value={s.godinaBerbe != null ? String(s.godinaBerbe) : null}
+        />
+        <BerbaPolje
+          label="Šećer pri berbi"
+          value={s.secer != null ? formatBroj(s.secer) : null}
+        />
+        <BerbaPolje
+          label="Kiseline pri berbi"
+          value={s.kiseline != null ? formatBroj(s.kiseline) : null}
+        />
+        <BerbaPolje
+          label="pH pri berbi"
+          value={s.ph != null ? formatBroj(s.ph) : null}
+        />
+        <MaceracijaPolje maceracija={s.maceracija} sati={s.maceracijaSati} />
+      </div>
+
+      {s.opis ? <div style={mutedTextStyle}>Opis kvalitete: {s.opis}</div> : null}
+      {s.napomenaBerbe ? (
+        <div style={mutedTextStyle}>Napomena: {s.napomenaBerbe}</div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * "prešlo 4.800 L od 5.200 L" za jednu kariku lanca.
+ *
+ * Bez nazivnika ("od 5.200 L") broj ne kaze nista: 4.800 L moze biti cijeli
+ * izvor ili njegova cetvrtina, a o tome ovisi koliko ovdje prikazana berba
+ * uopce opisuje ovaj tank. Kad izvor nema svojih punjenja, nazivnika nema i
+ * ne izmislja se.
+ */
+function opisPrijelaza(k: KarikaLanca): string {
+  const preslo = `prešlo ${formatBroj(k.presloL, 0)} L`;
+  return k.odUkupnoL > 0
+    ? `${preslo} od ${formatBroj(k.odUkupnoL, 0)} L`
+    : preslo;
+}
+
+/**
+ * Put od ovog tanka do izvora berbe, karika po karika — UZ SVAKU STAVKU.
+ *
+ * Stoji uz stavku, a ne kao zaglavlje grupe, jer su stavke poredane po datumu
+ * berbe: dvije susjedne obicno dolaze iz razlicitih bacvi. Bez oznake na svakoj
+ * bi popis izgledao kao da je sve iz jednog izvora, i "samo dio" bi nestalo.
+ */
+function PutLanca({ put, sumnjiv }: { put: KarikaLanca[]; sumnjiv: boolean }) {
+  return (
+    <div style={lanacPutStyle}>
+      <span style={{ color: "#6b7280" }}>kroz </span>
+      {put.map((k, i) => (
+        <span key={k.blendIzvorId}>
+          {i > 0 ? <span style={{ opacity: 0.5 }}> ← </span> : null}
+          <strong>{k.naziv}</strong>
+          <span style={{ fontWeight: 400, color: "#6b7280" }}>
+            {" "}
+            ({opisPrijelaza(k)})
+          </span>
+        </span>
+      ))}
+      {sumnjiv ? <span style={sumnjivoZnakStyle}>SUMNJIVO</span> : null}
+    </div>
+  );
+}
+
+/**
+ * Koliko naslijedjenih zapisa stoji otvoreno prije "prikazi sve".
+ *
+ * Sest, jer je to otprilike jedan ekran na mobitelu. Bacva u koju idu zadnji
+ * dijelovi mosta zna imati deset i vise izvora, a svaki od njih vise od jedne
+ * stavke — bez granice kartica preraste u beskrajno listanje i sakrije sve
+ * ispod sebe (temperaturu, zadatke, kronologiju).
+ */
+const NASLIJEDENO_ODMAH = 6;
+
+/** Jedan naslijedjeni zapis berbe, s putem i omjerom uza se. */
+function NaslijedenaStavka({ x }: { x: StavkaULancu }) {
+  return (
+    <BerbaStavkaKartica
+      s={x.stavka}
+      rub="#9ca3af"
+      podrijetlo={<PutLanca put={x.put} sumnjiv={x.sumnjiv} />}
+      podnaslov={
+        <>
+          {x.punjenje.nazivVina ?? "bez naziva vina"} · punjeno{" "}
+          {formatDatumBezVremena(x.punjenje.datumPunjenja)}
+        </>
+      }
+    />
   );
 }
 
@@ -998,6 +1143,26 @@ export default async function TankPregledPage({
   // istovremenih veza (val 4 + blend 2) ostane daleko od granice od 15.
   const blend = await blendUTijeku;
 
+  // BERBA KROZ LANAC BLENDA — namjerno TEK OVDJE, a ne usporedno s valovima.
+  //
+  // Punjenja nastaju samo na `/api/punjenje`; pretok, filtracija, flotacija i
+  // talozenje vino premjestaju i punjenja ne diraju. Tank napunjen pretokom
+  // zato o svojoj berbi nema nijedan vlastiti zapis, a onaj koji postoji stoji
+  // na tanku iz kojeg je vino doslo. `berbaKrozLanac` ga dohvaca istim putem
+  // kojim `parametriBlenda` dohvaca mjerenja.
+  //
+  // ZASTO NE USPOREDNO: mjereno 23.08.2026, sedam istovremenih upita ove
+  // stranice uz jos jedan proces na bazi vec je probilo pooler (`pool_size: 15`
+  // za CIJELU aplikaciju) i vratilo 500. Vrsak je danas 6 (val od 4 + blend
+  // sirine 2); pokretanjem ovoga uz njih bio bi 8, po istoj mjeri preblizu.
+  // Ovako se placa jedan krug latencije, a ne rizik od EMAXCONNSESSION.
+  //
+  // Tank bez sastavnica nema odakle nasljedjivati — ni jedan upit.
+  const berbaLanca =
+    tank.blendIzvori.length > 0
+      ? await berbaKrozLanac(prisma, id, { dubina: 2, sirina: 2 })
+      : PRAZAN_LANAC;
+
   // Spoj sastavnice iz `parametriBlenda` na redak u popisu izvora. Ovdje je
   // sortirano po kolicini, ondje po vremenu upisa — pa ide po id-u.
   // Sumnjiv izvor koji NEMA nijedno polje ne ulazi u prosjek, pa nema o cemu
@@ -1110,9 +1275,32 @@ export default async function TankPregledPage({
 
   // Podaci o berbi stoje GORE, otvoreno: fiksni su i ne mijesaju se s tekucim
   // mjerenjima. Sam dogadaj punjenja ostaje dolje, u sklopljenoj kartici.
-  const stavkeBerbe = punjenja.flatMap((p) =>
-    p.stavke.map((s) => ({ punjenje: p, s }))
-  );
+  // Poredane po DATUMU BERBE, istim pravilom kao naslijedjene (usporediPoBerbi).
+  //
+  // Ne po datumu punjenja: bacva u koju ide zadnji, mutniji dio mosta puni se
+  // IZRAVNO IZ PRESE kroz vise dana i vise berbi, pa i vlastitih stavki zna
+  // imati desetak. Poredane po punjenju one stoje obrnuto i izmijesano, a
+  // popis odmah ispod njih (naslijedjene) ide kronoloski — dva poretka u istoj
+  // kartici citaju se kao greska. Kronologija punjenja se time ne gubi: sam
+  // dogadaj punjenja i dalje stoji u kartici Kronologija.
+  const stavkeBerbe = punjenja
+    .flatMap((p) => p.stavke.map((s) => ({ punjenje: p, s })))
+    .sort((a, b) =>
+      usporediPoBerbi(
+        {
+          datumBerbe: a.s.datumBerbe,
+          datumPunjenja: a.punjenje.datumPunjenja,
+          tezina: Number(a.s.kolicinaLitara ?? 0),
+          kljuc: a.s.id,
+        },
+        {
+          datumBerbe: b.s.datumBerbe,
+          datumPunjenja: b.punjenje.datumPunjenja,
+          tezina: Number(b.s.kolicinaLitara ?? 0),
+          kljuc: b.s.id,
+        }
+      )
+    );
 
   const imaPodatakaOBerbi = stavkeBerbe.some(
     ({ s }) =>
@@ -1128,6 +1316,15 @@ export default async function TankPregledPage({
       s.napomenaBerbe ||
       s.maceracija != null
   );
+
+  // Naslijedjeno kroz blend. Vlastite stavke idu GORE, naslijedjene ispod —
+  // ono sto je u ovaj tank stvarno uslo nije isto sto i ono sto je uslo u
+  // njegov izvor, pa se ne smiju izmijesati u jedan popis.
+  const naslijedenoStavki = berbaLanca.stavke.length;
+
+  // Kartica se prikazuje i kad tank NEMA nijedno svoje punjenje — to je i bio
+  // cijeli problem: tank napunjen pretokom nije pokazivao nikakvu berbu.
+  const prikaziBerbu = imaPodatakaOBerbi || naslijedenoStavki > 0;
 
   const ukupnoZapisa =
     mjerenja.length +
@@ -1598,61 +1795,125 @@ export default async function TankPregledPage({
 
       {/* --- BERBA: fiksni podaci o grozdju koje je uslo u tank. Stoje GORE,
               otvoreno, i ne mijesaju se s tekucim mjerenjima. --- */}
-      {imaPodatakaOBerbi ? (
-        <Card title="Berba" broj={stavkeBerbe.length} pod="stavki punjenja">
+      {prikaziBerbu ? (
+        <Card
+          title="Berba"
+          broj={stavkeBerbe.length + naslijedenoStavki}
+          pod={
+            naslijedenoStavki > 0
+              ? `${stavkeBerbe.length} s ovog tanka · ${naslijedenoStavki} kroz blend`
+              : "stavki punjenja"
+          }
+        >
           <div style={{ display: "grid", gap: 10, padding: 10 }}>
             {stavkeBerbe.map(({ punjenje, s }) => (
-              <div key={s.id} style={berbaKarticaStyle}>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>
-                  {s.nazivSorte} — {formatBroj(s.kolicinaLitara, 0)} L
-                  {s.kolicinaKgGrozdja != null
-                    ? ` · ${formatBroj(s.kolicinaKgGrozdja, 0)} kg`
-                    : ""}
-                </div>
-                <div style={mutedTextStyle}>
-                  {punjenje.nazivVina ?? "bez naziva vina"} · punjeno{" "}
-                  {formatDatumBezVremena(punjenje.datumPunjenja)}
-                </div>
-
-                <div style={berbaMrezaStyle}>
-                  <BerbaPolje label="Vinograd" value={s.vinograd} />
-                  <BerbaPolje label="Parcela" value={s.parcela} />
-                  <BerbaPolje label="Položaj" value={s.polozaj} />
-                  <BerbaPolje label="Oznaka berbe" value={s.oznakaBerbe} />
-                  <BerbaPolje
-                    label="Datum berbe"
-                    value={s.datumBerbe ? formatDatumBezVremena(s.datumBerbe) : null}
-                  />
-                  <BerbaPolje
-                    label="Godina berbe"
-                    value={s.godinaBerbe != null ? String(s.godinaBerbe) : null}
-                  />
-                  <BerbaPolje
-                    label="Šećer pri berbi"
-                    value={s.secer != null ? formatBroj(s.secer) : null}
-                  />
-                  <BerbaPolje
-                    label="Kiseline pri berbi"
-                    value={s.kiseline != null ? formatBroj(s.kiseline) : null}
-                  />
-                  <BerbaPolje
-                    label="pH pri berbi"
-                    value={s.ph != null ? formatBroj(s.ph) : null}
-                  />
-                  <MaceracijaPolje
-                    maceracija={s.maceracija}
-                    sati={s.maceracijaSati}
-                  />
-                </div>
-
-                {s.opis ? (
-                  <div style={mutedTextStyle}>Opis kvalitete: {s.opis}</div>
-                ) : null}
-                {s.napomenaBerbe ? (
-                  <div style={mutedTextStyle}>Napomena: {s.napomenaBerbe}</div>
-                ) : null}
-              </div>
+              <BerbaStavkaKartica
+                key={s.id}
+                s={s}
+                podnaslov={
+                  <>
+                    {punjenje.nazivVina ?? "bez naziva vina"} · punjeno{" "}
+                    {formatDatumBezVremena(punjenje.datumPunjenja)}
+                  </>
+                }
+              />
             ))}
+
+            {/* --- NASLIJEDJENO KROZ BLEND ---
+                Litre i kilogrami su IZVORNI, onakvi kakvi su zapisani pri
+                punjenju izvora — ne skaliraju se na udio koji je presao. Kg
+                grozdja i secer opisuju berbenu partiju, ne sadrzaj tanka;
+                skaliranje bi izmislilo kilograme koje nitko nije izvagao.
+                Omjer stoji u zaglavlju puta ("preslo 4.800 L od 5.200 L"). */}
+            {naslijedenoStavki > 0 ? (
+              <>
+                <div style={naslijedenoZaglavljeStyle}>
+                  Naslijeđeno kroz blend
+                </div>
+
+                {/* SAZETAK — namjerno BEZ zbroja kilograma. Iz svake berbe je
+                    dosao samo dio, pa bi zbrojeni kilogrami tvrdili grozdje
+                    koje u ovaj tank nikad nije uslo. Litre se smiju zbrojiti
+                    jer se za njih zna koliko ih je stvarno preslo. */}
+                <div style={sazetakLancaStyle}>
+                  <strong>
+                    {berbaLanca.sazetak.zapisa}{" "}
+                    {hrvatskiOblik(
+                      berbaLanca.sazetak.zapisa,
+                      "zapis berbe",
+                      "zapisa berbe",
+                      "zapisa berbe"
+                    )}
+                  </strong>{" "}
+                  iz {berbaLanca.sazetak.izravnihIzvora}{" "}
+                  {hrvatskiOblik(
+                    berbaLanca.sazetak.izravnihIzvora,
+                    "izvora",
+                    "izvora",
+                    "izvora"
+                  )}{" "}
+                  · ukupno prešlo{" "}
+                  <strong>
+                    {formatBroj(berbaLanca.sazetak.presloUkupnoL, 0)} L
+                  </strong>
+                  {berbaLanca.sazetak.odDatuma && berbaLanca.sazetak.doDatuma ? (
+                    <>
+                      {" · berba "}
+                      {formatDatumBezVremena(berbaLanca.sazetak.odDatuma)}
+                      {berbaLanca.sazetak.odDatuma.getTime() !==
+                      berbaLanca.sazetak.doDatuma.getTime()
+                        ? ` – ${formatDatumBezVremena(berbaLanca.sazetak.doDatuma)}`
+                        : ""}
+                    </>
+                  ) : null}
+                </div>
+
+                <div style={mutedTextStyle}>
+                  Berba se upisuje na tank u koji je grožđe ušlo. Ovo je berba
+                  izvora ovog vina, poredana po datumu berbe. Litre i kilogrami
+                  su onakvi kakvi su ondje zapisani — iz svakog izvora prešao je
+                  samo dio, pa se <strong>kilogrami ne zbrajaju</strong>.
+                </div>
+
+                {berbaLanca.stavke.slice(0, NASLIJEDENO_ODMAH).map((x) => (
+                  <NaslijedenaStavka key={x.kljuc} x={x} />
+                ))}
+
+                {/* Ostatak iza <details> — bez JS-a, radi i na posluzitelju. */}
+                {berbaLanca.stavke.length > NASLIJEDENO_ODMAH ? (
+                  <details style={{ display: "grid", gap: 10 }}>
+                    <summary style={prikaziSveStyle}>
+                      Prikaži još{" "}
+                      {berbaLanca.stavke.length - NASLIJEDENO_ODMAH}{" "}
+                      {hrvatskiOblik(
+                        berbaLanca.stavke.length - NASLIJEDENO_ODMAH,
+                        "zapis berbe",
+                        "zapisa berbe",
+                        "zapisa berbe"
+                      )}
+                    </summary>
+                    <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                      {berbaLanca.stavke.slice(NASLIJEDENO_ODMAH).map((x) => (
+                        <NaslijedenaStavka key={x.kljuc} x={x} />
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+
+                {berbaLanca.staloNaDubini ? (
+                  <div style={mutedTextStyle}>
+                    Lanac se čita dvije razine duboko. Ispod zadnje prikazane
+                    razine može biti još izvora — oni se ne čitaju.
+                  </div>
+                ) : null}
+                {berbaLanca.preskocenoCiklusa > 0 ? (
+                  <div style={mutedTextStyle}>
+                    Preskočeno izvora jer su se već pojavili u lancu:{" "}
+                    {berbaLanca.preskocenoCiklusa}.
+                  </div>
+                ) : null}
+              </>
+            ) : null}
           </div>
         </Card>
       ) : null}
@@ -2652,6 +2913,56 @@ const berbaVrijednostStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 600,
   overflowWrap: "anywhere",
+};
+
+const lanacPutStyle: React.CSSProperties = {
+  fontSize: 12,
+  lineHeight: 1.6,
+  // Bez ovoga se dugi put (dvije karike s dva omjera) na mobitelu razvlaci i
+  // gura karticu u vodoravno listanje.
+  overflowWrap: "anywhere",
+};
+
+const sumnjivoZnakStyle: React.CSSProperties = {
+  display: "inline-block",
+  marginLeft: 8,
+  padding: "1px 6px",
+  fontSize: 10,
+  fontWeight: 800,
+  letterSpacing: "0.06em",
+  color: "#7f1d1d",
+  border: "1px solid rgba(127,29,29,0.35)",
+  background: "rgba(127,29,29,0.06)",
+};
+
+const sazetakLancaStyle: React.CSSProperties = {
+  fontSize: 13,
+  lineHeight: 1.6,
+  padding: "6px 10px",
+  border: "1px solid #ececec",
+  background: "#fafafa",
+  overflowWrap: "anywhere",
+};
+
+const prikaziSveStyle: React.CSSProperties = {
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 700,
+  color: "#7f1d1d",
+  padding: "6px 10px",
+  border: "1px dashed #d4d4d4",
+  listStyle: "none",
+};
+
+const naslijedenoZaglavljeStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 800,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  color: "#6b7280",
+  padding: "6px 0 0 0",
+  borderTop: "1px solid #ececec",
+  marginTop: 4,
 };
 
 const zapisKarticaStyle: React.CSSProperties = {
