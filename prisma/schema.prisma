@@ -1892,3 +1892,149 @@ model Praznik {
   datum DateTime @unique @db.Date
   naziv String
 }
+
+// ---------------------------------------------------------------------------
+// BERBA KAO DOGADAJ
+//
+// Nacelo: vino je nositelj podatka, ne tank. Berba se dogodila jednom —
+// grozdje je tog dana uslo u podrum, s tom tezinom i s tog polozaja. Tank je
+// samo mjesto gdje je zavrsilo, jedno polje u zapisu.
+//
+// Do sada je berba zivjela kao PunjenjeStavka, dakle kao svojstvo tanka, pa je
+// nestajala s njim: arhiviranje je punjenja brisalo (pretok-arhiviranje,
+// tank/arhiviraj, izlaz-vina), a Tank->PunjenjeTanka kaskada ih je odnosila i
+// pri brisanju tanka. Tako su 24. i 25.08.2026. nestala dva zapisa berbe s
+// tanka 7 — nastala, pa obrisana pet minuta kasnije.
+//
+// ZASTO NEMA STRANOG KLJUCA NA Tank:
+// `prviTankId`, `izTankId`, `uTankId`, `pretokId`, `zadatakId`, `izlazVinaId` i
+// `punjenjeId` su NAMJERNO goli stupci bez relacije. Zapis berbe ne smije
+// nestati kad nestane tank — bez FK nema kroz sto kaskadirati. Isti obrazac
+// vec koristi ArhivaVina.tankId (:708): nullable String s indeksom, bez
+// relacije na Tank. To ujedno drzi migraciju cisto aditivnom: nijedan
+// postojeci strani kljuc se ne dira.
+//
+// PunjenjeTanka i PunjenjeStavka OSTAJU nepromijenjeni, sa svojim kaskadama i
+// brisanjem pri arhiviranju. Oni su zapis PUNJENJA TANKA (operativni); ovo je
+// zapis BERBE (trajni). Dvije razlicite cinjenice koje su dosad dijelile redak.
+// ---------------------------------------------------------------------------
+
+/// Nepromjenjiv zapis jednog unosa grozdja u podrum.
+/// Mijenja se iskljucivo ako je bila greska pri unosu — vidi `ispravljenoAt`.
+model Berba {
+  id String @id @default(uuid())
+
+  /// BERBA = pravi unos grozdja. ZATECENO = pocetni popis vina koje je vec
+  /// bilo u podrumu. Zamjenjuje magicni datum 01.08.2026 u kodu stranice.
+  vrstaUnosa VrstaUnosaBerbe @default(BERBA)
+
+  datumBerbe  DateTime? @db.Timestamptz(6)
+  godinaBerbe Int?
+
+  /// Naziv se PREPISUJE, ne cita kroz relaciju: preimenovanje ili brisanje
+  /// sorte ne smije promijeniti ono sto na zapisu berbe vec pise.
+  nazivSorte String
+  sortaId    String?
+
+  kolicinaKgGrozdja Float?
+  kolicinaLitara    Float
+
+  polozaj     String?
+  parcela     String?
+  vinograd    String?
+  oznakaBerbe String?
+
+  secer    Float?
+  kiseline Float?
+  ph       Float?
+
+  /// NULL = nije se pitalo, false = izricito nije bilo. Tri stanja, kao na
+  /// PunjenjeStavka — vidi migraciju 20260823_maceracija_na_punjenju.
+  maceracija     Boolean?
+  maceracijaSati Float?
+
+  napomena   String?
+  korisnikId String?
+
+  /// Tank u koji je vino prvo uslo. Bez FK — vidi biljesku iznad.
+  prviTankId String?
+
+  /// Veza na stari zapis, radi backfilla i usporedbe. UNIQUE cini backfill
+  /// idempotentnim; Postgres dopusta vise NULL-ova u unique indeksu.
+  izvornaPunjenjeStavkaId String? @unique
+  izvornaArhivaStavkaId   String? @unique
+
+  /// Jedina dopustena izmjena: ispravak greske pri unosu.
+  ispravljenoAt      DateTime? @db.Timestamptz(6)
+  ispravioKorisnikId String?
+  razlogIspravka     String?
+
+  /// Meko brisanje, ISKLJUCIVO za pogresan unos. Kretanje vina ovo ne dira.
+  obrisano   Boolean   @default(false)
+  obrisanoAt DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  kretanja BerbaKretanje[]
+
+  @@index([vrstaUnosa])
+  @@index([godinaBerbe])
+  @@index([prviTankId])
+  @@index([obrisano])
+}
+
+/// Knjiga kretanja vina. SAMO SE DOPISUJE — nijedan redak se ne mijenja ni
+/// ne brise. Ponistavanje pretoka upisuje protustavku (PONISTENJE), ne brise.
+///
+/// Stanje se NIGDJE ne sprema, nego racuna:
+///   litre berbe B u tanku T = SUM(litre WHERE uTankId=T) - SUM(litre WHERE izTankId=T)
+/// Time nema druge tablice koja moze odlutati od knjige — sto se vec dogodilo
+/// s TankSortaUdio i BlendIzvor (T43: u tanku 565 L, blend 585 L).
+model BerbaKretanje {
+  id      String @id @default(uuid())
+  berbaId String
+
+  /// NULL na `izTankId` = ulaz u podrum. NULL na `uTankId` = izlaz iz podruma
+  /// (prodaja, punjenje u boce). Oba bez FK — vidi biljesku iznad.
+  izTankId String?
+  uTankId  String?
+
+  litre Float
+  vrsta VrstaKretanjaBerbe
+
+  /// Na koji je cin kretanje vezano. Goli stupci, bez FK.
+  pretokId    String?
+  zadatakId   String?
+  izlazVinaId String?
+  punjenjeId  String?
+
+  dogodenoAt DateTime @default(now()) @db.Timestamptz(6)
+  korisnikId String?
+  napomena   String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  berba Berba @relation(fields: [berbaId], references: [id], onDelete: Restrict)
+
+  @@index([berbaId])
+  @@index([berbaId, uTankId])
+  @@index([berbaId, izTankId])
+  @@index([pretokId])
+  @@index([zadatakId])
+  @@index([dogodenoAt])
+}
+
+enum VrstaUnosaBerbe {
+  BERBA
+  ZATECENO
+}
+
+enum VrstaKretanjaBerbe {
+  ULAZ
+  PRETOK
+  FILTRACIJA
+  IZLAZ
+  ISPRAVAK
+  PONISTENJE
+}
