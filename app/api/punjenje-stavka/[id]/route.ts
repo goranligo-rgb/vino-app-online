@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
+import { citajGranicuArhive, odGranice } from "@/lib/granica-arhive";
 
 type Params = {
   params: Promise<{
@@ -257,9 +258,17 @@ export async function DELETE(_req: Request, { params }: Params) {
        * samo preračunamo tank iz svih aktivnih punjenja
        */
       if (aktivneStavkePunjenja.length > 0) {
+        // Zbroj SVIH aktivnih punjenja tanka postavlja `kolicinaVinaUTanku`
+        // (nize, :300 i :386). Bez granice arhive to bi — cim faza 3 makne
+        // brisanje punjenja pri arhiviranju — zbrojilo i vino koje je iz tanka
+        // odavno otislo pretokom, pa bi tank tiho dobio litre kojih nema.
+        // Vidi lib/granica-arhive.ts za obrazlozenje polja `createdAt`.
+        const granica = await citajGranicuArhive(tx, tankId);
+
         const aktivnaPunjenjaTanka = await tx.punjenjeTanka.findMany({
           where: {
             tankId,
+            createdAt: odGranice(granica),
             stavke: {
               some: {
                 obrisano: false,

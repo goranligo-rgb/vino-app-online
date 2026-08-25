@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
+import { citajGranicuArhive, odGranice } from "@/lib/granica-arhive";
 
 function brojIliNull(v: unknown): number | null {
   if (v === "" || v === null || v === undefined) return null;
@@ -125,9 +126,16 @@ export async function POST(req: Request) {
         },
       });
 
+      // Mjerenje se smije zakaciti samo na punjenje iz TRENUTNOG punjenja
+      // tanka. Bez granice bi — nakon faze 3 — zavrsilo na drevnom punjenju
+      // koje pripada prethodnom vinu, i tom bi se punjenju podmetnulo pocetno
+      // mjerenje koje s njim nema veze.
+      const granica = await citajGranicuArhive(tx, String(tankId));
+
       const zadnjePunjenjeBezPocetnogMjerenja = await tx.punjenjeTanka.findFirst({
         where: {
           tankId: String(tankId),
+          createdAt: odGranice(granica),
           pocetnoMjerenjeId: null,
           datumPunjenja: {
             lte: datumMjerenja,

@@ -15,6 +15,7 @@
  */
 
 import { Prisma } from "@prisma/client";
+import { citajGranicuArhive, odGranice } from "./granica-arhive";
 
 /**
  * Preusmjeri pokazivace s tanka na arhivu.
@@ -59,6 +60,13 @@ export async function arhivirajPotroseniTank(
   kolicinaZaArhivu: number,
   napomena?: string | null
 ) {
+  // PRETHODNA arhiva ovog tanka. Nova nastaje tek nize (`arhivaVina.create`),
+  // pa je ovdje jos nema — citamo crtu ispred koje je bilo prethodno vino.
+  // U ovu arhivu smiju samo punjenja nastala OD te crte; starija vec pripadaju
+  // svojoj arhivi i bez ovoga bi se, nakon faze 3, kopirala iznova pri svakom
+  // sljedecem arhiviranju istog tanka.
+  const granica = await citajGranicuArhive(tx, tank.id);
+
   const [mjerenja, zadaci, udjeliSorti, documents, punjenja] =
     await Promise.all([
       tx.mjerenje.findMany({
@@ -95,7 +103,7 @@ export async function arhivirajPotroseniTank(
         orderBy: [{ datumDokumenta: "desc" }, { createdAt: "desc" }],
       }),
       tx.punjenjeTanka.findMany({
-        where: { tankId: tank.id },
+        where: { tankId: tank.id, createdAt: odGranice(granica) },
         include: {
           stavke: {
             orderBy: { createdAt: "asc" },

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { citajSesiju } from "@/lib/auth-sesija";
+import { citajGranicuArhive, odGranice } from "@/lib/granica-arhive";
 
 type AuthUser = {
   id: string;
@@ -60,6 +61,12 @@ export async function arhivirajPrazanTank(
   napomenaArhive: string,
   kolicinaPrijePrazenja: number
 ) {
+  // Isto obrazlozenje kao u lib/pretok-arhiviranje.ts: nova `ArhivaVina`
+  // nastaje tek nize, pa ovo cita PRETHODNU granicu. Dvije funkcije rade isti
+  // posao drugim kodom (vidi biljesku na vrhu tog modula) — svaka izmjena
+  // arhiviranja mora ici u OBJE.
+  const granica = await citajGranicuArhive(tx, tankId);
+
   const tank = await tx.tank.findUnique({
     where: { id: tankId },
     include: {
@@ -68,6 +75,7 @@ export async function arhivirajPrazanTank(
       blendIzvori: true,
       currentContent: true,
       punjenja: {
+        where: { createdAt: odGranice(granica) },
         orderBy: { datumPunjenja: "desc" },
         include: {
           stavke: {
