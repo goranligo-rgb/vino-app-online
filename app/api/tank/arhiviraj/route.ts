@@ -6,6 +6,9 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
 import { NextResponse } from "next/server";
+import { uLitre } from "@/lib/filtracija";
+import { zabiljeziIzlaz } from "@/lib/berba-knjiga";
+import { stanjeTanka } from "@/lib/berba-model";
 
 export async function POST(req: Request) {
   const user = await getAuthUser();
@@ -235,6 +238,51 @@ export async function POST(req: Request) {
           godiste: null,
         },
       });
+
+      // ---------------------------------------------------------------------
+      // 5. KNJIGA BERBE — vino je napustilo podrum.
+      //
+      // Ovo su bila jedina vrata kroz koja je vino odlazilo iz tanka bez ijednog
+      // čina: nema `Pretok`, nema `IzlazVina`, nema zadatka. Knjiga bi i
+      // dalje tvrdila da je vino ondje, a tank bi bio na nuli.
+      //
+      // VEZA JE PRAZNA, i to je jedini takav upis u redovnom radu. `BerbaKretanje`
+      // nema stupac `arhivaVinaId`, a knjiga dopušta kretanje bez veze isključivo
+      // uz napomenu — vidi `provjeriVezu` u lib/berba-knjiga.ts. Napomena zato
+      // imenuje arhivu i nosi njezin id, da redak nikad ne ostane anoniman.
+      // Takvo se kretanje ne može poništiti po ključu; ručno arhiviranje ionako
+      // nema poništavanje.
+      //
+      // ZATEČENO, ne PUKNI: količinu u tanku je provjera gore već potvrdila,
+      // manjak u knjizi znači samo da ne zna odakle je vino došlo.
+      await zabiljeziIzlaz(tx, {
+        tankId,
+        litre: kolicina,
+        veza: {},
+        korisnikId: user.id,
+        napomena: `Ručno arhiviranje tanka ${tank.broj} — vino je izašlo iz podruma. Arhiva ${arhiva.id}.`,
+        naManjak: "ZATECENO",
+        opisManjka: `Vino zatečeno u tanku ${tank.broj} pri ručnom arhiviranju: tank ga je imao, a knjiga ne zna odakle je došlo.`,
+      });
+
+      // Tank je sada prazan. Ako knjiga u njemu i dalje nešto tvrdi — jer je
+      // imala više nego tank — taj bi ostatak visio na tanku koji je od sada
+      // slobodan za novo vino. Isti završetak kao kod pretoka i izlaza vina.
+      const ostatakMl = (await stanjeTanka(tx, tankId)).reduce(
+        (z, x) => z + x.ml,
+        0
+      );
+
+      if (ostatakMl > 0) {
+        await zabiljeziIzlaz(tx, {
+          tankId,
+          litre: uLitre(ostatakMl),
+          vrsta: "ISPRAVAK",
+          veza: {},
+          korisnikId: user.id,
+          napomena: `Ispravak pri ručnom arhiviranju tanka ${tank.broj}: tank je ispražnjen, a knjiga je u njemu tvrdila još vina. Arhiva ${arhiva.id}.`,
+        });
+      }
     });
 
     return NextResponse.json({ success: true });
