@@ -35,7 +35,14 @@
  * i razlikuje se u smjeru tocnosti, sto pokriva diferencijalni test.
  *
  * STO OVAJ MODUL NAMJERNO NE RADI:
- *   - ne dira `Zadatak` (izvrsiFiltraciju to radi; ovdje je pretok bez zadatka).
+ *   - ne dira `Zadatak` (izvrsiFiltraciju to radi; ovdje je pretok bez zadatka);
+ *   - ne stvara zapis `Pretok` — pozivatelj ga stvara prije i preda mu id.
+ *
+ * KNJIGA BERBE (korak 3): isti pretok se, uz sve gore, upisuje i u
+ * `BerbaKretanje` — razmjerno udjelima berbi u izvornim tankovima. To je isti
+ * dogadjaj gledan iz drugog kuta: gore "koliko je vina u tanku", ovdje "cije je
+ * to vino". Pise se u ISTOJ transakciji, pa knjiga ne moze zaostati za tankom.
+ * Nitko je jos ne CITA — citanje je korak 4.
  */
 
 import { Prisma } from "@prisma/client";
@@ -64,6 +71,12 @@ import {
   arhivirajPotroseniTank,
   preusmjeriNaArhivu,
 } from "@/lib/pretok-arhiviranje";
+import {
+  zabiljeziIzlaz,
+  zabiljeziPrijenos,
+  type Nadopuna,
+} from "@/lib/berba-knjiga";
+import { stanjeTanka } from "@/lib/berba-model";
 
 /** Sto se radi. Mehanika je za sve tri ISTA — razlikuje se samo identitet vina. */
 export type VrstaPretoka = "OBICNI" | "CUVEE" | "ISTA_SORTA";
@@ -95,6 +108,17 @@ export type UlazPretoka = {
   nacinNapomena?: string | null;
   napomena?: string | null;
   korisnikId: string;
+  /**
+   * Zapis `Pretok` na koji se vezu retci knjige berbe. Pozivatelj ga stvara
+   * PRIJE motora, pa ga motor samo prima.
+   *
+   * BEZ NJEGA MOTOR U KNJIGU NE PISE. To nije prekidac za rad nego posljedica
+   * pravila da svaki redak knjige mora imati cin na koji se vjesa: kretanje bez
+   * veze se poslije ne moze ponistiti jer ga nema po cemu naci. Jedini
+   * pozivatelj bez zapisa je scripts/test-pretok-motor.ts, koji provjerava
+   * racun a ne knjigu.
+   */
+  pretokId?: string | null;
   /** Obavezno i dopusteno SAMO za CUVEE. Jedan identitet na sve ciljeve. */
   noviIdentitet?: {
     nazivVina: string;
@@ -126,6 +150,14 @@ export type RezultatPretoka = {
     noviNazivVina: string | null;
     prije: TankOtisak;
   }>;
+  /** Sto je upisano u knjigu berbe. `null` kad `pretokId` nije predan. */
+  knjiga: {
+    redaka: number;
+    /** Berbe koje je knjiga morala izmisliti jer nije znala odakle je vino. */
+    nadopune: Nadopuna[];
+    /** Litre koje su ostale u knjizi nakon arhiviranja izvora, po tanku. */
+    ostatciArhive: Array<{ tankId: string; litre: number }>;
+  } | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -634,12 +666,81 @@ export async function izvrsiPretok(
     });
   }
 
+  // 9) KNJIGA BERBE — isti pretok, ali knjizen po BERBAMA umjesto po tankovima.
+  //
+  //    Ide NA KRAJU jer do ovdje sve sto moze reci NE vec je reklo. Redoslijed
+  //    prema `tx.tank.update` iznad ionako ne moze utjecati na racun: knjiga
+  //    stanje tanka cita iz vlastitih redaka, ne iz `Tank.kolicinaVinaUTanku`.
+  //
+  //    KALO se knjizi samo od sebe — `zabiljeziPrijenos` ga izvede iz razlike
+  //    izlaza i ulaza, tocno onako kako ga je izveo i `provjeriUlazPretoka`.
+  let knjiga: RezultatPretoka["knjiga"] = null;
+
+  if (ulaz.pretokId) {
+    const upisano = await zabiljeziPrijenos(tx, {
+      izvori: provjeren.izvori.map((i) => ({
+        tankId: i.tankId,
+        litre: uLitre(i.ml),
+      })),
+      ciljevi: provjeren.ciljevi.map((c) => ({
+        tankId: c.tankId,
+        litre: uLitre(c.ml),
+      })),
+      vrsta: "PRETOK",
+      veza: { pretokId: ulaz.pretokId },
+      korisnikId: ulaz.korisnikId,
+      napomena: ulaz.napomena ?? null,
+      // ZATECENO, ne PUKNI. Do ovdje je vec provjereno da vino U TANKU postoji
+      // (korak 3 gore); manjak ovdje znaci samo da knjiga ne zna odakle je
+      // doslo. To je nedostatak zapisa, a ne razlog da se pretok odbije usred
+      // berbe — pa se rupa upise vidljivo, kao imenovana ZATECENO berba koju
+      // `npm run berba:provjeri` prebroji.
+      naManjak: "ZATECENO",
+      opisManjka:
+        "Vino zateceno u tanku pri pretoku: tank ga je imao, a knjiga ne zna odakle je doslo.",
+    });
+
+    // Izvor koji je pao na nulu je arhiviran — tank je od sada prazan. Ako je
+    // knjiga u njemu i dalje imala vise nego tank, taj visak bi ostao visjeti
+    // na tanku koji je vec dobio novo vino. Zato se dopisuje kao ISPRAVAK:
+    // "tih litara ondje zapravo nije ni bilo".
+    const ostatciArhive: Array<{ tankId: string; litre: number }> = [];
+
+    for (const izvorId of arhiveIzvora.keys()) {
+      const ostatakMl = (await stanjeTanka(tx, izvorId)).reduce(
+        (z, x) => z + x.ml,
+        0
+      );
+
+      if (ostatakMl <= 0) continue;
+
+      await zabiljeziIzlaz(tx, {
+        tankId: izvorId,
+        litre: uLitre(ostatakMl),
+        vrsta: "ISPRAVAK",
+        veza: { pretokId: ulaz.pretokId },
+        korisnikId: ulaz.korisnikId,
+        napomena:
+          "Ispravak pri arhiviranju: tank je pretokom ispraznjen, a knjiga je u njemu tvrdila jos vina.",
+      });
+
+      ostatciArhive.push({ tankId: izvorId, litre: uLitre(ostatakMl) });
+    }
+
+    knjiga = {
+      redaka: upisano.redaka,
+      nadopune: upisano.nadopune,
+      ostatciArhive,
+    };
+  }
+
   return {
     izasloLitara: uLitre(provjeren.izlazMl),
     usloLitara: uLitre(provjeren.ulazMl),
     gubitakLitara: uLitre(provjeren.gubitakMl),
     izvori: rezultatIzvori,
     ciljevi: rezultatCiljevi,
+    knjiga,
   };
 }
 

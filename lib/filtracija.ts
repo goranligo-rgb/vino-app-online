@@ -12,6 +12,18 @@ import {
   type IzvorPolja,
   type VrijednostiMjerenja,
 } from "@/lib/mjerenja";
+// KNJIGA BERBE (korak 3). Uvoz ide U KRUG — lib/berba-knjiga.ts uzima odavde
+// `podijeliMl`, `uMl` i `uLitre`, a lib/berba-model.ts `postotciIzMl`. Krug je
+// bezopasan jer je iskljucivo na razini funkcija: nijedan od ta tri modula pri
+// ucitavanju ne cita nista iz drugoga, samo definira funkcije koje se pozovu
+// kasnije. Kad bi se ovdje ikad uvela konstanta koja se racuna iz berba-knjige,
+// ovo prestaje vrijediti.
+import {
+  zabiljeziIzlaz,
+  zabiljeziPonistenje,
+  zabiljeziPrijenos,
+} from "@/lib/berba-knjiga";
+import { stanjeTanka } from "@/lib/berba-model";
 
 // Rjecnik mjerenja je preseljen u lib/mjerenja.ts (inace bi uvoz isao u krug).
 // Re-izvozi se odavde da zateceni uvozi iz ovog modula rade nepromijenjeno.
@@ -1396,6 +1408,54 @@ export async function izvrsiFiltraciju(
     },
   });
 
+  // 8b) KNJIGA BERBE — isti prijenos, knjizen po BERBAMA umjesto po tankovima.
+  //
+  //     Ista mehanika kao pretok (lib/pretok-motor.ts), samo s vrstom
+  //     FILTRACIJA i vezom na zadatak umjesto na pretok. Flotacija i talozenje
+  //     idu isto — u knjizi se ne razlikuju, jer se vino krece jednako.
+  //
+  //     Kalo se ne salje: `zabiljeziPrijenos` ga izvede iz razlike izlaza i
+  //     ulaza, tocno onaj `gubitakMl` koji je izracunat gore.
+  //
+  //     ZATECENO, ne PUKNI: manjak u knjizi znaci da knjiga ne zna odakle je
+  //     vino, a ne da vina nema — kolicinu u tanku je `provjeriProtivStanja`
+  //     vec potvrdio. Rupa se upise vidljivo umjesto da zaustavi rad u podrumu.
+  await zabiljeziPrijenos(tx, {
+    izvori: [{ tankId: izvor.id, litre: uLitre(unos.kolicinaIzlazMl) }],
+    ciljevi: unos.stavke.map((s) => ({
+      tankId: s.ciljTankId,
+      litre: uLitre(s.kolicinaMl),
+    })),
+    vrsta: "FILTRACIJA",
+    veza: { zadatakId: zadatak.id },
+    korisnikId: args.izvrsioKorisnikId,
+    dogodenoAt: datumIzvrsenja,
+    naManjak: "ZATECENO",
+    opisManjka: `Vino zateceno u tanku ${izvor.broj}: tank ga je imao, a knjiga ne zna odakle je doslo.`,
+  });
+
+  // Izvor je pao na nulu i ostao bez identiteta vina (korak 6). Ako knjiga u
+  // njemu i dalje tvrdi nesto, taj bi visak visio na tanku koji je od sada
+  // slobodan za novo vino — pa se dopisuje kao ISPRAVAK.
+  if (izvorPaoNaNulu) {
+    const ostatakMl = (await stanjeTanka(tx, izvor.id)).reduce(
+      (z, x) => z + x.ml,
+      0
+    );
+
+    if (ostatakMl > 0) {
+      await zabiljeziIzlaz(tx, {
+        tankId: izvor.id,
+        litre: uLitre(ostatakMl),
+        vrsta: "ISPRAVAK",
+        veza: { zadatakId: zadatak.id },
+        korisnikId: args.izvrsioKorisnikId,
+        dogodenoAt: datumIzvrsenja,
+        napomena: `Ispravak: tank ${izvor.broj} je prijenosom ispraznjen, a knjiga je u njemu tvrdila jos vina.`,
+      });
+    }
+  }
+
   // 9) Vezani (djeciji) zadatak. Isti obrazac kao u app/api/zadatak/route.ts,
   //    uz jednu razliku: dijete ide na vezaniCiljTankId ako je zadan, jer nakon
   //    filtracije vino vise nije u izvornom tanku.
@@ -1619,6 +1679,30 @@ export async function ponistiFiltraciju(
   }
 
   // --- Vracanje ---
+
+  // KNJIGA BERBE — protustavka za sve sto je ovaj zadatak upisao. Nista se ne
+  // brise; zbrojevi po tanku se vracaju tocno na staro, a knjiga i dalje zna i
+  // sto se dogodilo i da je ponisteno.
+  //
+  // Zadatak se moze izvrsiti ponovno, pa i ponistiti ponovno — `zabiljeziPonistenje`
+  // zrcali samo zadnji nesparen krug (vidi biljesku uz nju).
+  //
+  // Prijenosi izvrseni prije koraka 3 imaju retke iz backfilla, i oni nose
+  // `zadatakId`. Ako ih ipak nema, ponistavanje se ne smije zaustaviti zbog
+  // knjige — razlika ce se vidjeti u `npm run berba:provjeri`.
+  const kretanjaUKnjizi = await tx.berbaKretanje.count({
+    where: { zadatakId: zadatak.id },
+  });
+
+  if (kretanjaUKnjizi > 0) {
+    await zabiljeziPonistenje(
+      tx,
+      { zadatakId: zadatak.id },
+      {
+        napomena: "Ponisten prijenos vina — vino je vraceno u izvorni tank.",
+      }
+    );
+  }
 
   // Automatska mjerenja nestaju zajedno s prijenosom koji ih je stvorio. Da
   // ostanu, na ciljnom tanku bi visjelo mjerenje vina koje u njemu vise nema —

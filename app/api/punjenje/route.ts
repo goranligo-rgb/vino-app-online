@@ -1,8 +1,10 @@
 export const dynamic = "force-dynamic";
 
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { citajSesiju } from "@/lib/auth-sesija";
+import { BerbaGreska, zabiljeziUlaz } from "@/lib/berba-knjiga";
 
 // Tko smije UPISATI punjenje. Isti popis koji proxy.ts pusta na stranicu
 // /punjenje — proxy stiti samo stranice, pa svaka ruta mora sama provjeriti
@@ -164,6 +166,13 @@ export async function POST(req: Request) {
     }
 
     const cisteStavke: Array<{
+      /**
+       * Id se dodjeljuje OVDJE, prije upisa, da se zna koja je stavka postala
+       * koja berba. Bez toga bi se veza `Berba.izvornaPunjenjeStavkaId` morala
+       * pogadjati iz redoslijeda koji Prisma pri `include` ne jamci — a ta veza
+       * je jedino po cemu se poslije zna koja je stavka koji zapis berbe.
+       */
+      id: string;
       sortaId: string | null;
       nazivSorte: string;
       opis: string | null;
@@ -231,6 +240,7 @@ export async function POST(req: Request) {
       }
 
       cisteStavke.push({
+        id: randomUUID(),
         sortaId,
         nazivSorte,
         opis: opisStavke,
@@ -364,6 +374,7 @@ export async function POST(req: Request) {
 
           stavke: {
             create: cisteStavke.map((s) => ({
+              id: s.id,
               sortaId: s.sortaId,
               nazivSorte: s.nazivSorte,
               opis: s.opis,
@@ -507,6 +518,47 @@ export async function POST(req: Request) {
         },
       });
 
+      // ---------------------------------------------------------------------
+      // KNJIGA BERBE — svaka stavka punjenja je jedan zapis berbe i jedan ULAZ.
+      //
+      // Ovo je isti podatak koji je vec upisan u `PunjenjeStavka`, ali s drugom
+      // tvrdnjom: stavka kaze "toliko je toga dana upisano u punjenje", ULAZ
+      // kaze "toliko je vina uslo u tank i od tog trenutka se prati". Prvo
+      // arhiviranje tanka brise stavke (vidi arhivirajPrazanTank u
+      // app/api/izlaz-vina/route.ts) — ULAZ preziv, jer knjiga nema strani
+      // kljuc ni na tank ni na punjenje.
+      //
+      // U ISTOJ transakciji: ako knjiga pukne, ne ostaje punjenje bez berbe.
+      // Sekvencijalno, ne Promise.all — jedna transakcijska veza (lib/paralelno.ts).
+      for (const s of cisteStavke) {
+        await zabiljeziUlaz(tx, {
+          tankId,
+          litre: s.kolicinaLitara,
+          vrstaUnosa: "BERBA",
+          nazivSorte: s.nazivSorte,
+          sortaId: s.sortaId,
+          datumBerbe: s.datumBerbe,
+          godinaBerbe: s.godinaBerbe,
+          kolicinaKgGrozdja: s.kolicinaKgGrozdja,
+          polozaj: s.polozaj,
+          parcela: s.parcela,
+          vinograd: s.vinograd,
+          oznakaBerbe: s.oznakaBerbe,
+          secer: s.secer,
+          kiseline: s.kiseline,
+          ph: s.ph,
+          maceracija: s.maceracija,
+          maceracijaSati: s.maceracijaSati,
+          napomena: s.napomenaBerbe,
+          korisnikId,
+          // Veza po kojoj se poslije zna sto je ovaj cin upisao.
+          izvornaPunjenjeStavkaId: s.id,
+          veza: { punjenjeId: created.id },
+          // Datum punjenja, ne trenutak upisa: berba se cesto upisuje naknadno.
+          dogodenoAt: datumPunjenja,
+        });
+      }
+
       return created;
     });
 
@@ -516,6 +568,13 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("Greška kod spremanja punjenja:", error);
+
+    // Poruka knjige je namijenjena korisniku i kaze sto tocno ne valja s
+    // brojkama; generickih 500 bi ju progutao. Sve ostalo ostaje kako je bilo.
+    if (error instanceof BerbaGreska) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     return NextResponse.json(
       { error: "Dogodila se greška kod spremanja punjenja." },
       { status: 500 }

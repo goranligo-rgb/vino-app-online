@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, smijeUpravljati } from "@/lib/zadatak-auth";
 import { razlogZabranePonistavanja } from "@/lib/pretok-ponistavanje";
+import { zabiljeziPonistenje } from "@/lib/berba-knjiga";
 
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.filter(Boolean))) as string[];
@@ -252,6 +253,36 @@ export async function POST(req: Request) {
     }
 
     await prisma.$transaction(async (tx) => {
+      // 0) KNJIGA BERBE — protustavka, PRIJE nego pretok nestane.
+      //
+      // NE BRIŠE SE NIŠTA. Za svaki redak knjige upisuje se njegovo zrcalo, pa
+      // se zbrojevi po tanku vraćaju točno na staro, a knjiga i dalje zna i što
+      // se dogodilo i da je poništeno. Zapis `Pretok` se dolje briše, ali
+      // `BerbaKretanje.pretokId` je goli stupac bez stranog ključa — upravo zato
+      // što zapis o vinu ne smije nestati kad nestane pretok.
+      //
+      // Mora ići prije brisanja samo zbog čitljivosti; funkcija traži retke po
+      // `pretokId`, a njih brisanje pretoka ne dira.
+      //
+      // Pretoci upisani prije koraka 3 imaju retke u knjizi iz backfilla (i oni
+      // nose `pretokId`). Ako ih ipak nema — stari pretok koji backfill nije
+      // uspio rekonstruirati — poništavanje se ne smije zaustaviti zbog knjige,
+      // pa se preskače. Razlika će se vidjeti u `npm run berba:provjeri`.
+      const kretanjaUKnjizi = await tx.berbaKretanje.count({
+        where: { pretokId: pretok.id },
+      });
+
+      if (kretanjaUKnjizi > 0) {
+        await zabiljeziPonistenje(
+          tx,
+          { pretokId: pretok.id },
+          {
+            korisnikId: user.id,
+            napomena: "Poništen pretok — vino je vraćeno u izvorne tankove.",
+          }
+        );
+      }
+
       // 1) obriši auto-mjerenja vezana uz pretok
       if (pretok.mjerenja.length > 0) {
         await tx.mjerenje.deleteMany({

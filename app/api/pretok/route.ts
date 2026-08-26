@@ -663,6 +663,10 @@ export async function POST(req: Request) {
         nacinNapomena: nacinNapomena || null,
         napomena,
         korisnikId: user.id,
+        // Veza za knjigu berbe (korak 3). Zapis `Pretok` je stvoren gore, u
+        // istoj transakciji, pa retci knjige imaju cin na koji se vjesaju i
+        // `POST /api/pretok/undo` ih poslije zna naci i ponistiti.
+        pretokId: pretok.id,
         noviIdentitet: trebaNovoVino
           ? {
               nazivVina: nazivNovogVina,

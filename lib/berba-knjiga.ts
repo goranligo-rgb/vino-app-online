@@ -820,6 +820,19 @@ export type RezultatPonistenja = {
  * POKRIVA I NADOPUNE: ZATECENO berba koju je taj cin morao izmisliti vezana je
  * na isti kljuc, pa ju ponistenje povlaci sa sobom. Sam `Berba` redak ostaje —
  * na nuli je, a `scripts/provjeri-berbu.ts` ga zna prepoznati.
+ *
+ * VISE KRUGOVA NA ISTOM CINU. Pretok se ponistavanjem brise, pa za njega postoji
+ * samo jedan krug. Zadatak NE — ponisti se, vrati u OTVOREN i moze se izvrsiti
+ * ponovno, pa isti `zadatakId` nosi FILTRACIJA, PONISTENJE, pa opet FILTRACIJA.
+ * Zato se ne gleda "ima li ijedna protustavka" nego se svaka protustavka SPARI
+ * sa svojim izvornim retkom, a zrcali se samo ono sto je ostalo nespareno. Dva
+ * kruga bi inace ili puknula na drugom ponistavanju iako novi krug jos stoji,
+ * ili bi zrcalila i vec zrcaljene retke i tank bi dobio vino kojeg nema.
+ *
+ * Sparuje se po sadrzaju (berba, oba tanka, mililitri), ne po vremenu: retci
+ * upisani u istoj transakciji imaju ISTI `createdAt` — Postgresov
+ * CURRENT_TIMESTAMP je vrijeme pocetka transakcije — pa poredak po njemu ne
+ * razlikuje krug od njegova zrcala.
  */
 export async function zabiljeziPonistenje(
   tx: Tx,
@@ -846,12 +859,41 @@ export async function zabiljeziPonistenje(
     );
   }
 
+  // Sparivanje protustavki s izvornim retcima — vidi biljesku o vise krugova.
+  const kljuc = (
+    berbaId: string,
+    izTankId: string | null,
+    uTankId: string | null,
+    litre: number
+  ) => `${berbaId}|${izTankId ?? ""}|${uTankId ?? ""}|${uMl(litre)}`;
+
+  const vecZrcaljeno = new Map<string, number>();
+
+  for (const k of postojeci) {
+    if (k.vrsta !== "PONISTENJE") continue;
+    // Zrcalo ima zamijenjene tankove, pa se kljuc vraca u izvorni smjer.
+    const kl = kljuc(k.berbaId, k.uTankId, k.izTankId, Number(k.litre));
+    vecZrcaljeno.set(kl, (vecZrcaljeno.get(kl) ?? 0) + 1);
+  }
+
+  const zaPonistiti = postojeci.filter((k) => {
+    if (k.vrsta === "PONISTENJE") return false;
+
+    const kl = kljuc(k.berbaId, k.izTankId, k.uTankId, Number(k.litre));
+    const preostalo = vecZrcaljeno.get(kl) ?? 0;
+
+    if (preostalo > 0) {
+      vecZrcaljeno.set(kl, preostalo - 1);
+      return false;
+    }
+
+    return true;
+  });
+
   // Dvaput ponisten cin vratio bi u tank vise nego sto je iz njega izaslo.
   // Zato se odbija umjesto da se tiho preskoci: tiho preskakanje bi izgledalo
   // kao da je ponistenje uspjelo.
-  const vecPonisten = postojeci.some((k) => k.vrsta === "PONISTENJE");
-
-  if (vecPonisten) {
+  if (zaPonistiti.length === 0) {
     throw new BerbaGreska(
       "zabiljeziPonistenje: taj je cin vec ponisten (u knjizi vec stoje protustavke)."
     );
@@ -859,7 +901,7 @@ export async function zabiljeziPonistenje(
 
   const kada = opts?.dogodenoAt ?? new Date();
 
-  const zrcala: Redak[] = postojeci.map((k) => ({
+  const zrcala: Redak[] = zaPonistiti.map((k) => ({
     berbaId: k.berbaId,
     // Zamijenjeni tankovi — to je cijelo ponistenje. ULAZ (izTank NULL) time
     // postaje odlazak iz podruma, cime berba u tanku pada na nulu.

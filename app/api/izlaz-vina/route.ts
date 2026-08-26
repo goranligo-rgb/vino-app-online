@@ -4,6 +4,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { citajSesiju } from "@/lib/auth-sesija";
 import { citajGranicuArhive, odGranice } from "@/lib/granica-arhive";
+import { uLitre } from "@/lib/filtracija";
+import { zabiljeziIzlaz } from "@/lib/berba-knjiga";
+import { stanjeTanka } from "@/lib/berba-model";
 
 type AuthUser = {
   id: string;
@@ -510,6 +513,27 @@ export async function POST(req: Request) {
         },
       });
 
+      // ---------------------------------------------------------------------
+      // KNJIGA BERBE — vino napušta podrum: `uTankId` je NULL.
+      //
+      // Razdioba ide po BERBAMA razmjerno njihovu udjelu u tanku. Prodaja ne
+      // bira iz koje se berbe toči — vino je izmiješano, pa izlazi od svih.
+      // (To je ujedno ono što `BlendIzvor` danas ne radi: prodaja umanji tank
+      // ali ne i blend, pa T43 stoji s 20 L razmaka. Knjiga tu grešku nema.)
+      //
+      // ZATEČENO, ne PUKNI: količinu u tanku je provjera gore već potvrdila,
+      // manjak u knjizi znači samo da ne zna odakle je vino došlo.
+      await zabiljeziIzlaz(tx, {
+        tankId,
+        litre: kolicinaLitara,
+        veza: { izlazVinaId: izlaz.id },
+        korisnikId: user.id,
+        dogodenoAt: datum,
+        napomena: izlazNapomena,
+        naManjak: "ZATECENO",
+        opisManjka: `Vino zatečeno u tanku ${tank.broj}: tank ga je imao, a knjiga ne zna odakle je došlo.`,
+      });
+
       let arhivaId: string | null = null;
 
       if (novoStanje <= PRAZNO_PRAG) {
@@ -520,6 +544,28 @@ export async function POST(req: Request) {
           trenutnoLitara
         );
         arhivaId = arhiva?.id ?? null;
+
+        // Tank je arhiviran i očišćen na nulu. Ako knjiga u njemu i dalje nešto
+        // tvrdi — jer je imala više nego tank — taj bi ostatak visio na tanku
+        // koji je od sada slobodan za novo vino. Upisuje se kao ISPRAVAK: tih
+        // litara ondje zapravo nije ni bilo.
+        const ostatakMl = (await stanjeTanka(tx, tankId)).reduce(
+          (z, x) => z + x.ml,
+          0
+        );
+
+        if (ostatakMl > 0) {
+          await zabiljeziIzlaz(tx, {
+            tankId,
+            litre: uLitre(ostatakMl),
+            vrsta: "ISPRAVAK",
+            veza: { izlazVinaId: izlaz.id },
+            korisnikId: user.id,
+            dogodenoAt: datum,
+            napomena:
+              "Ispravak pri arhiviranju: tank je ispražnjen do kraja, a knjiga je u njemu tvrdila još vina.",
+          });
+        }
       }
 
       return { izlaz, arhivaId };
