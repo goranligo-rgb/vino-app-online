@@ -8,7 +8,13 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
 import { citajGranicuArhive, odGranice } from "@/lib/granica-arhive";
 import { uLitre, uMl, type Tx } from "@/lib/filtracija";
-import { zabiljeziIzlaz, zabiljeziUlaz } from "@/lib/berba-knjiga";
+import {
+  BerbaGreska,
+  zabiljeziIspravak,
+  zabiljeziIzlaz,
+  zabiljeziUlaz,
+} from "@/lib/berba-knjiga";
+import { gdjeJeBerba } from "@/lib/berba-model";
 
 /** Kolicina u tanku, u cijelim mililitrima — kako knjiga i racuna. */
 async function kolicinaTankaMl(tx: Tx, tankId: string): Promise<number> {
@@ -104,6 +110,16 @@ export async function DELETE(_req: Request, { params }: Params) {
       if (!datumPunjenja) {
         throw new Error("Punjenje nema datum.");
       }
+
+      // KNJIGA BERBE — zapis berbe koji je nastao BAS IZ OVE stavke.
+      //
+      // Veza je `izvornaPunjenjeStavkaId` (unique), koju punjenje upisuje pri
+      // nastanku, a backfill pri rekonstrukciji povijesti. Stavke starije od
+      // toga zapisa nemaju — tada se ide samo razmjernim putem nize.
+      const berbaStavke = await tx.berba.findFirst({
+        where: { izvornaPunjenjeStavkaId: id, obrisano: false },
+        select: { id: true, nazivSorte: true, kolicinaLitara: true },
+      });
 
       // KNJIGA BERBE, 1/2: koliko je vina u tanku PRIJE zahvata.
       //
@@ -534,17 +550,72 @@ export async function DELETE(_req: Request, { params }: Params) {
         }
       })();
 
-      // KNJIGA BERBE, 2/2: razlika je ono sto se upisuje.
+      // KNJIGA BERBE, 2/2: prvo CILJANO povlacenje te berbe, pa tek ostatak.
       //
-      // Razdioba ide razmjerno po berbama koje su u tanku, kao i kod izlaza.
-      // Ne skida se sve s berbe koja je nastala iz obrisane stavke: to vino je
-      // u tanku vec izmijesano s ostalim, pa bi biranje jedne berbe bilo
-      // izmisljanje. Sam zapis `Berba` se NE brise ni ne oznacava obrisanim —
-      // meko brisanje ondje znaci "unos je bio pogresan", a ovdje je rijec o
-      // tome sto se s vinom dogodilo. To je odluka za korak 4, kad se zna kako
-      // se knjiga cita.
+      // Brisanje stavke ne tvrdi "vino je otislo" nego "te berbe nikad nije
+      // bilo — krivo je upisana". Zato se povlaci TOCNO ona, jednim retkom, a
+      // ne razmjerno po svim berbama u tanku: razmjerno bi maknulo pomalo od
+      // svake DRUGE berbe, vina koje je stvarno ondje, i ostavilo dio izmisljene.
+      //
+      // CUVAR: to se moze izvesti samo dok je ta berba jos cijela u svom tanku.
+      // Cim je dio otisao pretokom dalje, povlacenje bi ili odvelo berbu u minus
+      // u ovom tanku, ili je moralo dirati druge tankove kojima ovaj zahvat ne
+      // mijenja kolicinu — pa bi se knjiga razisla s njima. U tom slucaju se
+      // BRISANJE ODBIJA, cijelo, i nista se ne mijenja.
+      let povuceno = 0;
+
+      if (berbaStavke) {
+        const mjesta = await gdjeJeBerba(tx, berbaStavke.id);
+        const drugdje = mjesta.filter((m) => m.tankId !== tankId);
+
+        if (drugdje.length > 0) {
+          const brojevi = await tx.tank.findMany({
+            where: { id: { in: drugdje.map((m) => m.tankId) } },
+            select: { broj: true },
+            orderBy: { broj: "asc" },
+          });
+
+          throw new BerbaGreska(
+            `Ova berba se više ne može obrisati jer je dio tog vina pretočen dalje — nalazi se i u ` +
+              `${brojevi.map((b) => "tanku " + b.broj).join(", ")}. ` +
+              `Najprije treba poništiti pretoke kojima je otišlo.`
+          );
+        }
+
+        const uOvomTanku = mjesta.find((m) => m.tankId === tankId);
+
+        if (uOvomTanku && uOvomTanku.ml > 0) {
+          const r = await zabiljeziIspravak(tx, {
+            berbaId: berbaStavke.id,
+            tankId,
+            litre: uOvomTanku.litre,
+            veza: { punjenjeId: stavka.punjenjeId },
+            korisnikId: user.id,
+            napomena: `Obrisana stavka punjenja: ${berbaStavke.nazivSorte} ${Number(
+              berbaStavke.kolicinaLitara
+            )} L — unos je bio pogrešan.`,
+          });
+
+          povuceno = r.ml;
+        }
+
+        // Meko brisanje zapisa berbe. Tek SAD, kad je berba na nuli u svakom
+        // tanku — invarijanta "nijedna obrisana berba nema vino u tanku"
+        // (scripts/provjeri-berbu.ts) inace pada.
+        //
+        // Kretanja se NE brisu i ULAZ ostaje stajati. Knjiga i dalje zna da je
+        // taj redak postojao i da je povucen; brisanje bi to drugo bacilo.
+        await tx.berba.update({
+          where: { id: berbaStavke.id },
+          data: { obrisano: true, obrisanoAt: new Date() },
+        });
+      }
+
+      // Ostatak: koliko je zahvat promijenio TANK, umanjeno za ono sto je
+      // ciljano povlacenje vec skinulo s knjige. U redovnom slucaju je to nula
+      // — tank je pao tocno za litre te stavke — pa se nista vise ne upisuje.
       const poslijeMl = await kolicinaTankaMl(tx, tankId);
-      const razlikaMl = prijeMl - poslijeMl;
+      const razlikaMl = prijeMl - poslijeMl - povuceno;
 
       if (razlikaMl > 0) {
         await zabiljeziIzlaz(tx, {
@@ -555,9 +626,8 @@ export async function DELETE(_req: Request, { params }: Params) {
           vrsta: "ISPRAVAK",
           veza: { punjenjeId: stavka.punjenjeId },
           korisnikId: user.id,
-          napomena: `Obrisana stavka punjenja: ${stavka.nazivSorte} ${Number(
-            stavka.kolicinaLitara ?? 0
-          )} L.`,
+          napomena:
+            "Ostatak nakon brisanja stavke punjenja: tank je pao za više nego što je ta berba imala u njemu.",
           naManjak: "ZATECENO",
           opisManjka:
             "Vino zateceno u tanku pri brisanju stavke punjenja: tank ga je imao, a knjiga ne zna odakle je doslo.",
@@ -585,6 +655,12 @@ export async function DELETE(_req: Request, { params }: Params) {
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Greška kod brisanja stavke:", error);
+
+    // Čuvar knjige (berba je pretočena dalje) je odbijanje, ne kvar — poruka je
+    // pisana za korisnika i kaže mu što treba napraviti prije brisanja.
+    if (error instanceof BerbaGreska) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
 
     return NextResponse.json(
       {

@@ -1,123 +1,112 @@
 "use client";
 
+/**
+ * IZVJESTAJ O BERBI — cita knjigu berbe (`/api/berba`), ne punjenja.
+ *
+ * DVIJE TVRDNJE KOJE SE NIGDJE NE MIJESAJU
+ * ----------------------------------------
+ *   ubrano       — `kolicinaLitara` zapisa berbe. Povijesna cinjenica. NE mijenja
+ *                  se kad vino ode: berba 2026 je 15.650 L i nakon sto je pola
+ *                  prodano ili napunjeno u boce.
+ *   danas u podrumu — zbroj iz knjige kretanja. Mijenja se svakim pretokom i
+ *                  izlazom.
+ *
+ * Sve kartice, razrade i usporedbe racunaju se iz PRVOG. Drugi se prikazuje uz
+ * svaku berbu posebno, s vlastitom oznakom, i nikad ne ulazi u zbrojeve berbe.
+ *
+ * ZATECENO
+ * --------
+ * `vrstaUnosa = ZATECENO` nije berba nego rekonstrukcija: staro arhiviranje
+ * brisalo je punjenja, pa knjiga za dio vina zna kolicinu ali ne i podrijetlo.
+ * Takvi zapisi imaju vlastiti odjeljak i ZADANO NE ulaze u zbrojeve — inace bi
+ * berba 2026 ispala 127.935 L umjesto 15.650 L, a najveca "sorta" u podrumu
+ * zvala bi se "Nepoznato podrijetlo". Prekidac ih moze ukljuciti, i tada su
+ * kartice vidljivo oznacene.
+ */
+
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { opisMaceracije } from "@/lib/berba-polja";
 
-type PunjenjeStavka = {
-  id: string;
-  nazivSorte: string;
-  sortaId?: string | null;
-  opis?: string | null;
-  kolicinaKgGrozdja?: number | null;
-  kolicinaLitara: number;
-
-  datumBerbe?: string | null;
-  godinaBerbe?: number | null;
-  polozaj?: string | null;
-  parcela?: string | null;
-  vinograd?: string | null;
-  oznakaBerbe?: string | null;
-  secer?: number | null;
-  kiseline?: number | null;
-  ph?: number | null;
-  napomenaBerbe?: string | null;
-  maceracija?: boolean | null;
-  maceracijaSati?: number | null;
-};
-
-type PocetnoMjerenje = {
-  id: string;
-  alkohol?: number | null;
-  ukupneKiseline?: number | null;
-  hlapiveKiseline?: number | null;
-  slobodniSO2?: number | null;
-  ukupniSO2?: number | null;
-  secer?: number | null;
-  ph?: number | null;
-  temperatura?: number | null;
-  napomena?: string | null;
-  izmjerenoAt?: string | null;
-};
-
-type Punjenje = {
-  id: string;
+type Mjesto = {
   tankId: string;
-  nazivVina?: string | null;
-  datumPunjenja: string;
-  napomena?: string | null;
-  opis?: string | null;
-  ukupnoLitara: number;
-  ukupnoKgGrozdja: number;
-  tank?: {
-    id: string;
-    broj: number;
-    tip?: string | null;
-  } | null;
-  stavke: PunjenjeStavka[];
-  pocetnoMjerenje?: PocetnoMjerenje | null;
+  tankBroj: number | null;
+  litre: number;
 };
 
-type Red = {
-  punjenjeId: string;
-  tankId: string | null;
-  datumPunjenja: string;
-  tankBroj: number | null;
-  tankTip: string | null;
-  nazivVina: string | null;
-  opisPunjenja: string | null;
-  napomenaPunjenja: string | null;
+type Berba = {
+  id: string;
+  vrstaUnosa: "BERBA" | "ZATECENO";
+  nazivSorte: string;
+  sortaId: string | null;
 
-  stavkaId: string;
-  sorta: string;
-  kolicinaKgGrozdja: number | null;
-  kolicinaLitara: number;
   datumBerbe: string | null;
-  godinaBerbe: number | null;
+  datumUlaska: string | null;
+
+  godina: number | null;
+  godinaUpisana: number | null;
+  godinaIzvedena: boolean;
+
+  kolicinaLitara: number;
+  kolicinaKgGrozdja: number | null;
+
   polozaj: string | null;
   parcela: string | null;
   vinograd: string | null;
   oznakaBerbe: string | null;
+
   secer: number | null;
   kiseline: number | null;
   ph: number | null;
+
   maceracija: boolean | null;
   maceracijaSati: number | null;
-  opisStavke: string | null;
-  napomenaBerbe: string | null;
 
-  pocetnoMjerenje: PocetnoMjerenje | null | undefined;
+  napomena: string | null;
+  ispravljenoAt: string | null;
+  razlogIspravka: string | null;
+
+  prviTankId: string | null;
+  prviTankBroj: number | null;
+  izvornaPunjenjeStavkaId: string | null;
+
+  gdjeJeDanas: Mjesto[];
+  danasUkupnoL: number;
+  otisloL: number;
+  viseNijeUPodrumu: boolean;
 };
 
-type GrupiranoPunjenje = {
-  punjenjeId: string;
-  tankId: string | null;
-  datumPunjenja: string;
-  tankBroj: number | null;
-  tankTip: string | null;
-  nazivVina: string | null;
-  opisPunjenja: string | null;
-  napomenaPunjenja: string | null;
-  pocetnoMjerenje: PocetnoMjerenje | null | undefined;
-  stavke: Red[];
-  ukupnoLitara: number;
-  ukupnoKg: number;
+/**
+ * Prosjek uvijek nosi `n` — iz koliko je zapisa izracunat.
+ *
+ * Bez toga prosjek nad dva zapisa izgleda jednako pouzdano kao nad dvjesto, a
+ * upravo je to stanje na terenu: secer/kiseline/pH postoje na dva od trideset
+ * dva zapisa. Obican broj bez `n` bio bi tvrdnja koju podaci ne pokrivaju.
+ */
+type Prosjek = {
+  vrijednost: number | null;
+  /** Koliko zapisa ima taj podatak. */
+  n: number;
+  /** Koliko ih je ukupno u grupi. */
+  od: number;
 };
 
-type GodisnjiSazetak = {
+type SazetakGodine = {
   litara: number;
   kg: number;
   sorte: number;
-  stavki: number;
-  avgSecer: number | null;
-  avgKiseline: number | null;
-  avgPh: number | null;
+  zapisa: number;
+  secer: Prosjek;
+  kiseline: Prosjek;
+  ph: Prosjek;
 };
 
-type GodisnjiSortaSazetak = {
+type SortaPoGodinama = {
   sorta: string;
-  poGodinama: Record<string, GodisnjiSazetak>;
+  poGodinama: Record<string, SazetakGodine>;
 };
+
+const BEZ_GODISTA = "bez-godista";
 
 function formatBroj(v?: number | null, digits = 2) {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return "-";
@@ -134,12 +123,6 @@ function formatDatum(v?: string | null) {
   return d.toLocaleDateString("hr-HR");
 }
 
-function toTimestamp(v?: string | null) {
-  if (!v) return Number.MAX_SAFE_INTEGER;
-  const t = new Date(v).getTime();
-  return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t;
-}
-
 function uniqueSorted(values: (string | number | null | undefined)[]) {
   return [
     ...new Set(
@@ -150,46 +133,39 @@ function uniqueSorted(values: (string | number | null | undefined)[]) {
   ].sort((a, b) => a.localeCompare(b, "hr"));
 }
 
-function prosjek(rows: Red[], key: "secer" | "kiseline" | "ph") {
-  const valid = rows.filter((r) => r[key] != null);
-  if (valid.length === 0) return null;
-  return valid.reduce((sum, r) => sum + Number(r[key] || 0), 0) / valid.length;
+/** Kljuc godine za filtar. Zapis bez godine ima vlastitu ladicu, ne ispada. */
+function kljucGodine(b: Berba): string {
+  return b.godina == null ? BEZ_GODISTA : String(b.godina);
 }
 
-function prviUnosiPoSorti(rows: Red[]) {
-  const sortirani = [...rows].sort((a, b) => {
-    const diff = toTimestamp(a.datumBerbe) - toTimestamp(b.datumBerbe);
-    if (diff !== 0) return diff;
-    return toTimestamp(a.datumPunjenja) - toTimestamp(b.datumPunjenja);
-  });
+function izracunajProsjek(
+  zapisi: Berba[],
+  polje: "secer" | "kiseline" | "ph"
+): Prosjek {
+  const sVrijednoscu = zapisi.filter((z) => z[polje] != null);
 
-  const mapa = new Map<string, Red>();
-  for (const r of sortirani) {
-    const key = r.sorta || "Nepoznato";
-    if (!mapa.has(key)) {
-      mapa.set(key, r);
-    }
+  if (sVrijednoscu.length === 0) {
+    return { vrijednost: null, n: 0, od: zapisi.length };
   }
 
-  return [...mapa.values()];
-}
-
-function izracunajSazetakGodine(rows: Red[]): GodisnjiSazetak {
-  const litara = rows.reduce((s, r) => s + (r.kolicinaLitara || 0), 0);
-  const kg = rows.reduce((s, r) => s + (r.kolicinaKgGrozdja || 0), 0);
-  const sorte = new Set(rows.map((r) => r.sorta).filter(Boolean)).size;
-  const stavki = rows.length;
-
-  const pocetniZapisi = prviUnosiPoSorti(rows);
+  const zbroj = sVrijednoscu.reduce((s, z) => s + Number(z[polje]), 0);
 
   return {
-    litara,
-    kg,
-    sorte,
-    stavki,
-    avgSecer: prosjek(pocetniZapisi, "secer"),
-    avgKiseline: prosjek(pocetniZapisi, "kiseline"),
-    avgPh: prosjek(pocetniZapisi, "ph"),
+    vrijednost: zbroj / sVrijednoscu.length,
+    n: sVrijednoscu.length,
+    od: zapisi.length,
+  };
+}
+
+function izracunajSazetak(zapisi: Berba[]): SazetakGodine {
+  return {
+    litara: zapisi.reduce((s, z) => s + (z.kolicinaLitara || 0), 0),
+    kg: zapisi.reduce((s, z) => s + (z.kolicinaKgGrozdja || 0), 0),
+    sorte: new Set(zapisi.map((z) => z.nazivSorte).filter(Boolean)).size,
+    zapisa: zapisi.length,
+    secer: izracunajProsjek(zapisi, "secer"),
+    kiseline: izracunajProsjek(zapisi, "kiseline"),
+    ph: izracunajProsjek(zapisi, "ph"),
   };
 }
 
@@ -217,18 +193,43 @@ function KarticaBroj({
   );
 }
 
+/** Prosjek s brojem zapisa ispod. "—" kad ga nema iz cega izracunati. */
+function KarticaProsjek({
+  naslov,
+  p,
+  digits = 2,
+}: {
+  naslov: string;
+  p: Prosjek;
+  digits?: number;
+}) {
+  return (
+    <KarticaBroj
+      naslov={naslov}
+      vrijednost={p.vrijednost == null ? "—" : formatBroj(p.vrijednost, digits)}
+      podnaslov={
+        p.vrijednost == null
+          ? `nema podatka ni na jednom od ${p.od}`
+          : `iz ${p.n} od ${p.od} zapisa`
+      }
+    />
+  );
+}
+
 function Oznaka({
   children,
   variant = "default",
 }: {
   children: React.ReactNode;
-  variant?: "default" | "soft" | "strong";
+  variant?: "default" | "soft" | "strong" | "upozorenje";
 }) {
   const cls =
     variant === "strong"
       ? "border-emerald-300 bg-gradient-to-b from-emerald-100 to-lime-100 text-emerald-950"
       : variant === "soft"
       ? "border-lime-200 bg-lime-50 text-lime-800"
+      : variant === "upozorenje"
+      ? "border-amber-300 bg-amber-50 text-amber-900"
       : "border-emerald-200 bg-emerald-50 text-emerald-900";
 
   return (
@@ -238,13 +239,7 @@ function Oznaka({
   );
 }
 
-function Polje({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
+function Polje({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="border border-emerald-100 bg-white px-3 py-3">
       <div className="text-[11px] uppercase tracking-[0.14em] text-stone-400">
@@ -257,8 +252,63 @@ function Polje({
   );
 }
 
+/**
+ * Gdje je vino DANAS. Tri broja koja se ne miksaju: ubrano, u podrumu, otislo.
+ *
+ * Brojka dolazi iskljucivo iz `BerbaKretanje` — ni `Tank.kolicinaVinaUTanku`,
+ * ni `BlendIzvor`, ni `TankSortaUdio` u tome ne sudjeluju.
+ */
+function GdjeJeDanas({ b }: { b: Berba }) {
+  return (
+    <div className="border border-emerald-200 bg-white p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[11px] uppercase tracking-[0.14em] text-emerald-800/70">
+          Gdje je to vino danas
+        </div>
+        <span className="text-[11px] text-stone-400">iz knjige kretanja</span>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Polje
+          label="Ubrano"
+          value={`${formatBroj(b.kolicinaLitara, 0)} L`}
+        />
+        <Polje
+          label="Danas u podrumu"
+          value={`${formatBroj(b.danasUkupnoL, 0)} L`}
+        />
+        <Polje
+          label="Otišlo"
+          value={`${formatBroj(b.otisloL, 0)} L`}
+        />
+      </div>
+
+      <div className="mt-3">
+        {b.viseNijeUPodrumu ? (
+          <div className="border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
+            Ovog vina više nema ni u jednom tanku — prodano, napunjeno u boce ili
+            otišlo kao kalo. Količina berbe gore se time ne mijenja.
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {b.gdjeJeDanas.map((m) => (
+              <Link
+                key={m.tankId}
+                href={`/tankovi/${m.tankId}`}
+                className="border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] font-medium text-emerald-900 transition hover:bg-emerald-100"
+              >
+                Tank {m.tankBroj ?? "?"} · {formatBroj(m.litre, 0)} L
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function BerbaPage() {
-  const [data, setData] = useState<Punjenje[]>([]);
+  const [sve, setSve] = useState<Berba[]>([]);
   const [loading, setLoading] = useState(true);
   const [greska, setGreska] = useState("");
   const [deletingId, setDeletingId] = useState("");
@@ -268,9 +318,11 @@ export default function BerbaPage() {
   const [otvoriUsporedbu, setOtvoriUsporedbu] = useState(false);
   const [godineUsporedba, setGodineUsporedba] = useState<string[]>([]);
 
+  // ZADANO ISKLJUCEN. Vidi zaglavlje datoteke.
+  const [ukljuciZateceno, setUkljuciZateceno] = useState(false);
+
   const [filterSorta, setFilterSorta] = useState("");
   const [filterTank, setFilterTank] = useState("");
-  const [filterNazivVina, setFilterNazivVina] = useState("");
   const [filterTekst, setFilterTekst] = useState("");
 
   async function ucitaj() {
@@ -278,37 +330,51 @@ export default function BerbaPage() {
       setLoading(true);
       setGreska("");
 
-      const res = await fetch("/api/punjenje", { cache: "no-store" });
+      const res = await fetch("/api/berba", { cache: "no-store" });
       const json = await res.json();
 
       if (!res.ok) {
         setGreska(json?.error || "Greška kod dohvaćanja podataka.");
-        setData([]);
+        setSve([]);
         return;
       }
 
-      setData(Array.isArray(json) ? json : []);
+      setSve(Array.isArray(json?.berbe) ? json.berbe : []);
     } catch (error) {
       console.error(error);
       setGreska("Greška kod dohvaćanja podataka o berbi.");
-      setData([]);
+      setSve([]);
     } finally {
       setLoading(false);
     }
   }
 
-  async function obrisiRed(stavkaId: string) {
+  /**
+   * Brisanje ide na stavku punjenja iz koje je zapis nastao. Ruta poslije toga
+   * povlaci BAS TU berbu iz knjige i oznaci je obrisanom — ali samo dok je jos
+   * cijela u svom tanku. Ako je dio pretocen dalje, vraca 400 s uputom, i to se
+   * pokazuje korisniku umjesto tihog neuspjeha.
+   */
+  async function obrisiBerbu(b: Berba) {
+    if (!b.izvornaPunjenjeStavkaId) return;
+
     const potvrda = window.confirm(
-      "Želiš obrisati ovu stavku berbe? Nakon toga više se neće prikazivati ni zbrajati."
+      `Obrisati zapis berbe „${b.nazivSorte}” (${formatBroj(
+        b.kolicinaLitara,
+        0
+      )} L)?\n\n` +
+        "Ovo znači da unos NIJE BIO TOČAN — to vino se povlači iz knjige. " +
+        "Ako je vino stvarno otišlo iz tanka, ovo nije prava radnja."
     );
     if (!potvrda) return;
 
     try {
-      setDeletingId(stavkaId);
+      setDeletingId(b.id);
 
-      const res = await fetch(`/api/punjenje-stavka/${stavkaId}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/punjenje-stavka/${b.izvornaPunjenjeStavkaId}`,
+        { method: "DELETE" }
+      );
 
       const json = await res.json();
 
@@ -316,15 +382,6 @@ export default function BerbaPage() {
         alert(json?.error || "Greška kod brisanja stavke.");
         return;
       }
-
-      setData((prev) =>
-        prev
-          .map((p) => ({
-            ...p,
-            stavke: p.stavke.filter((s) => s.id !== stavkaId),
-          }))
-          .filter((p) => p.stavke.length > 0)
-      );
 
       setRefreshKey((k) => k + 1);
     } catch (error) {
@@ -339,60 +396,42 @@ export default function BerbaPage() {
     ucitaj();
   }, [refreshKey]);
 
-  const redovi = useMemo<Red[]>(() => {
-    const result: Red[] = [];
+  // --- razdvajanje: berba vs zateceno -------------------------------------
 
-    for (const punjenje of data) {
-      for (const stavka of punjenje.stavke ?? []) {
-        result.push({
-          punjenjeId: punjenje.id,
-          tankId: punjenje.tank?.id ?? null,
-          datumPunjenja: punjenje.datumPunjenja,
-          tankBroj: punjenje.tank?.broj ?? null,
-          tankTip: punjenje.tank?.tip ?? null,
-          nazivVina: punjenje.nazivVina ?? null,
-          opisPunjenja: punjenje.opis ?? null,
-          napomenaPunjenja: punjenje.napomena ?? null,
+  const berbe = useMemo(
+    () => sve.filter((b) => b.vrstaUnosa === "BERBA"),
+    [sve]
+  );
 
-          stavkaId: stavka.id,
-          sorta: stavka.nazivSorte,
-          kolicinaKgGrozdja: stavka.kolicinaKgGrozdja ?? null,
-          kolicinaLitara: Number(stavka.kolicinaLitara ?? 0),
-          datumBerbe: stavka.datumBerbe ?? punjenje.datumPunjenja ?? null,
-          godinaBerbe:
-            stavka.godinaBerbe ??
-            (punjenje.datumPunjenja
-              ? new Date(punjenje.datumPunjenja).getFullYear()
-              : null),
-          polozaj: stavka.polozaj ?? null,
-          parcela: stavka.parcela ?? null,
-          vinograd: stavka.vinograd ?? null,
-          oznakaBerbe: stavka.oznakaBerbe ?? null,
-          secer: stavka.secer ?? null,
-          kiseline: stavka.kiseline ?? null,
-          ph: stavka.ph ?? null,
-          opisStavke: stavka.opis ?? null,
-          napomenaBerbe: stavka.napomenaBerbe ?? null,
-          maceracija: stavka.maceracija ?? null,
-          maceracijaSati: stavka.maceracijaSati ?? null,
+  const zatecene = useMemo(
+    () => sve.filter((b) => b.vrstaUnosa === "ZATECENO"),
+    [sve]
+  );
 
-          pocetnoMjerenje: punjenje.pocetnoMjerenje ?? null,
-        });
-      }
-    }
+  /** Podloga za SVE zbrojeve. Zateceno ulazi samo ako je prekidac ukljucen. */
+  const podloga = useMemo(
+    () => (ukljuciZateceno ? sve : berbe),
+    [sve, berbe, ukljuciZateceno]
+  );
 
-    return result;
-  }, [data]);
+  // --- godine --------------------------------------------------------------
 
   const godine = useMemo(() => {
-    return uniqueSorted(redovi.map((r) => r.godinaBerbe)).sort(
-      (a, b) => Number(b) - Number(a)
-    );
-  }, [redovi]);
+    const kljucevi = new Set(podloga.map(kljucGodine));
+    const brojcane = [...kljucevi]
+      .filter((k) => k !== BEZ_GODISTA)
+      .sort((a, b) => Number(b) - Number(a));
+
+    return kljucevi.has(BEZ_GODISTA) ? [...brojcane, BEZ_GODISTA] : brojcane;
+  }, [podloga]);
+
+  const nazivGodine = (k: string) =>
+    k === BEZ_GODISTA ? "Bez godišta" : `Berba ${k}`;
 
   useEffect(() => {
-    if (!aktivnaGodina && godine.length > 0) {
-      setAktivnaGodina(String(godine[0]));
+    if (godine.length === 0) return;
+    if (!aktivnaGodina || !godine.includes(aktivnaGodina)) {
+      setAktivnaGodina(godine[0]);
     }
   }, [godine, aktivnaGodina]);
 
@@ -402,33 +441,30 @@ export default function BerbaPage() {
     }
   }, [aktivnaGodina, godineUsporedba.length]);
 
-  const redoviAktivneGodine = useMemo(() => {
-    if (!aktivnaGodina) return redovi;
-    return redovi.filter((r) => String(r.godinaBerbe ?? "") === aktivnaGodina);
-  }, [redovi, aktivnaGodina]);
+  const uGodini = useMemo(() => {
+    if (!aktivnaGodina) return podloga;
+    return podloga.filter((b) => kljucGodine(b) === aktivnaGodina);
+  }, [podloga, aktivnaGodina]);
+
+  // --- filtri --------------------------------------------------------------
 
   const filtrirani = useMemo(() => {
     const tekst = filterTekst.trim().toLowerCase();
 
-    return redoviAktivneGodine.filter((r) => {
-      if (filterSorta && r.sorta !== filterSorta) return false;
-      if (filterTank && String(r.tankBroj ?? "") !== filterTank) return false;
-      if (filterNazivVina && (r.nazivVina ?? "") !== filterNazivVina) return false;
+    return uGodini.filter((b) => {
+      if (filterSorta && b.nazivSorte !== filterSorta) return false;
+      if (filterTank && String(b.prviTankBroj ?? "") !== filterTank) return false;
 
       if (tekst) {
         const haystack = [
-          r.sorta,
-          r.polozaj,
-          r.oznakaBerbe,
-          r.nazivVina,
-          r.opisPunjenja,
-          r.napomenaPunjenja,
-          r.opisStavke,
-          r.napomenaBerbe,
-          r.parcela,
-          r.vinograd,
-          String(r.tankBroj ?? ""),
-          String(r.godinaBerbe ?? ""),
+          b.nazivSorte,
+          b.polozaj,
+          b.oznakaBerbe,
+          b.vinograd,
+          b.napomena,
+          String(b.prviTankBroj ?? ""),
+          String(b.godina ?? ""),
+          ...b.gdjeJeDanas.map((m) => `tank ${m.tankBroj}`),
         ]
           .filter(Boolean)
           .join(" ")
@@ -439,173 +475,137 @@ export default function BerbaPage() {
 
       return true;
     });
-  }, [redoviAktivneGodine, filterSorta, filterTank, filterNazivVina, filterTekst]);
+  }, [uGodini, filterSorta, filterTank, filterTekst]);
 
   const sorte = useMemo(
-    () => uniqueSorted(redoviAktivneGodine.map((r) => r.sorta)),
-    [redoviAktivneGodine]
+    () => uniqueSorted(uGodini.map((b) => b.nazivSorte)),
+    [uGodini]
   );
+
   const tankovi = useMemo(
-    () => uniqueSorted(redoviAktivneGodine.map((r) => r.tankBroj)),
-    [redoviAktivneGodine]
-  );
-  const naziviVina = useMemo(
-    () => uniqueSorted(redoviAktivneGodine.map((r) => r.nazivVina)),
-    [redoviAktivneGodine]
+    () => uniqueSorted(uGodini.map((b) => b.prviTankBroj)),
+    [uGodini]
   );
 
-  const sazetak = useMemo(() => {
-    const punjenjaIds = new Set(filtrirani.map((r) => r.punjenjeId));
-    const sorteSet = new Set(filtrirani.map((r) => r.sorta).filter(Boolean));
+  // --- sazetak -------------------------------------------------------------
 
-    const ukupnoLitara = filtrirani.reduce((sum, r) => sum + (r.kolicinaLitara || 0), 0);
-    const ukupnoKg = filtrirani.reduce((sum, r) => sum + (r.kolicinaKgGrozdja || 0), 0);
+  const sazetak = useMemo(() => izracunajSazetak(filtrirani), [filtrirani]);
 
-    const poSortiLitara = new Map<string, number>();
-    for (const r of filtrirani) {
-      const key = r.sorta || "Nepoznato";
-      poSortiLitara.set(key, (poSortiLitara.get(key) || 0) + (r.kolicinaLitara || 0));
+  const najzastupljenijaSorta = useMemo(() => {
+    const poSorti = new Map<string, number>();
+    for (const b of filtrirani) {
+      poSorti.set(
+        b.nazivSorte,
+        (poSorti.get(b.nazivSorte) ?? 0) + (b.kolicinaLitara || 0)
+      );
     }
-
-    const najzastupljenijaSorta =
-      [...poSortiLitara.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "-";
-
-    const pocetniZapisi = prviUnosiPoSorti(filtrirani);
-
-    const prosjecniSecer = prosjek(pocetniZapisi, "secer");
-    const prosjecneKiseline = prosjek(pocetniZapisi, "kiseline");
-    const prosjecniPh = prosjek(pocetniZapisi, "ph");
-
-    return {
-      brojPunjenja: punjenjaIds.size,
-      brojStavki: filtrirani.length,
-      brojSorti: sorteSet.size,
-      ukupnoLitara,
-      ukupnoKg,
-      najzastupljenijaSorta,
-      prosjecniSecer,
-      prosjecneKiseline,
-      prosjecniPh,
-    };
+    return [...poSorti.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "-";
   }, [filtrirani]);
+
+  /** Koliko je od filtriranog danas jos u podrumu — zaseban broj, ne dio berbe. */
+  const danasUPodrumu = useMemo(
+    () => filtrirani.reduce((s, b) => s + (b.danasUkupnoL || 0), 0),
+    [filtrirani]
+  );
+
+  // --- razrade -------------------------------------------------------------
 
   const poSorti = useMemo(() => {
-    const mapa = new Map<
-      string,
-      {
-        sorta: string;
-        litara: number;
-        kg: number;
-        stavki: number;
-        avgSecer: number | null;
-        avgKiseline: number | null;
-        avgPh: number | null;
-      }
-    >();
+    const grupe = new Map<string, Berba[]>();
 
-    const grupe = new Map<string, Red[]>();
-    for (const r of filtrirani) {
-      const key = r.sorta || "Nepoznato";
-      const lista = grupe.get(key) || [];
-      lista.push(r);
-      grupe.set(key, lista);
+    for (const b of filtrirani) {
+      const k = b.nazivSorte || "Nepoznato";
+      grupe.set(k, [...(grupe.get(k) ?? []), b]);
     }
 
-    for (const [sorta, rows] of grupe.entries()) {
-      const pocetniZapisi = prviUnosiPoSorti(rows);
-      mapa.set(sorta, {
-        sorta,
-        litara: rows.reduce((s, r) => s + (r.kolicinaLitara || 0), 0),
-        kg: rows.reduce((s, r) => s + (r.kolicinaKgGrozdja || 0), 0),
-        stavki: rows.length,
-        avgSecer: prosjek(pocetniZapisi, "secer"),
-        avgKiseline: prosjek(pocetniZapisi, "kiseline"),
-        avgPh: prosjek(pocetniZapisi, "ph"),
+    return [...grupe.entries()]
+      .map(([sorta, zapisi]) => ({ sorta, ...izracunajSazetak(zapisi) }))
+      .sort((a, b) => b.litara - a.litara);
+  }, [filtrirani]);
+
+  /**
+   * Razrada po POLOZAJU. Jedna, ne dvije.
+   *
+   * `polozaj` i `parcela` nose isti broj — to je interna sifra polozaja. Dvije
+   * razrade iz istog podatka bile bi dvije tablice s istim brojkama. `parcela`
+   * ostaje u bazi i u odgovoru, samo se ne razradjuje zasebno.
+   */
+  const poPolozaju = useMemo(() => {
+    const grupe = new Map<string, Berba[]>();
+
+    for (const b of filtrirani) {
+      const k = String(b.polozaj ?? "").trim() || "bez položaja";
+      grupe.set(k, [...(grupe.get(k) ?? []), b]);
+    }
+
+    return [...grupe.entries()]
+      .map(([polozaj, zapisi]) => ({
+        polozaj,
+        // Ne "sorte": `izracunajSazetak` vec vraca polje tog imena kao BROJ
+        // razlicitih sorti, pa bi ga spread nize prepisao.
+        naziviSorti: uniqueSorted(zapisi.map((z) => z.nazivSorte)),
+        ...izracunajSazetak(zapisi),
+      }))
+      .sort((a, b) => {
+        // "bez položaja" uvijek na dno — to je odsutnost podatka, ne položaj.
+        if (a.polozaj === "bez položaja") return 1;
+        if (b.polozaj === "bez položaja") return -1;
+        return b.litara - a.litara;
       });
-    }
-
-    return [...mapa.values()].sort((a, b) => b.litara - a.litara);
   }, [filtrirani]);
 
-  const detaljiPoPunjenju = useMemo<GrupiranoPunjenje[]>(() => {
-    const mapa = new Map<string, GrupiranoPunjenje>();
+  // --- usporedba godina ----------------------------------------------------
 
-    for (const r of filtrirani) {
-      if (!mapa.has(r.punjenjeId)) {
-        mapa.set(r.punjenjeId, {
-          punjenjeId: r.punjenjeId,
-          tankId: r.tankId,
-          datumPunjenja: r.datumPunjenja,
-          tankBroj: r.tankBroj,
-          tankTip: r.tankTip,
-          nazivVina: r.nazivVina,
-          opisPunjenja: r.opisPunjenja,
-          napomenaPunjenja: r.napomenaPunjenja,
-          pocetnoMjerenje: r.pocetnoMjerenje,
-          stavke: [],
-          ukupnoLitara: 0,
-          ukupnoKg: 0,
-        });
-      }
-
-      const grupa = mapa.get(r.punjenjeId)!;
-      grupa.stavke.push(r);
-      grupa.ukupnoLitara += r.kolicinaLitara || 0;
-      grupa.ukupnoKg += r.kolicinaKgGrozdja || 0;
+  const usporedbaUkupno = useMemo<Record<string, SazetakGodine>>(() => {
+    const r: Record<string, SazetakGodine> = {};
+    for (const g of godineUsporedba) {
+      r[g] = izracunajSazetak(podloga.filter((b) => kljucGodine(b) === g));
     }
+    return r;
+  }, [podloga, godineUsporedba]);
 
-    return [...mapa.values()].sort(
-      (a, b) =>
-        new Date(b.datumPunjenja).getTime() - new Date(a.datumPunjenja).getTime()
-    );
-  }, [filtrirani]);
-
-  const usporedbaUkupno = useMemo<Record<string, GodisnjiSazetak>>(() => {
-    const result: Record<string, GodisnjiSazetak> = {};
-
-    for (const godina of godineUsporedba) {
-      const rows = redovi.filter((r) => String(r.godinaBerbe ?? "") === godina);
-      result[godina] = izracunajSazetakGodine(rows);
-    }
-
-    return result;
-  }, [redovi, godineUsporedba]);
-
-  const usporedbaPoSortama = useMemo<GodisnjiSortaSazetak[]>(() => {
+  const usporedbaPoSortama = useMemo<SortaPoGodinama[]>(() => {
     const sveSorte = uniqueSorted(
-      redovi
-        .filter((r) => godineUsporedba.includes(String(r.godinaBerbe ?? "")))
-        .map((r) => r.sorta)
+      podloga
+        .filter((b) => godineUsporedba.includes(kljucGodine(b)))
+        .map((b) => b.nazivSorte)
     );
 
-    const rezultat: GodisnjiSortaSazetak[] = sveSorte.map((sorta) => {
-      const poGodinama: Record<string, GodisnjiSazetak> = {};
+    return sveSorte
+      .map((sorta) => {
+        const poGodinama: Record<string, SazetakGodine> = {};
 
-      for (const godina of godineUsporedba) {
-        const rows = redovi.filter(
-          (r) =>
-            String(r.godinaBerbe ?? "") === godina &&
-            String(r.sorta ?? "") === String(sorta)
-        );
+        for (const g of godineUsporedba) {
+          poGodinama[g] = izracunajSazetak(
+            podloga.filter(
+              (b) => kljucGodine(b) === g && b.nazivSorte === sorta
+            )
+          );
+        }
 
-        poGodinama[godina] = izracunajSazetakGodine(rows);
-      }
+        return { sorta, poGodinama };
+      })
+      .sort((a, b) => {
+        const zbroj = (x: SortaPoGodinama) =>
+          godineUsporedba.reduce((s, g) => s + (x.poGodinama[g]?.litara || 0), 0);
+        return zbroj(b) - zbroj(a);
+      });
+  }, [podloga, godineUsporedba]);
 
-      return { sorta, poGodinama };
-    });
+  const detalji = useMemo(
+    () =>
+      [...filtrirani].sort((a, b) => {
+        const da = a.datumBerbe ?? a.datumUlaska ?? "";
+        const db = b.datumBerbe ?? b.datumUlaska ?? "";
+        return db.localeCompare(da);
+      }),
+    [filtrirani]
+  );
 
-    return rezultat.sort((a, b) => {
-      const litA = godineUsporedba.reduce(
-        (sum, g) => sum + (a.poGodinama[g]?.litara || 0),
-        0
-      );
-      const litB = godineUsporedba.reduce(
-        (sum, g) => sum + (b.poGodinama[g]?.litara || 0),
-        0
-      );
-      return litB - litA;
-    });
-  }, [redovi, godineUsporedba]);
+  const zateceneUGodini = useMemo(() => {
+    if (!aktivnaGodina) return zatecene;
+    return zatecene.filter((b) => kljucGodine(b) === aktivnaGodina);
+  }, [zatecene, aktivnaGodina]);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f6f2_0%,#eef5ef_45%,#eaf3ed_100%)] px-4 py-4 text-stone-800 [font-family:Calibri,Segoe_UI,Arial,sans-serif] md:px-6">
@@ -620,8 +620,9 @@ export default function BerbaPage() {
                 Izvještaj o berbi
               </h1>
               <p className="mt-2 max-w-[860px] text-[14px] leading-6 text-white/80">
-                Pregled unosa iz punjenja, ukupnih količina, osnovnih parametara i
-                detaljna usporedba godišta ukupno te po sortama.
+                Koliko je ubrano, po sortama i položajima, i gdje je to vino
+                danas. Količine berbe su povijesna činjenica i ne mijenjaju se
+                kad vino ode iz tanka — to je zaseban podatak uz svaki zapis.
               </p>
             </div>
 
@@ -656,53 +657,83 @@ export default function BerbaPage() {
                     setAktivnaGodina(e.target.value);
                     setFilterSorta("");
                     setFilterTank("");
-                    setFilterNazivVina("");
                     setFilterTekst("");
                   }}
                   className="border border-emerald-300 bg-white px-4 py-3 text-[18px] font-semibold text-stone-800 outline-none focus:border-emerald-500"
                 >
                   {godine.map((g) => (
                     <option key={g} value={g}>
-                      Berba {g}
+                      {nazivGodine(g)}
                     </option>
                   ))}
                 </select>
 
-                {aktivnaGodina ? (
+                {aktivnaGodina === BEZ_GODISTA ? (
+                  <Oznaka variant="upozorenje">Zapisi bez godišta</Oznaka>
+                ) : aktivnaGodina ? (
                   <Oznaka variant="strong">Godina {aktivnaGodina}</Oznaka>
+                ) : null}
+
+                {uGodini.some((b) => b.godinaIzvedena) ? (
+                  <Oznaka variant="soft">
+                    {uGodini.filter((b) => b.godinaIzvedena).length} zapisa bez
+                    upisanog godišta — godina izvedena iz datuma ulaska u podrum
+                  </Oznaka>
                 ) : null}
               </div>
             </div>
+
+            <label className="flex cursor-pointer items-center gap-2 border border-emerald-200 bg-white px-3 py-2 text-[13px] text-stone-700">
+              <input
+                type="checkbox"
+                checked={ukljuciZateceno}
+                onChange={(e) => setUkljuciZateceno(e.target.checked)}
+                className="h-4 w-4 accent-emerald-700"
+              />
+              Uključi zatečeno u zbrojeve
+            </label>
           </div>
+
+          {ukljuciZateceno ? (
+            <div className="mb-3 border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
+              Zbrojevi ispod uključuju i <strong>zatečeno vino</strong> — ono
+              kojemu knjiga zna količinu ali ne i podrijetlo. To više nije
+              statistika berbe.
+            </div>
+          ) : null}
 
           <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-8">
             <KarticaBroj
-              naslov="Ukupno litara"
-              vrijednost={`${formatBroj(sazetak.ukupnoLitara, 0)} L`}
+              naslov="Ubrano litara"
+              vrijednost={`${formatBroj(sazetak.litara, 0)} L`}
+              podnaslov="ne mijenja se kad vino ode"
             />
             <KarticaBroj
-              naslov="Ukupno kg grožđa"
-              vrijednost={`${formatBroj(sazetak.ukupnoKg, 0)} kg`}
-            />
-            <KarticaBroj naslov="Punjenja" vrijednost={String(sazetak.brojPunjenja)} />
-            <KarticaBroj naslov="Stavke berbe" vrijednost={String(sazetak.brojStavki)} />
-            <KarticaBroj naslov="Sorte" vrijednost={String(sazetak.brojSorti)} />
-            <KarticaBroj
-              naslov="Prosječni šećer"
-              vrijednost={formatBroj(sazetak.prosjecniSecer, 2)}
-              podnaslov="prvi unos po sorti"
+              naslov="Ubrano kg grožđa"
+              vrijednost={`${formatBroj(sazetak.kg, 0)} kg`}
             />
             <KarticaBroj
-              naslov="Prosječne kiseline"
-              vrijednost={formatBroj(sazetak.prosjecneKiseline, 2)}
-              podnaslov="prvi unos po sorti"
+              naslov="Danas u podrumu"
+              vrijednost={`${formatBroj(danasUPodrumu, 0)} L`}
+              podnaslov="iz knjige kretanja"
             />
+            <KarticaBroj
+              naslov="Zapisa berbe"
+              vrijednost={String(sazetak.zapisa)}
+            />
+            <KarticaBroj naslov="Sorte" vrijednost={String(sazetak.sorte)} />
+            <KarticaProsjek naslov="Prosječni šećer" p={sazetak.secer} />
+            <KarticaProsjek naslov="Prosječne kiseline" p={sazetak.kiseline} />
             <KarticaBroj
               naslov="Prosječni pH"
-              vrijednost={formatBroj(sazetak.prosjecniPh, 2)}
+              vrijednost={
+                sazetak.ph.vrijednost == null
+                  ? "—"
+                  : formatBroj(sazetak.ph.vrijednost, 2)
+              }
               podnaslov={
-                sazetak.najzastupljenijaSorta !== "-"
-                  ? `glavna sorta: ${sazetak.najzastupljenijaSorta}`
+                najzastupljenijaSorta !== "-"
+                  ? `glavna sorta: ${najzastupljenijaSorta}`
                   : undefined
               }
             />
@@ -744,199 +775,113 @@ export default function BerbaPage() {
               Odaberi godišta za usporedbu
             </div>
 
+            {godine.length < 2 ? (
+              <div className="mb-4 border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
+                Knjiga zasad ima samo jedno godište, pa usporedba pokazuje jedan
+                stupac. Starije berbe nisu sačuvane — staro arhiviranje brisalo
+                je punjenja.
+              </div>
+            ) : null}
+
             <div className="mb-4 flex flex-wrap gap-2">
               {godine.map((g) => {
-                const godina = String(g);
-                const aktivno = godineUsporedba.includes(godina);
+                const aktivno = godineUsporedba.includes(g);
 
                 return (
                   <button
-                    key={godina}
+                    key={g}
                     type="button"
-                    onClick={() => {
-                      setGodineUsporedba((prev) => {
-                        if (prev.includes(godina)) {
-                          return prev.filter((x) => x !== godina);
-                        }
-
-                        if (prev.length >= 3) return prev;
-
-                        return [...prev, godina].sort((a, b) => Number(b) - Number(a));
-                      });
-                    }}
-                    className={`px-3 py-2 text-[13px] font-semibold border transition ${
+                    onClick={() =>
+                      setGodineUsporedba((prev) =>
+                        prev.includes(g)
+                          ? prev.filter((x) => x !== g)
+                          : [...prev, g].sort((a, b) => {
+                              if (a === BEZ_GODISTA) return 1;
+                              if (b === BEZ_GODISTA) return -1;
+                              return Number(b) - Number(a);
+                            })
+                      )
+                    }
+                    className={`border px-4 py-2 text-[13px] font-medium transition ${
                       aktivno
-                        ? "border-emerald-500 bg-emerald-600 text-white"
-                        : "border-emerald-200 bg-white text-stone-700 hover:bg-emerald-50"
+                        ? "border-emerald-400 bg-gradient-to-b from-emerald-100 to-lime-100 text-emerald-950"
+                        : "border-emerald-200 bg-white text-stone-600 hover:bg-emerald-50"
                     }`}
                   >
-                    {godina}
+                    {nazivGodine(g)}
                   </button>
                 );
               })}
             </div>
 
-            <div className="mb-3 text-[12px] text-stone-500">
-              Možeš odabrati najviše 3 godišta.
-            </div>
-
-            {godineUsporedba.length > 0 ? (
-              <div className="space-y-6">
-                <div className="border border-emerald-200 bg-white">
-                  <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-3">
-                    <div className="text-[15px] font-semibold text-stone-800">
-                      Ukupna usporedba berbi
-                    </div>
-                  </div>
-
-                  <div className="hidden overflow-x-auto md:block">
-                    <table className="min-w-full border-collapse">
-                      <thead>
-                        <tr className="bg-emerald-100/70 text-left text-[12px] uppercase tracking-[0.12em] text-emerald-900">
-                          <th className="border border-emerald-200 px-3 py-2">Parametar</th>
-                          {godineUsporedba.map((g) => (
-                            <th key={g} className="border border-emerald-200 px-3 py-2">
-                              {g}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="bg-white text-[13px] text-stone-700">
+            {godineUsporedba.length === 0 ? (
+              <div className="text-[13px] text-stone-500">
+                Odaberi barem jedno godište za usporedbu.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="overflow-x-auto border border-emerald-200 bg-white">
+                  <table className="min-w-full border-collapse">
+                    <thead>
+                      <tr className="bg-emerald-100/70 text-left text-[12px] uppercase tracking-[0.12em] text-emerald-900">
+                        <th className="border border-emerald-200 px-3 py-2">
+                          Ukupno
+                        </th>
+                        {godineUsporedba.map((g) => (
+                          <th key={g} className="border border-emerald-200 px-3 py-2">
+                            {nazivGodine(g)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(
+                        [
+                          ["Ubrano litara", (d: SazetakGodine) => `${formatBroj(d.litara, 0)} L`],
+                          ["Ubrano kg grožđa", (d: SazetakGodine) => `${formatBroj(d.kg, 0)} kg`],
+                          ["Zapisa berbe", (d: SazetakGodine) => String(d.zapisa)],
+                          ["Sorti", (d: SazetakGodine) => String(d.sorte)],
+                          [
+                            "Prosječni šećer",
+                            (d: SazetakGodine) =>
+                              d.secer.vrijednost == null
+                                ? "—"
+                                : `${formatBroj(d.secer.vrijednost, 2)} (n=${d.secer.n})`,
+                          ],
+                          [
+                            "Prosječne kiseline",
+                            (d: SazetakGodine) =>
+                              d.kiseline.vrijednost == null
+                                ? "—"
+                                : `${formatBroj(d.kiseline.vrijednost, 2)} (n=${d.kiseline.n})`,
+                          ],
+                          [
+                            "Prosječni pH",
+                            (d: SazetakGodine) =>
+                              d.ph.vrijednost == null
+                                ? "—"
+                                : `${formatBroj(d.ph.vrijednost, 2)} (n=${d.ph.n})`,
+                          ],
+                        ] as Array<[string, (d: SazetakGodine) => string]>
+                      ).map(([naslov, prikaz]) => (
+                        <tr key={naslov} className="bg-white text-[13px] text-stone-700">
                           <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                            Ukupno litara
+                            {naslov}
                           </td>
                           {godineUsporedba.map((g) => (
                             <td key={g} className="border border-emerald-100 px-3 py-2">
-                              {formatBroj(usporedbaUkupno[g]?.litara, 0)} L
+                              {usporedbaUkupno[g] ? prikaz(usporedbaUkupno[g]) : "-"}
                             </td>
                           ))}
                         </tr>
-
-                        <tr className="bg-white text-[13px] text-stone-700">
-                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                            Ukupno kg grožđa
-                          </td>
-                          {godineUsporedba.map((g) => (
-                            <td key={g} className="border border-emerald-100 px-3 py-2">
-                              {formatBroj(usporedbaUkupno[g]?.kg, 0)} kg
-                            </td>
-                          ))}
-                        </tr>
-
-                        <tr className="bg-white text-[13px] text-stone-700">
-                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                            Broj sorti
-                          </td>
-                          {godineUsporedba.map((g) => (
-                            <td key={g} className="border border-emerald-100 px-3 py-2">
-                              {usporedbaUkupno[g]?.sorte ?? "-"}
-                            </td>
-                          ))}
-                        </tr>
-
-                        <tr className="bg-white text-[13px] text-stone-700">
-                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                            Broj stavki
-                          </td>
-                          {godineUsporedba.map((g) => (
-                            <td key={g} className="border border-emerald-100 px-3 py-2">
-                              {usporedbaUkupno[g]?.stavki ?? "-"}
-                            </td>
-                          ))}
-                        </tr>
-
-                        <tr className="bg-white text-[13px] text-stone-700">
-                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                            Prosječni šećer
-                          </td>
-                          {godineUsporedba.map((g) => (
-                            <td key={g} className="border border-emerald-100 px-3 py-2">
-                              {formatBroj(usporedbaUkupno[g]?.avgSecer, 2)}
-                            </td>
-                          ))}
-                        </tr>
-
-                        <tr className="bg-white text-[13px] text-stone-700">
-                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                            Prosječne kiseline
-                          </td>
-                          {godineUsporedba.map((g) => (
-                            <td key={g} className="border border-emerald-100 px-3 py-2">
-                              {formatBroj(usporedbaUkupno[g]?.avgKiseline, 2)}
-                            </td>
-                          ))}
-                        </tr>
-
-                        <tr className="bg-white text-[13px] text-stone-700">
-                          <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                            Prosječni pH
-                          </td>
-                          {godineUsporedba.map((g) => (
-                            <td key={g} className="border border-emerald-100 px-3 py-2">
-                              {formatBroj(usporedbaUkupno[g]?.avgPh, 2)}
-                            </td>
-                          ))}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="space-y-3 p-4 md:hidden">
-                    {godineUsporedba.map((g) => {
-                      const d = usporedbaUkupno[g];
-                      return (
-                        <div
-                          key={g}
-                          className="border border-emerald-200 bg-white p-4 shadow-sm"
-                        >
-                          <div className="mb-3 text-[16px] font-semibold text-emerald-800">
-                            Berba {g}
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2 text-[13px]">
-                            <div>Litara</div>
-                            <div className="font-semibold">
-                              {formatBroj(d?.litara, 0)} L
-                            </div>
-
-                            <div>Kg grožđa</div>
-                            <div className="font-semibold">
-                              {formatBroj(d?.kg, 0)} kg
-                            </div>
-
-                            <div>Broj sorti</div>
-                            <div className="font-semibold">{d?.sorte ?? "-"}</div>
-
-                            <div>Broj stavki</div>
-                            <div className="font-semibold">{d?.stavki ?? "-"}</div>
-
-                            <div>Šećer</div>
-                            <div className="font-semibold">
-                              {formatBroj(d?.avgSecer, 2)}
-                            </div>
-
-                            <div>Kiseline</div>
-                            <div className="font-semibold">
-                              {formatBroj(d?.avgKiseline, 2)}
-                            </div>
-
-                            <div>pH</div>
-                            <div className="font-semibold">
-                              {formatBroj(d?.avgPh, 2)}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
 
                 <div className="border border-emerald-200 bg-white">
-                  <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-3">
-                    <div className="text-[15px] font-semibold text-stone-800">
-                      Usporedba po sortama
-                    </div>
+                  <div className="border-b border-emerald-200 px-4 py-3 text-[15px] font-semibold text-stone-800">
+                    Usporedba po sortama
                   </div>
 
                   {usporedbaPoSortama.length === 0 ? (
@@ -944,242 +889,217 @@ export default function BerbaPage() {
                       Nema podataka za odabrana godišta.
                     </div>
                   ) : (
-                    <>
-                      <div className="hidden space-y-5 p-4 md:block">
-                        {usporedbaPoSortama.map((sortaRow) => (
-                          <div
-                            key={sortaRow.sorta}
-                            className="border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/40"
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-200 px-4 py-3">
-                              <div className="text-[16px] font-semibold text-stone-800">
-                                {sortaRow.sorta}
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {godineUsporedba.map((g) => (
-                                  <Oznaka key={g} variant="soft">
-                                    {g}: {formatBroj(sortaRow.poGodinama[g]?.litara, 0)} L
-                                  </Oznaka>
-                                ))}
-                              </div>
-                            </div>
+                    <div className="space-y-4 p-4">
+                      {usporedbaPoSortama.map((s) => (
+                        <div key={s.sorta} className="border border-emerald-200">
+                          <div className="border-b border-emerald-200 bg-emerald-50/60 px-4 py-2 text-[15px] font-semibold text-stone-800">
+                            {s.sorta}
+                          </div>
 
-                            <div className="overflow-x-auto">
-                              <table className="min-w-full border-collapse">
-                                <thead>
-                                  <tr className="bg-emerald-100/70 text-left text-[12px] uppercase tracking-[0.12em] text-emerald-900">
-                                    <th className="border border-emerald-200 px-3 py-2">
-                                      Parametar
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full border-collapse">
+                              <thead>
+                                <tr className="bg-emerald-100/50 text-left text-[12px] uppercase tracking-[0.12em] text-emerald-900">
+                                  <th className="border border-emerald-100 px-3 py-2">
+                                    Podatak
+                                  </th>
+                                  {godineUsporedba.map((g) => (
+                                    <th
+                                      key={g}
+                                      className="border border-emerald-100 px-3 py-2"
+                                    >
+                                      {nazivGodine(g)}
                                     </th>
-                                    {godineUsporedba.map((g) => (
-                                      <th
-                                        key={g}
-                                        className="border border-emerald-200 px-3 py-2"
-                                      >
-                                        {g}
-                                      </th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  <tr className="bg-white text-[13px] text-stone-700">
-                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                                      Ukupno litara
-                                    </td>
-                                    {godineUsporedba.map((g) => (
-                                      <td
-                                        key={g}
-                                        className="border border-emerald-100 px-3 py-2"
-                                      >
-                                        {formatBroj(sortaRow.poGodinama[g]?.litara, 0)} L
-                                      </td>
-                                    ))}
-                                  </tr>
-
-                                  <tr className="bg-white text-[13px] text-stone-700">
-                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                                      Ukupno kg grožđa
-                                    </td>
-                                    {godineUsporedba.map((g) => (
-                                      <td
-                                        key={g}
-                                        className="border border-emerald-100 px-3 py-2"
-                                      >
-                                        {formatBroj(sortaRow.poGodinama[g]?.kg, 0)} kg
-                                      </td>
-                                    ))}
-                                  </tr>
-
-                                  <tr className="bg-white text-[13px] text-stone-700">
-                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                                      Broj stavki
-                                    </td>
-                                    {godineUsporedba.map((g) => (
-                                      <td
-                                        key={g}
-                                        className="border border-emerald-100 px-3 py-2"
-                                      >
-                                        {sortaRow.poGodinama[g]?.stavki ?? "-"}
-                                      </td>
-                                    ))}
-                                  </tr>
-
-                                  <tr className="bg-white text-[13px] text-stone-700">
-                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                                      Prosječni šećer
-                                    </td>
-                                    {godineUsporedba.map((g) => (
-                                      <td
-                                        key={g}
-                                        className="border border-emerald-100 px-3 py-2"
-                                      >
-                                        {formatBroj(sortaRow.poGodinama[g]?.avgSecer, 2)}
-                                      </td>
-                                    ))}
-                                  </tr>
-
-                                  <tr className="bg-white text-[13px] text-stone-700">
-                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                                      Prosječne kiseline
-                                    </td>
-                                    {godineUsporedba.map((g) => (
-                                      <td
-                                        key={g}
-                                        className="border border-emerald-100 px-3 py-2"
-                                      >
-                                        {formatBroj(sortaRow.poGodinama[g]?.avgKiseline, 2)}
-                                      </td>
-                                    ))}
-                                  </tr>
-
-                                  <tr className="bg-white text-[13px] text-stone-700">
-                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                                      Prosječni pH
-                                    </td>
-                                    {godineUsporedba.map((g) => (
-                                      <td
-                                        key={g}
-                                        className="border border-emerald-100 px-3 py-2"
-                                      >
-                                        {formatBroj(sortaRow.poGodinama[g]?.avgPh, 2)}
-                                      </td>
-                                    ))}
-                                  </tr>
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="space-y-4 p-4 md:hidden">
-                        {usporedbaPoSortama.map((sortaRow) => (
-                          <div
-                            key={sortaRow.sorta}
-                            className="border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/40"
-                          >
-                            <div className="border-b border-emerald-200 px-4 py-3">
-                              <div className="text-[16px] font-semibold text-stone-800">
-                                {sortaRow.sorta}
-                              </div>
-                            </div>
-
-                            <div className="space-y-3 p-3">
-                              {godineUsporedba.map((g) => {
-                                const d = sortaRow.poGodinama[g];
-                                return (
-                                  <div
-                                    key={g}
-                                    className="border border-emerald-200 bg-white p-3"
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(
+                                  [
+                                    ["Litara", (d: SazetakGodine) => `${formatBroj(d?.litara, 0)} L`],
+                                    ["Kg grožđa", (d: SazetakGodine) => `${formatBroj(d?.kg, 0)} kg`],
+                                    ["Zapisa", (d: SazetakGodine) => String(d?.zapisa ?? 0)],
+                                    [
+                                      "Šećer",
+                                      (d: SazetakGodine) =>
+                                        d?.secer?.vrijednost == null
+                                          ? "—"
+                                          : formatBroj(d.secer.vrijednost, 2),
+                                    ],
+                                    [
+                                      "Kiseline",
+                                      (d: SazetakGodine) =>
+                                        d?.kiseline?.vrijednost == null
+                                          ? "—"
+                                          : formatBroj(d.kiseline.vrijednost, 2),
+                                    ],
+                                    [
+                                      "pH",
+                                      (d: SazetakGodine) =>
+                                        d?.ph?.vrijednost == null
+                                          ? "—"
+                                          : formatBroj(d.ph.vrijednost, 2),
+                                    ],
+                                  ] as Array<[string, (d: SazetakGodine) => string]>
+                                ).map(([naslov, prikaz]) => (
+                                  <tr
+                                    key={naslov}
+                                    className="bg-white text-[13px] text-stone-700"
                                   >
-                                    <div className="mb-2 text-[14px] font-semibold text-emerald-800">
-                                      Berba {g}
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-2 text-[13px]">
-                                      <div>Litara</div>
-                                      <div className="font-semibold">
-                                        {formatBroj(d?.litara, 0)} L
-                                      </div>
-
-                                      <div>Kg grožđa</div>
-                                      <div className="font-semibold">
-                                        {formatBroj(d?.kg, 0)} kg
-                                      </div>
-
-                                      <div>Broj stavki</div>
-                                      <div className="font-semibold">
-                                        {d?.stavki ?? "-"}
-                                      </div>
-
-                                      <div>Šećer</div>
-                                      <div className="font-semibold">
-                                        {formatBroj(d?.avgSecer, 2)}
-                                      </div>
-
-                                      <div>Kiseline</div>
-                                      <div className="font-semibold">
-                                        {formatBroj(d?.avgKiseline, 2)}
-                                      </div>
-
-                                      <div>pH</div>
-                                      <div className="font-semibold">
-                                        {formatBroj(d?.avgPh, 2)}
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
+                                    <td className="border border-emerald-100 px-3 py-2 font-semibold">
+                                      {naslov}
+                                    </td>
+                                    {godineUsporedba.map((g) => (
+                                      <td
+                                        key={g}
+                                        className="border border-emerald-100 px-3 py-2"
+                                      >
+                                        {prikaz(s.poGodinama[g])}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
-                        ))}
-                      </div>
-                    </>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
-              </div>
-            ) : (
-              <div className="text-[13px] text-stone-500">
-                Odaberi barem jedno godište za usporedbu.
               </div>
             )}
           </div>
         )}
 
-        <div className="mb-4 border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/60 p-4 shadow-sm">
-          <h2 className="mb-3 text-[16px] font-semibold text-stone-800">
-            Pregled po sorti
-          </h2>
+        <div className="mb-4 grid gap-4 xl:grid-cols-2">
+          <div className="border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/60 p-4 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-stone-800">
+              Pregled po sorti
+            </h2>
 
-          {poSorti.length === 0 ? (
-            <p className="text-[13px] text-stone-500">Nema podataka.</p>
-          ) : (
-            <div className="grid gap-3 xl:grid-cols-2">
-              {poSorti.map((r) => (
-                <div
-                  key={r.sorta}
-                  className="border border-emerald-200 bg-white px-4 py-4"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-[15px] font-semibold text-stone-800">
-                      {r.sorta}
+            {poSorti.length === 0 ? (
+              <p className="text-[13px] text-stone-500">Nema podataka.</p>
+            ) : (
+              <div className="space-y-3">
+                {poSorti.map((r) => (
+                  <div
+                    key={r.sorta}
+                    className="border border-emerald-200 bg-white px-4 py-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[15px] font-semibold text-stone-800">
+                        {r.sorta}
+                      </div>
+                      <Oznaka variant="soft">{r.zapisa} zapisa</Oznaka>
                     </div>
-                    <Oznaka variant="soft">{r.stavki} stavki</Oznaka>
-                  </div>
 
-                  <div className="mt-2 text-[13px] text-stone-600">
-                    {formatBroj(r.litara, 0)} L / {formatBroj(r.kg, 0)} kg
-                  </div>
+                    <div className="mt-2 text-[13px] text-stone-600">
+                      {formatBroj(r.litara, 0)} L / {formatBroj(r.kg, 0)} kg
+                    </div>
 
-                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    <Polje label="Šećer" value={formatBroj(r.avgSecer, 2)} />
-                    <Polje label="Kiseline" value={formatBroj(r.avgKiseline, 2)} />
-                    <Polje label="pH" value={formatBroj(r.avgPh, 2)} />
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <Polje
+                        label={`Šećer${r.secer.n ? ` (n=${r.secer.n})` : ""}`}
+                        value={
+                          r.secer.vrijednost == null
+                            ? "—"
+                            : formatBroj(r.secer.vrijednost, 2)
+                        }
+                      />
+                      <Polje
+                        label={`Kiseline${r.kiseline.n ? ` (n=${r.kiseline.n})` : ""}`}
+                        value={
+                          r.kiseline.vrijednost == null
+                            ? "—"
+                            : formatBroj(r.kiseline.vrijednost, 2)
+                        }
+                      />
+                      <Polje
+                        label={`pH${r.ph.n ? ` (n=${r.ph.n})` : ""}`}
+                        value={
+                          r.ph.vrijednost == null
+                            ? "—"
+                            : formatBroj(r.ph.vrijednost, 2)
+                        }
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/60 p-4 shadow-sm">
+            <h2 className="mb-1 text-[16px] font-semibold text-stone-800">
+              Pregled po položaju
+            </h2>
+            <p className="mb-3 text-[12px] text-stone-500">
+              Položaj je interna šifra; polje „parcela” nosi isti broj pa se ne
+              razrađuje zasebno.
+            </p>
+
+            {poPolozaju.length === 0 ? (
+              <p className="text-[13px] text-stone-500">Nema podataka.</p>
+            ) : (
+              <div className="space-y-3">
+                {poPolozaju.map((r) => (
+                  <div
+                    key={r.polozaj}
+                    className={`border px-4 py-4 ${
+                      r.polozaj === "bez položaja"
+                        ? "border-amber-200 bg-amber-50/60"
+                        : "border-emerald-200 bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[15px] font-semibold text-stone-800">
+                        {r.polozaj === "bez položaja"
+                          ? "Bez položaja"
+                          : `Položaj ${r.polozaj}`}
+                      </div>
+                      <Oznaka variant="soft">{r.zapisa} zapisa</Oznaka>
+                    </div>
+
+                    <div className="mt-2 text-[13px] text-stone-600">
+                      {formatBroj(r.litara, 0)} L / {formatBroj(r.kg, 0)} kg
+                    </div>
+
+                    <div className="mt-2 text-[12px] text-stone-500">
+                      {r.naziviSorti.join(", ") || "—"}
+                    </div>
+
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <Polje
+                        label={`Šećer${r.secer.n ? ` (n=${r.secer.n})` : ""}`}
+                        value={
+                          r.secer.vrijednost == null
+                            ? "—"
+                            : formatBroj(r.secer.vrijednost, 2)
+                        }
+                      />
+                      <Polje
+                        label={`Kiseline${r.kiseline.n ? ` (n=${r.kiseline.n})` : ""}`}
+                        value={
+                          r.kiseline.vrijednost == null
+                            ? "—"
+                            : formatBroj(r.kiseline.vrijednost, 2)
+                        }
+                      />
+                      <Polje
+                        label={`pH${r.ph.n ? ` (n=${r.ph.n})` : ""}`}
+                        value={
+                          r.ph.vrijednost == null
+                            ? "—"
+                            : formatBroj(r.ph.vrijednost, 2)
+                        }
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/60 p-4 shadow-sm">
@@ -1188,7 +1108,7 @@ export default function BerbaPage() {
               Detaljni izvještaji
             </h2>
             <div className="border border-emerald-200 bg-white px-3 py-1 text-[12px] text-stone-600">
-              Ukupno punjenja: {detaljiPoPunjenju.length}
+              Zapisa berbe: {detalji.length}
             </div>
           </div>
 
@@ -1200,201 +1120,203 @@ export default function BerbaPage() {
             <div className="border border-red-200 bg-red-50 p-4 text-[13px] text-red-700">
               {greska}
             </div>
-          ) : detaljiPoPunjenju.length === 0 ? (
+          ) : detalji.length === 0 ? (
             <div className="border border-dashed border-emerald-300 bg-white p-8 text-center text-[13px] text-stone-500">
               Nema podataka za odabranu godinu.
             </div>
           ) : (
             <div className="space-y-5">
-              {detaljiPoPunjenju.map((g) => {
-                const sorteBerbe = uniqueSorted(g.stavke.map((s) => s.sorta));
-                const datumiBerbe = uniqueSorted(
-                  g.stavke.map((s) => (s.datumBerbe ? formatDatum(s.datumBerbe) : null))
-                );
-                const godineBerbe = uniqueSorted(g.stavke.map((s) => s.godinaBerbe));
-
-                return (
-                  <div
-                    key={g.punjenjeId}
-                    className="border border-emerald-200 bg-gradient-to-b from-white via-emerald-50/35 to-lime-50/50 px-4 py-4 shadow-sm"
-                  >
-                    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-[20px] font-semibold text-stone-800">
-                            {g.nazivVina || "Bez naziva vina"}
-                          </h3>
-                          {g.tankBroj != null ? (
-                            <Oznaka variant="strong">Tank {g.tankBroj}</Oznaka>
-                          ) : null}
-                          {g.tankTip ? <Oznaka>{g.tankTip}</Oznaka> : null}
-                        </div>
-
-                        <div className="mt-1 flex flex-wrap gap-2 text-[13px] text-stone-600">
-                          <span>Datum punjenja: {formatDatum(g.datumPunjenja)}</span>
-                          {g.tankId ? (
-                            <>
-                              <span>•</span>
-                              <Link
-                                href={`/tankovi/${g.tankId}`}
-                                className="font-medium text-emerald-800 hover:underline"
-                              >
-                                Otvori tank
-                              </Link>
-                            </>
-                          ) : null}
-                        </div>
-                      </div>
-
+              {detalji.map((b) => (
+                <div
+                  key={b.id}
+                  className="border border-emerald-200 bg-gradient-to-b from-white via-emerald-50/35 to-lime-50/50 px-4 py-4 shadow-sm"
+                >
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <Oznaka variant="strong">
-                          {formatBroj(g.ukupnoLitara, 0)} L
-                        </Oznaka>
-                        <Oznaka>{formatBroj(g.ukupnoKg, 0)} kg</Oznaka>
-                        <Oznaka variant="soft">{g.stavke.length} stavki</Oznaka>
+                        <h3 className="text-[20px] font-semibold text-stone-800">
+                          {b.nazivSorte}
+                        </h3>
+                        {b.vrstaUnosa === "ZATECENO" ? (
+                          <Oznaka variant="upozorenje">Zatečeno</Oznaka>
+                        ) : null}
+                        {b.godina != null ? (
+                          <Oznaka variant="strong">
+                            {b.godina}
+                            {b.godinaIzvedena ? " (izvedeno)" : ""}
+                          </Oznaka>
+                        ) : (
+                          <Oznaka variant="upozorenje">Bez godišta</Oznaka>
+                        )}
+                        {b.prviTankBroj != null ? (
+                          <Oznaka>Prvi tank {b.prviTankBroj}</Oznaka>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-1 flex flex-wrap gap-2 text-[13px] text-stone-600">
+                        <span>Datum berbe: {formatDatum(b.datumBerbe)}</span>
+                        <span>•</span>
+                        <span>U podrum: {formatDatum(b.datumUlaska)}</span>
+                        {b.oznakaBerbe ? (
+                          <>
+                            <span>•</span>
+                            <span>Oznaka: {b.oznakaBerbe}</span>
+                          </>
+                        ) : null}
                       </div>
                     </div>
 
-                    <div className="mb-4 grid gap-3 md:grid-cols-3">
-                      <Polje label="Sorta" value={sorteBerbe.join(", ") || "-"} />
-                      <Polje label="Datum berbe" value={datumiBerbe.join(", ") || "-"} />
-                      <Polje label="Godina berbe" value={godineBerbe.join(", ") || "-"} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Oznaka variant="strong">
+                        {formatBroj(b.kolicinaLitara, 0)} L ubrano
+                      </Oznaka>
+                      <Oznaka>{formatBroj(b.kolicinaKgGrozdja, 0)} kg</Oznaka>
+
+                      {b.izvornaPunjenjeStavkaId ? (
+                        <button
+                          type="button"
+                          onClick={() => obrisiBerbu(b)}
+                          disabled={deletingId === b.id}
+                          className="border border-red-200 bg-gradient-to-b from-red-50 to-rose-50 px-3 py-2 text-[12px] font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {deletingId === b.id ? "Brišem..." : "Obriši"}
+                        </button>
+                      ) : null}
                     </div>
-
-                    <div className="mb-4 overflow-x-auto">
-                      <table className="min-w-full border-collapse">
-                        <thead>
-                          <tr className="bg-emerald-100/70 text-left text-[12px] uppercase tracking-[0.12em] text-emerald-900">
-                            <th className="border border-emerald-200 px-3 py-2">Sorta</th>
-                            <th className="border border-emerald-200 px-3 py-2">Položaj</th>
-                            <th className="border border-emerald-200 px-3 py-2">Datum berbe</th>
-                            <th className="border border-emerald-200 px-3 py-2">Godina</th>
-                            <th className="border border-emerald-200 px-3 py-2">Maceracija</th>
-                            <th className="border border-emerald-200 px-3 py-2">L</th>
-                            <th className="border border-emerald-200 px-3 py-2">kg</th>
-                            <th className="border border-emerald-200 px-3 py-2">Akcija</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {g.stavke.map((r) => (
-                            <tr key={r.stavkaId} className="bg-white text-[13px] text-stone-700">
-                              <td className="border border-emerald-100 px-3 py-2 font-semibold">
-                                {r.sorta}
-                              </td>
-                              <td className="border border-emerald-100 px-3 py-2">
-                                {r.polozaj || "-"}
-                              </td>
-                              <td className="border border-emerald-100 px-3 py-2">
-                                {formatDatum(r.datumBerbe)}
-                              </td>
-                              <td className="border border-emerald-100 px-3 py-2">
-                                {r.godinaBerbe || "-"}
-                              </td>
-                              {/* Prazno je "nije se pitalo" i ostaje crtica —
-                                  ne smije izgledati kao "nije bilo". */}
-                              <td className="border border-emerald-100 px-3 py-2">
-                                {opisMaceracije(r.maceracija, r.maceracijaSati) ?? "-"}
-                              </td>
-                              <td className="border border-emerald-100 px-3 py-2">
-                                {formatBroj(r.kolicinaLitara, 0)}
-                              </td>
-                              <td className="border border-emerald-100 px-3 py-2">
-                                {formatBroj(r.kolicinaKgGrozdja, 0)}
-                              </td>
-                              <td className="border border-emerald-100 px-3 py-2">
-                                <button
-                                  type="button"
-                                  onClick={() => obrisiRed(r.stavkaId)}
-                                  disabled={deletingId === r.stavkaId}
-                                  className="border border-red-200 bg-gradient-to-b from-red-50 to-rose-50 px-3 py-2 text-[12px] font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  {deletingId === r.stavkaId ? "Brišem..." : "Obriši"}
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {(g.opisPunjenja || g.napomenaPunjenja) && (
-                      <div className="mb-4 grid gap-3 xl:grid-cols-2">
-                        <div className="border border-emerald-200 bg-white p-4">
-                          <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-emerald-800/70">
-                            Opis punjenja
-                          </div>
-                          <div className="text-[13px] text-stone-700">
-                            {g.opisPunjenja || "-"}
-                          </div>
-                        </div>
-
-                        <div className="border border-emerald-200 bg-white p-4">
-                          <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-emerald-800/70">
-                            Napomena punjenja
-                          </div>
-                          <div className="text-[13px] text-stone-700">
-                            {g.napomenaPunjenja || "-"}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {g.pocetnoMjerenje ? (
-                      <div className="mt-3 border border-lime-300 bg-gradient-to-r from-lime-50 via-emerald-50 to-green-50 p-4">
-                        <div className="mb-3 text-[13px] font-semibold text-emerald-900">
-                          Početno mjerenje
-                        </div>
-
-                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                          <Polje
-                            label="Datum mjerenja"
-                            value={formatDatum(g.pocetnoMjerenje.izmjerenoAt || null)}
-                          />
-                          <Polje
-                            label="Alkohol"
-                            value={formatBroj(g.pocetnoMjerenje.alkohol, 2)}
-                          />
-                          <Polje
-                            label="Ukupne kiseline"
-                            value={formatBroj(g.pocetnoMjerenje.ukupneKiseline, 2)}
-                          />
-                          <Polje
-                            label="Šećer"
-                            value={formatBroj(g.pocetnoMjerenje.secer, 2)}
-                          />
-                          <Polje
-                            label="pH"
-                            value={formatBroj(g.pocetnoMjerenje.ph, 2)}
-                          />
-                          <Polje
-                            label="Hlapive kiseline"
-                            value={formatBroj(g.pocetnoMjerenje.hlapiveKiseline, 2)}
-                          />
-                          <Polje
-                            label="Slobodni SO2"
-                            value={formatBroj(g.pocetnoMjerenje.slobodniSO2, 2)}
-                          />
-                          <Polje
-                            label="Ukupni SO2"
-                            value={formatBroj(g.pocetnoMjerenje.ukupniSO2, 2)}
-                          />
-                          <Polje
-                            label="Temperatura"
-                            value={formatBroj(g.pocetnoMjerenje.temperatura, 2)}
-                          />
-                          <Polje
-                            label="Napomena"
-                            value={g.pocetnoMjerenje.napomena || "-"}
-                          />
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
-                );
-              })}
+
+                  <div className="mb-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                    <Polje label="Položaj" value={b.polozaj || "-"} />
+                    <Polje label="Vinograd" value={b.vinograd || "-"} />
+                    <Polje label="Šećer" value={formatBroj(b.secer, 2)} />
+                    <Polje label="Kiseline" value={formatBroj(b.kiseline, 2)} />
+                    <Polje label="pH" value={formatBroj(b.ph, 2)} />
+                    {/* Prazno je "nije se pitalo" i ostaje crtica — ne smije
+                        izgledati kao "nije bilo". */}
+                    <Polje
+                      label="Maceracija"
+                      value={opisMaceracije(b.maceracija, b.maceracijaSati) ?? "-"}
+                    />
+                  </div>
+
+                  <GdjeJeDanas b={b} />
+
+                  {b.napomena ? (
+                    <div className="mt-3 border border-emerald-200 bg-white p-4">
+                      <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-emerald-800/70">
+                        Napomena
+                      </div>
+                      <div className="text-[13px] text-stone-700">{b.napomena}</div>
+                    </div>
+                  ) : null}
+
+                  {b.ispravljenoAt ? (
+                    <div className="mt-3 border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
+                      Ispravljeno {formatDatum(b.ispravljenoAt)}
+                      {b.razlogIspravka ? ` — ${b.razlogIspravka}` : ""}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
             </div>
           )}
         </div>
+
+        {zatecene.length > 0 && !ukljuciZateceno ? (
+          <div className="mt-4 border border-amber-300 bg-gradient-to-b from-amber-50/70 to-white p-4 shadow-sm">
+            <h2 className="text-[16px] font-semibold text-stone-800">
+              Zatečeno u podrumu — vino bez zapisa o berbi
+            </h2>
+            <p className="mt-1 max-w-[900px] text-[13px] leading-6 text-stone-600">
+              Knjiga za ovo vino zna količinu, ali ne i odakle je došlo. Staro
+              arhiviranje brisalo je zapise punjenja, pa je količina
+              rekonstruirana iz pretoka i izlaza. Ovo <strong>nije berba</strong> i
+              ne ulazi u zbrojeve iznad. Broj ovih zapisa je mjera koliko
+              povijesti nedostaje — što ih je manje, to je povijest cjelovitija.
+            </p>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Oznaka variant="upozorenje">
+                {zatecene.length} zapisa ukupno
+              </Oznaka>
+              <Oznaka variant="upozorenje">
+                {formatBroj(
+                  zatecene.reduce((s, b) => s + b.kolicinaLitara, 0),
+                  0
+                )}{" "}
+                L
+              </Oznaka>
+              <Oznaka>
+                danas u podrumu{" "}
+                {formatBroj(
+                  zatecene.reduce((s, b) => s + b.danasUkupnoL, 0),
+                  0
+                )}{" "}
+                L
+              </Oznaka>
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full border-collapse">
+                <thead>
+                  <tr className="bg-amber-100/70 text-left text-[12px] uppercase tracking-[0.12em] text-amber-900">
+                    <th className="border border-amber-200 px-3 py-2">Naziv</th>
+                    <th className="border border-amber-200 px-3 py-2">Položaj</th>
+                    <th className="border border-amber-200 px-3 py-2">U podrum</th>
+                    <th className="border border-amber-200 px-3 py-2">Količina</th>
+                    <th className="border border-amber-200 px-3 py-2">
+                      Gdje je danas
+                    </th>
+                    <th className="border border-amber-200 px-3 py-2">Akcija</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(aktivnaGodina ? zateceneUGodini : zatecene).map((b) => (
+                    <tr key={b.id} className="bg-white text-[13px] text-stone-700">
+                      <td className="border border-amber-100 px-3 py-2 font-semibold">
+                        {b.nazivSorte}
+                      </td>
+                      <td className="border border-amber-100 px-3 py-2">
+                        {b.polozaj || "-"}
+                      </td>
+                      <td className="border border-amber-100 px-3 py-2">
+                        {formatDatum(b.datumUlaska)}
+                      </td>
+                      <td className="border border-amber-100 px-3 py-2">
+                        {formatBroj(b.kolicinaLitara, 0)} L
+                      </td>
+                      <td className="border border-amber-100 px-3 py-2">
+                        {b.viseNijeUPodrumu ? (
+                          <span className="text-stone-400">više nije u podrumu</span>
+                        ) : (
+                          b.gdjeJeDanas
+                            .map(
+                              (m) => `T${m.tankBroj ?? "?"} ${formatBroj(m.litre, 0)} L`
+                            )
+                            .join(" · ")
+                        )}
+                      </td>
+                      <td className="border border-amber-100 px-3 py-2">
+                        {b.izvornaPunjenjeStavkaId ? (
+                          <button
+                            type="button"
+                            onClick={() => obrisiBerbu(b)}
+                            disabled={deletingId === b.id}
+                            className="border border-red-200 bg-gradient-to-b from-red-50 to-rose-50 px-3 py-1.5 text-[12px] font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {deletingId === b.id ? "Brišem..." : "Obriši"}
+                          </button>
+                        ) : (
+                          <span className="text-stone-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-4 border border-emerald-200 bg-gradient-to-b from-white to-emerald-50/60 p-4 shadow-sm">
           <div className="mb-4 flex items-center justify-between gap-3">
@@ -1406,7 +1328,6 @@ export default function BerbaPage() {
               onClick={() => {
                 setFilterSorta("");
                 setFilterTank("");
-                setFilterNazivVina("");
                 setFilterTekst("");
               }}
               className="border border-emerald-200 bg-white px-3 py-2 text-[12px] font-medium text-stone-700 transition hover:bg-emerald-50"
@@ -1415,7 +1336,7 @@ export default function BerbaPage() {
             </button>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-3">
             <div>
               <label className="mb-1 block text-[12px] font-semibold text-stone-700">
                 Sorta
@@ -1436,7 +1357,7 @@ export default function BerbaPage() {
 
             <div>
               <label className="mb-1 block text-[12px] font-semibold text-stone-700">
-                Tank
+                Prvi tank
               </label>
               <select
                 value={filterTank}
@@ -1454,30 +1375,12 @@ export default function BerbaPage() {
 
             <div>
               <label className="mb-1 block text-[12px] font-semibold text-stone-700">
-                Naziv vina
-              </label>
-              <select
-                value={filterNazivVina}
-                onChange={(e) => setFilterNazivVina(e.target.value)}
-                className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
-              >
-                <option value="">Sva vina</option>
-                {naziviVina.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[12px] font-semibold text-stone-700">
                 Pretraga
               </label>
               <input
                 value={filterTekst}
                 onChange={(e) => setFilterTekst(e.target.value)}
-                placeholder="sorta, oznaka, vinograd..."
+                placeholder="sorta, položaj, oznaka, tank..."
                 className="w-full border border-emerald-200 bg-white px-3 py-2 text-[13px] outline-none focus:border-emerald-400"
               />
             </div>

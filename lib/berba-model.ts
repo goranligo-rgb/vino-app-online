@@ -200,6 +200,49 @@ export async function gdjeJeBerba(
     .filter((r) => opts?.svi || r.ml > 0);
 }
 
+/**
+ * Gdje su danas SVE berbe — jedan upit za cijeli podrum.
+ *
+ * Parnjak `stanjeSvihTankova`, i postoji iz istog razloga: `gdjeJeBerba` je po
+ * jednoj berbi, pa bi stranica `/berba` s 32 zapisa napravila 32 upita. To je
+ * tocno ono sto lib/paralelno.ts zabranjuje — pooler drzi 15 veza za CIJELU
+ * aplikaciju.
+ *
+ * Vraca mapu berbaId → mjesta. Berba koje danas nema nigdje NEMA kljuc u mapi;
+ * to nije rupa nego odgovor: to je vino otislo iz podruma. Prikaz to mora reci
+ * naglas, ne pokazati praznu nulu.
+ */
+export async function gdjeJeSveBerbe(
+  db: CitacBerbe,
+  opts?: Opcije
+): Promise<Map<string, MjestoBerbe[]>> {
+  const redci = await db.$queryRaw<Array<{ berbaId: string; tankId: string; ml: number }>>`
+    SELECT s."berbaId", s."tankId", SUM(s.ml)::float8 AS ml
+    FROM (
+      SELECT k."berbaId", k."uTankId" AS "tankId",  ROUND(k.litre::numeric * 1000) AS ml
+      FROM "BerbaKretanje" k WHERE k."uTankId" IS NOT NULL
+      UNION ALL
+      SELECT k."berbaId", k."izTankId" AS "tankId", -ROUND(k.litre::numeric * 1000) AS ml
+      FROM "BerbaKretanje" k WHERE k."izTankId" IS NOT NULL
+    ) s
+    GROUP BY s."berbaId", s."tankId"
+    ORDER BY s."berbaId" ASC, ml DESC, s."tankId" ASC
+  `;
+
+  const mapa = new Map<string, MjestoBerbe[]>();
+
+  for (const r of redci) {
+    const ml = Number(r.ml);
+    if (!opts?.svi && ml <= 0) continue;
+
+    const popis = mapa.get(r.berbaId) ?? [];
+    popis.push({ tankId: r.tankId, ml, litre: uLitre(ml) });
+    mapa.set(r.berbaId, popis);
+  }
+
+  return mapa;
+}
+
 // ---------------------------------------------------------------------------
 // Podrijetlo
 // ---------------------------------------------------------------------------

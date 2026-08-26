@@ -38,6 +38,7 @@ import {
   planPrijenosa,
   raspodijeliMatricu,
   razdijeliIzlaz,
+  zabiljeziIspravak,
   zabiljeziIzlaz,
   zabiljeziPonistenje,
   zabiljeziPrijenos,
@@ -741,6 +742,65 @@ async function main() {
 
     const svi = await stanjeTanka(tx, t.id, { svi: true });
     jednako(svi.length, 2, "s opcijom `svi` obrisana se i dalje vidi");
+  });
+
+  await scenarij("\n14. Ispravak povlaci JEDNU berbu, ne razmjerno", async (tx) => {
+    const t = await napraviTank(tx, 1000);
+    const a = await ulaz(tx, t.id, 600, "Grasevina");
+    const b = await ulaz(tx, t.id, 400, "Sauvignon");
+
+    // Ovo je cijela razlika prema `zabiljeziIzlaz`: izlaz bi 300 L razdijelio
+    // na obje berbe (180 + 120), jer je vino izmijesano. Ispravak tvrdi da
+    // jedne od njih ondje nikad nije ni bilo, pa dira samo nju.
+    await zabiljeziIspravak(tx, {
+      berbaId: a,
+      tankId: t.id,
+      litre: 300,
+      veza: { punjenjeId: "test-ispravak" },
+    });
+
+    const stanje = await stanjeTanka(tx, t.id);
+
+    jednako(stanje.find((s) => s.berbaId === a)?.litre, 300, "ciljana berba pala s 600 na 300");
+    jednako(stanje.find((s) => s.berbaId === b)?.litre, 400, "druga berba je NETAKNUTA");
+    jednako(await litreUTanku(tx, t.id), 700, "u tanku je 700 L");
+
+    // Cuvar: iz tanka se ne moze maknuti vise te berbe nego sto je knjiga u
+    // njemu ima — inace bi berba otisla u minus.
+    const previse = await pukne(() =>
+      zabiljeziIspravak(tx, {
+        berbaId: a,
+        tankId: t.id,
+        litre: 500,
+        veza: { punjenjeId: "test-ispravak" },
+      })
+    );
+
+    tvrdi(previse != null, "ispravak veci od stanja te berbe puca");
+    tvrdi(
+      String(previse).includes("te berbe"),
+      "poruka kaze da je rijec o toj berbi, ne o tanku"
+    );
+
+    jednako(await litreUTanku(tx, t.id), 700, "nakon odbijenog ispravka nista se nije promijenilo");
+
+    // Tek kad berba padne na nulu smije se oznaciti obrisanom — inace pada
+    // invarijanta "nijedna obrisana berba nema vino u tanku".
+    await zabiljeziIspravak(tx, {
+      berbaId: a,
+      tankId: t.id,
+      litre: 300,
+      veza: { punjenjeId: "test-ispravak" },
+    });
+
+    await tx.berba.update({
+      where: { id: a },
+      data: { obrisano: true, obrisanoAt: new Date() },
+    });
+
+    const nakon = await stanjeTanka(tx, t.id, { svi: true });
+    jednako(nakon.find((s) => s.berbaId === a)?.ml, 0, "povucena berba je na nuli");
+    jednako(await litreUTanku(tx, t.id), 400, "u tanku ostaje samo druga berba");
   });
 
   // -------------------------------------------------------------------------

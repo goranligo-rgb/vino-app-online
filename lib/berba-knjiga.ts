@@ -1,13 +1,17 @@
 /**
  * BERBA — PISANJE. Knjiga kretanja vina.
  *
- * Par s lib/berba-model.ts: ondje je citanje, ovdje cetiri jedina nacina na
+ * Par s lib/berba-model.ts: ondje je citanje, ovdje pet jedinih nacina na
  * koja u `BerbaKretanje` smije doci redak.
  *
  *   zabiljeziUlaz       grozdje / most ulazi u podrum   (izTank = NULL)
  *   zabiljeziPrijenos   vino se seli iz tanka u tankove (pretok, filtracija)
  *   zabiljeziIzlaz      vino napusta podrum             (uTank  = NULL)
+ *   zabiljeziIspravak   JEDNA berba izlazi iz tanka     (pogresan unos)
  *   zabiljeziPonistenje protustavka za sve gore         (nista se ne brise)
+ *
+ * Peti je dosao s korakom 4 i jedini je koji NE dijeli razmjerno — obrazlozenje
+ * stoji uz njega.
  *
  * SAMO SE DOPISUJE. Nijedan redak se ne mijenja ni ne brise — ni ovdje ni
  * igdje drugdje. Ponistavanje pretoka ne uklanja retke nego dopisuje njihovo
@@ -796,7 +800,107 @@ export async function zabiljeziIzlaz(
 }
 
 // ---------------------------------------------------------------------------
-// 4. PONISTENJE
+// 4. ISPRAVAK JEDNE BERBE
+// ---------------------------------------------------------------------------
+
+export type IspravakBerbe = {
+  /** Koja berba izlazi. Ne "koliko vina", nego "koja berba". */
+  berbaId: string;
+  /** Iz kojeg tanka. */
+  tankId: string;
+  /**
+   * Koliko te berbe izlazi iz tog tanka. Ograniceno je stanjem: knjiga ne
+   * upisuje redak koji bi berbu u tanku odveo ispod nule.
+   */
+  litre: number;
+  veza: Veza;
+  korisnikId?: string | null;
+  dogodenoAt?: Date;
+  napomena?: string | null;
+};
+
+export type RezultatIspravka = {
+  kretanjeId: string;
+  ml: number;
+  litre: number;
+  /** Koliko je te berbe ostalo u tom tanku nakon ispravka. */
+  ostatakMl: number;
+};
+
+/**
+ * Pogresno upisana berba izlazi iz tanka. JEDINI upis koji ne dijeli razmjerno.
+ *
+ * ZASTO NE `zabiljeziIzlaz`
+ * -------------------------
+ * `zabiljeziIzlaz` razdijeli ono sto izlazi na SVE berbe u tanku, razmjerno
+ * njihovim udjelima — i to je tocno kod prodaje ili punjenja u boce, jer je vino
+ * izmijesano pa iz tanka izlazi od svake berbe pomalo.
+ *
+ * Ispravak tvrdi nesto drugo: te berbe u tanku NIKAD NIJE BILO, netko je upisao
+ * krivu stavku punjenja. Razmjerna raspodjela bi tada maknula pomalo od svake
+ * DRUGE berbe — vina koje je stvarno ondje — i ostavila dio izmisljene. Zato
+ * ovdje ide tocno jedan redak, tocno na tu berbu.
+ *
+ * KOLIKO SE SMIJE ODUZETI
+ * -----------------------
+ * Najvise onoliko koliko knjiga danas tvrdi da je te berbe U TOM TANKU. Vino se
+ * u medjuvremenu moglo pretociti dalje, pa ista berba stoji u dva ili tri tanka;
+ * pozivatelj tada odlucuje sto s tim (vidi cuvar u
+ * app/api/punjenje-stavka/[id]/route.ts). Oduzimanje izvornih litara iz izvornog
+ * tanka odvelo bi berbu u minus i tvrdilo da je vino bilo ondje gdje vise nije.
+ */
+export async function zabiljeziIspravak(
+  tx: Tx,
+  i: IspravakBerbe
+): Promise<RezultatIspravka> {
+  provjeriVezu(i.veza, "zabiljeziIspravak", i.napomena ?? null);
+
+  const ml = uMl(i.litre);
+
+  if (ml <= 0) {
+    throw new BerbaGreska(
+      `zabiljeziIspravak: kolicina mora biti veca od nule (dobiveno ${i.litre}).`
+    );
+  }
+
+  if (!String(i.berbaId ?? "").trim() || !String(i.tankId ?? "").trim()) {
+    throw new BerbaGreska("zabiljeziIspravak: nedostaje berba ili tank.");
+  }
+
+  const stanje = await stanjeTanka(tx, i.tankId, { svi: true });
+  const uTankuMl = stanje.find((s) => s.berbaId === i.berbaId)?.ml ?? 0;
+
+  if (ml > uTankuMl) {
+    throw new BerbaGreska(
+      `Iz tanka se mice ${uLitre(ml)} L te berbe, a knjiga je u njemu ima ${uLitre(uTankuMl)} L. Nista nije upisano.`
+    );
+  }
+
+  const litre = uLitre(ml);
+
+  const kretanje = await tx.berbaKretanje.create({
+    data: {
+      berbaId: i.berbaId,
+      izTankId: i.tankId,
+      uTankId: null,
+      litre,
+      vrsta: "ISPRAVAK",
+      pretokId: i.veza.pretokId ?? null,
+      zadatakId: i.veza.zadatakId ?? null,
+      izlazVinaId: i.veza.izlazVinaId ?? null,
+      punjenjeId: i.veza.punjenjeId ?? null,
+      dogodenoAt: i.dogodenoAt ?? new Date(),
+      korisnikId: i.korisnikId ?? null,
+      napomena: i.napomena ?? null,
+    },
+    select: { id: true },
+  });
+
+  return { kretanjeId: kretanje.id, ml, litre, ostatakMl: uTankuMl - ml };
+}
+
+// ---------------------------------------------------------------------------
+// 5. PONISTENJE
 // ---------------------------------------------------------------------------
 
 export type RezultatPonistenja = {
