@@ -180,7 +180,23 @@ export default function AdminResetForm() {
         </label>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-red-300/20 bg-red-950/30 p-4">
+      {/*
+        Knjiga berbe nema vlastitu kvačicu — briše se zajedno sa stanjem
+        tankova, jer je zapis točno onih događaja koje ovaj reset uklanja.
+        Da ostane, tvrdila bi da u podrumu stoji vino kojeg u tankovima nema.
+        Vidi app/api/admin/reset/route.ts.
+      */}
+      <div className="mt-6 rounded-2xl border border-amber-300/20 bg-amber-950/30 p-4">
+        <p className="text-sm text-amber-100">
+          <span className="font-bold">Briše se i knjiga berbe.</span> Kad reset
+          vraća stanje tankova na nulu ili briše tankove, uz njih nestaju i svi
+          zapisi berbe i sva kretanja vina — cijela povijest toga odakle je vino
+          došlo i kuda je otišlo. Nema zasebne kvačice za to: knjiga i tankovi
+          moraju ostati usklađeni.
+        </p>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-red-300/20 bg-red-950/30 p-4">
         <p className="text-sm text-red-100">
           Za potvrdu upiši <span className="font-bold">OBRISI</span>.
         </p>

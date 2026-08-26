@@ -64,6 +64,25 @@ export async function POST(req: Request) {
     }
 
     await prisma.$transaction(async (tx) => {
+      /**
+       * KNJIGA BERBE se brise zajedno sa stanjem tankova, ne kao zasebna
+       * kvacica.
+       *
+       * Knjiga je zapis TOCNO onih dogadjaja koje ovaj reset brise — punjenja,
+       * pretoka, filtracija i izlaza. Kad se tankovi vrate na nulu a knjiga
+       * ostane, ona i dalje tvrdi da u podrumu stoji vino (u kolovozu 2026.
+       * ~127.935 L rasporedjenih po 44 tanka), pa `npm run berba:provjeri`
+       * pada na svakom tanku. Zasebna kvacica bi znacila da se to stanje moze
+       * proizvesti zaboravom, a ne odlukom.
+       *
+       * Redoslijed je obavezan: `Berba.kretanja` ima `onDelete: Restrict`, pa
+       * brisanje berbi prije kretanja puca.
+       */
+      const obrisiKnjiguBerbe = async () => {
+        await tx.berbaKretanje.deleteMany();
+        await tx.berba.deleteMany();
+      };
+
       if (options.obrisiPunjenjaIArhivu) {
         await tx.arhivaPunjenjeStavka.deleteMany();
         await tx.arhivaPunjenjeTanka.deleteMany();
@@ -115,6 +134,10 @@ export async function POST(req: Request) {
       }
 
       if (options.obrisiTankove) {
+        // Tankovi nestaju — knjiga koja bi ih prezivjela pokazivala bi na
+        // tankove kojih vise nema (BerbaKretanje nema strani kljuc na Tank).
+        await obrisiKnjiguBerbe();
+
         await tx.document.deleteMany();
         await tx.tankSortaUdio.deleteMany();
         await tx.tankContent.deleteMany();
@@ -214,6 +237,8 @@ export async function POST(req: Request) {
             godiste: null,
           },
         });
+
+        await obrisiKnjiguBerbe();
       }
     });
 
