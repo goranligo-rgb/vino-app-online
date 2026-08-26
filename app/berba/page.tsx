@@ -3,16 +3,17 @@
 /**
  * IZVJESTAJ O BERBI — cita knjigu berbe (`/api/berba`), ne punjenja.
  *
- * DVIJE TVRDNJE KOJE SE NIGDJE NE MIJESAJU
- * ----------------------------------------
- *   ubrano       — `kolicinaLitara` zapisa berbe. Povijesna cinjenica. NE mijenja
- *                  se kad vino ode: berba 2026 je 15.650 L i nakon sto je pola
- *                  prodano ili napunjeno u boce.
- *   danas u podrumu — zbroj iz knjige kretanja. Mijenja se svakim pretokom i
- *                  izlazom.
+ * SAMO ONO STO JE USLO
+ * --------------------
+ * Sorta, kilogrami, litre, datum berbe, polozaj, secer, kiseline, pH, oznaka i
+ * prvi tank. Sve su to podaci o TRENUTKU ULASKA u podrum i ne mijenjaju se
+ * nikad: berba 2026 je 15.650 L i nakon sto je pola prodano ili napunjeno u
+ * boce.
  *
- * Sve kartice, razrade i usporedbe racunaju se iz PRVOG. Drugi se prikazuje uz
- * svaku berbu posebno, s vlastitom oznakom, i nikad ne ulazi u zbrojeve berbe.
+ * KAMO JE VINO POSLIJE OTISLO OVDJE NE PISE. To je stanje vina, ne podatak o
+ * berbi, i vec ima svoje mjesto — monitor tanka i pracenje vina. Knjiga
+ * kretanja (`gdjeJeSveBerbe` u lib/berba-model.ts) i dalje sve to zna; ova je
+ * stranica samo ne pita.
  *
  * ZATECENO
  * --------
@@ -27,12 +28,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { opisMaceracije } from "@/lib/berba-polja";
-
-type Mjesto = {
-  tankId: string;
-  tankBroj: number | null;
-  litre: number;
-};
 
 type Berba = {
   id: string;
@@ -69,11 +64,6 @@ type Berba = {
   prviTankId: string | null;
   prviTankBroj: number | null;
   izvornaPunjenjeStavkaId: string | null;
-
-  gdjeJeDanas: Mjesto[];
-  danasUkupnoL: number;
-  otisloL: number;
-  viseNijeUPodrumu: boolean;
 };
 
 /**
@@ -252,61 +242,6 @@ function Polje({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-/**
- * Gdje je vino DANAS. Tri broja koja se ne miksaju: ubrano, u podrumu, otislo.
- *
- * Brojka dolazi iskljucivo iz `BerbaKretanje` — ni `Tank.kolicinaVinaUTanku`,
- * ni `BlendIzvor`, ni `TankSortaUdio` u tome ne sudjeluju.
- */
-function GdjeJeDanas({ b }: { b: Berba }) {
-  return (
-    <div className="border border-emerald-200 bg-white p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="text-[11px] uppercase tracking-[0.14em] text-emerald-800/70">
-          Gdje je to vino danas
-        </div>
-        <span className="text-[11px] text-stone-400">iz knjige kretanja</span>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Polje
-          label="Ubrano"
-          value={`${formatBroj(b.kolicinaLitara, 0)} L`}
-        />
-        <Polje
-          label="Danas u podrumu"
-          value={`${formatBroj(b.danasUkupnoL, 0)} L`}
-        />
-        <Polje
-          label="Otišlo"
-          value={`${formatBroj(b.otisloL, 0)} L`}
-        />
-      </div>
-
-      <div className="mt-3">
-        {b.viseNijeUPodrumu ? (
-          <div className="border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
-            Ovog vina više nema ni u jednom tanku — prodano, napunjeno u boce ili
-            otišlo kao kalo. Količina berbe gore se time ne mijenja.
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {b.gdjeJeDanas.map((m) => (
-              <Link
-                key={m.tankId}
-                href={`/tankovi/${m.tankId}`}
-                className="border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] font-medium text-emerald-900 transition hover:bg-emerald-100"
-              >
-                Tank {m.tankBroj ?? "?"} · {formatBroj(m.litre, 0)} L
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function BerbaPage() {
   const [sve, setSve] = useState<Berba[]>([]);
   const [loading, setLoading] = useState(true);
@@ -464,7 +399,6 @@ export default function BerbaPage() {
           b.napomena,
           String(b.prviTankBroj ?? ""),
           String(b.godina ?? ""),
-          ...b.gdjeJeDanas.map((m) => `tank ${m.tankBroj}`),
         ]
           .filter(Boolean)
           .join(" ")
@@ -501,12 +435,6 @@ export default function BerbaPage() {
     }
     return [...poSorti.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "-";
   }, [filtrirani]);
-
-  /** Koliko je od filtriranog danas jos u podrumu — zaseban broj, ne dio berbe. */
-  const danasUPodrumu = useMemo(
-    () => filtrirani.reduce((s, b) => s + (b.danasUkupnoL || 0), 0),
-    [filtrirani]
-  );
 
   // --- razrade -------------------------------------------------------------
 
@@ -620,9 +548,10 @@ export default function BerbaPage() {
                 Izvještaj o berbi
               </h1>
               <p className="mt-2 max-w-[860px] text-[14px] leading-6 text-white/80">
-                Koliko je ubrano, po sortama i položajima, i gdje je to vino
-                danas. Količine berbe su povijesna činjenica i ne mijenjaju se
-                kad vino ode iz tanka — to je zaseban podatak uz svaki zapis.
+                Koliko je ubrano, po sortama i položajima. Količine su
+                povijesna činjenica i ne mijenjaju se kad vino ode iz tanka.
+                Kamo je poslije otišlo vidi se u monitoru tanka i praćenju
+                vina — to je stanje vina, ne podatak o berbi.
               </p>
             </div>
 
@@ -711,11 +640,6 @@ export default function BerbaPage() {
             <KarticaBroj
               naslov="Ubrano kg grožđa"
               vrijednost={`${formatBroj(sazetak.kg, 0)} kg`}
-            />
-            <KarticaBroj
-              naslov="Danas u podrumu"
-              vrijednost={`${formatBroj(danasUPodrumu, 0)} L`}
-              podnaslov="iz knjige kretanja"
             />
             <KarticaBroj
               naslov="Zapisa berbe"
@@ -1199,8 +1123,6 @@ export default function BerbaPage() {
                     />
                   </div>
 
-                  <GdjeJeDanas b={b} />
-
                   {b.napomena ? (
                     <div className="mt-3 border border-emerald-200 bg-white p-4">
                       <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-emerald-800/70">
@@ -1246,14 +1168,6 @@ export default function BerbaPage() {
                 )}{" "}
                 L
               </Oznaka>
-              <Oznaka>
-                danas u podrumu{" "}
-                {formatBroj(
-                  zatecene.reduce((s, b) => s + b.danasUkupnoL, 0),
-                  0
-                )}{" "}
-                L
-              </Oznaka>
             </div>
 
             <div className="mt-4 overflow-x-auto">
@@ -1264,9 +1178,6 @@ export default function BerbaPage() {
                     <th className="border border-amber-200 px-3 py-2">Položaj</th>
                     <th className="border border-amber-200 px-3 py-2">U podrum</th>
                     <th className="border border-amber-200 px-3 py-2">Količina</th>
-                    <th className="border border-amber-200 px-3 py-2">
-                      Gdje je danas
-                    </th>
                     <th className="border border-amber-200 px-3 py-2">Akcija</th>
                   </tr>
                 </thead>
@@ -1284,17 +1195,6 @@ export default function BerbaPage() {
                       </td>
                       <td className="border border-amber-100 px-3 py-2">
                         {formatBroj(b.kolicinaLitara, 0)} L
-                      </td>
-                      <td className="border border-amber-100 px-3 py-2">
-                        {b.viseNijeUPodrumu ? (
-                          <span className="text-stone-400">više nije u podrumu</span>
-                        ) : (
-                          b.gdjeJeDanas
-                            .map(
-                              (m) => `T${m.tankBroj ?? "?"} ${formatBroj(m.litre, 0)} L`
-                            )
-                            .join(" · ")
-                        )}
                       </td>
                       <td className="border border-amber-100 px-3 py-2">
                         {b.izvornaPunjenjeStavkaId ? (
