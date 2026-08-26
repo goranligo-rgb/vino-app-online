@@ -272,6 +272,17 @@ async function main() {
   //
   //     Za svaki cin s protustavkama zbroj svih njegovih redaka mora biti nula,
   //     po svakoj berbi i svakom tanku. Ako nije, ponistenje je bilo djelomicno.
+  //
+  //     PAZI NA REDOSLIJED: prebijanje ide PRIJE apsolutne vrijednosti.
+  //
+  //     Prva izvedba grupirala je "u tank" i "iz tanka" stranu odvojeno pa nad
+  //     svakom uzela ABS — a upravo te dvije strane se moraju prebiti. Kod
+  //     ispravno ponistenog pretoka original stoji na "iz" strani, a protustavka
+  //     na "u" strani ISTOG tanka; odvojeno grupiranje ih nikad ne sretne, pa je
+  //     rezultat bio dvostruki promet umjesto nule (T9→T16 200 L ponisten:
+  //     javljalo je 800 L ostatka). Greska se nije vidjela sve do prvog stvarnog
+  //     ponistenja 26.08.2026 — dotad protustavki nije bilo, pa je CTE
+  //     `ponisteni` bio prazan i provjera je prolazila prazna.
   const ostatakPonistenja = await prisma.$queryRaw<
     Array<{ kljuc: string; ostatak: number }>
   >`
@@ -290,11 +301,15 @@ async function main() {
     )
     SELECT u.kljuc, SUM(ABS(u.ml))::float8 AS ostatak
     FROM (
-      SELECT kljuc, "berbaId", "uTankId" AS tank, SUM(ml) AS ml
-      FROM ucinak WHERE "uTankId" IS NOT NULL GROUP BY kljuc, "berbaId", "uTankId"
-      UNION ALL
-      SELECT kljuc, "berbaId", "izTankId" AS tank, -SUM(ml) AS ml
-      FROM ucinak WHERE "izTankId" IS NOT NULL GROUP BY kljuc, "berbaId", "izTankId"
+      SELECT kljuc, "berbaId", tank, SUM(ml) AS ml
+      FROM (
+        SELECT kljuc, "berbaId", "uTankId" AS tank, ml
+        FROM ucinak WHERE "uTankId" IS NOT NULL
+        UNION ALL
+        SELECT kljuc, "berbaId", "izTankId" AS tank, -ml
+        FROM ucinak WHERE "izTankId" IS NOT NULL
+      ) strane
+      GROUP BY kljuc, "berbaId", tank
     ) u
     JOIN ponisteni p ON p.kljuc = u.kljuc
     GROUP BY u.kljuc
