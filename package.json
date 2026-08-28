@@ -21,7 +21,8 @@
     "test:berba:knjiga": "tsx scripts/test-berba-knjiga.ts",
     "berba:backfill": "tsx scripts/backfill-berba.ts",
     "berba:provjeri": "tsx scripts/provjeri-berbu.ts",
-    "berba:poravnaj": "tsx scripts/poravnaj-knjigu.ts"
+    "berba:poravnaj": "tsx scripts/poravnaj-knjigu.ts",
+    "mjerenja:provjeri": "tsx scripts/provjeri-mjerenja-berba.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
