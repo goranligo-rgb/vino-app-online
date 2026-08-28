@@ -498,6 +498,10 @@ model Preparation {
   minimalnaKolicina          Float?                  @default(0)
   skladisnaJedinicaId        String?
   aktivan                    Boolean?                @default(true)
+  /// Sluzi SAMO za suzavanje popisa pri otvaranju fermentacije: katalog ima
+  /// 76 preparata, a kvasaca je dvadesetak. Nije klasifikacija preparata,
+  /// nista drugo ga ne cita. false = "nije oznacen kao kvasac".
+  jeKvasac                   Boolean                 @default(false)
   additions                  Addition[]
   skladisnaJedinica          Unit?                   @relation("PreparationStockUnit", fields: [skladisnaJedinicaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   unit                       Unit?                   @relation(fields: [unitId], references: [id])
@@ -2037,4 +2041,90 @@ enum VrstaKretanjaBerbe {
   IZLAZ
   ISPRAVAK
   PONISTENJE
+}
+
+// ---------------------------------------------------------------------------
+// DNEVNIK FERMENTACIJE
+//
+// Nacelo je isto kao kod berbe: nositelj podatka je VINO, ne tank. Jedna berba
+// razdijeljena u dva tanka s dva kvasca ima DVIJE fermentacije, pa granica ne
+// moze stajati na `Berba` — tamo bi stao samo jedan par datuma. Ne moze ni na
+// `Tank`: tank je posuda, sljedece godine drzi nesto drugo.
+//
+// UPISUJE SE SAMO GRANICA. Sve ostalo sto ispis treba vec postoji i cita se
+// spajanjem po prozoru [pocetakAt, krajAt]:
+//   preparati    -> Zadatak + ZadatakStavka  (tankId + izvrsenoAt)
+//   temperatura  -> OcitanjeTemperature      (tankId + mjerenoU), agregirano
+//   secer        -> Mjerenje                 (tankId + izmjerenoAt)
+//   berba, sorta -> BerbaKretanje            (gdje je vino bilo i kad)
+// Nista se ne prepisuje ovamo, pa nema druge kopije koja moze odlutati — isto
+// pravilo koje BerbaKretanje vec ima zapisano iznad sebe.
+//
+// VINO SE SELI, FERMENTACIJA OSTAJE JEDNA. Pretok usred fermentacije NE otvara
+// novi zapis: `tankId` znaci "gdje je pocela", a ispis slijedi vino kroz
+// segmente `BerbaKretanje`. Zato ovdje NEMA jedinstvenog indeksa "jedna
+// otvorena fermentacija po tanku": vino koje je iz T11 otislo u T26 ostavlja
+// T11 slobodnim za novi most, dok mu je fermentacija jos otvorena s
+// tankId = T11. Takav bi indeks blokirao ispravan slucaj.
+//
+// ZASTO NEMA STRANIH KLJUCEVA: `tankId`, `kvasacZadatakId`, `kvasacPreparatId`
+// i korisnici su goli stupci — isti obrazac koji Berba vec koristi (vidi
+// biljesku iznad nje) i ArhivaVina.tankId. Dnevnik fermentacije ne smije
+// nestati kad nestane tank ili zadatak, a zadatak pri arhiviranju stvarno
+// biva obrisan (lib/pretok-arhiviranje.ts). Bez FK nema kroz sto kaskadirati,
+// i migracija ostaje cisto aditivna: nijedan postojeci strani kljuc se ne dira.
+// ---------------------------------------------------------------------------
+
+/// Granica jedne fermentacije: kad je pocela i kad je zavrsila.
+/// Jedini zapis koji ovaj modul uvodi — sve ostalo se racuna pri prikazu.
+model Fermentacija {
+  id String @id @default(uuid())
+
+  /// Tank u kojem je fermentacija POCELA. Vino ga smije napustiti prije kraja
+  /// — vidi biljesku iznad. Bez FK.
+  tankId String
+
+  pocetakAt DateTime  @db.Timestamptz(6)
+
+  /// NULL = fermentacija jos traje. Nije "nepoznato", nego "nije zavrsila".
+  krajAt DateTime? @db.Timestamptz(6)
+
+  /// Je li datum pocetka tvrdnja ili izvod. RUCNO = covjek ga je upisao,
+  /// IZ_ZADATKA = potvrdio je ponudjeni datum dodavanja kvasca. Ispis smije
+  /// reci koje je od toga; pogadjati se ne smije.
+  pocetakIzvor IzvorPocetkaFermentacije @default(RUCNO)
+
+  /// Zadatak kojim je kvasac dodan, ako ga ima. Goli stupac, bez FK.
+  kvasacZadatakId String?
+
+  /// Goli pokazivac na katalog, bez FK.
+  kvasacPreparatId String?
+
+  /// Naziv se PREPISUJE, ne cita kroz relaciju: preimenovanje ili gasenje
+  /// preparata ne smije promijeniti ono sto na zapisu fermentacije vec pise.
+  /// Isto pravilo kao Berba.nazivSorte.
+  kvasacNaziv String?
+
+  napomena String?
+
+  /// Tko je otvorio i tko zatvorio — u smjeni to nisu iste osobe. Ime se ne
+  /// nagadja unatrag: sto nije zapisano ostaje NULL.
+  korisnikId         String?
+  zatvorioKorisnikId String?
+
+  /// Meko brisanje, ISKLJUCIVO za pogresan unos.
+  obrisano   Boolean   @default(false)
+  obrisanoAt DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([tankId, pocetakAt(sort: Desc)])
+  @@index([pocetakAt])
+  @@index([kvasacZadatakId])
+}
+
+enum IzvorPocetkaFermentacije {
+  RUCNO
+  IZ_ZADATKA
 }
