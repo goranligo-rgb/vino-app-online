@@ -13,6 +13,8 @@ import TankRoleActions from "./tank-role-actions";
 import TankRoleSastavModal from "./tank-role-sastav-modal";
 import TankRoleDokumentiUpload from "./tank-role-dokumenti-upload";
 import HladjenjeGraf from "./hladjenje-graf";
+import FermentacijaGumb from "./fermentacija-gumb";
+import { smijeUPodrumu } from "@/lib/auth-role";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
 import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
 import {
@@ -839,7 +841,7 @@ export default async function TankPregledPage({
   // prikazu znaci da dva istovremena posjetitelja pojedu budzet i baza pocne
   // odbijati veze (EMAXCONNSESSION -> 500). Izmjereno, ne pretpostavljeno.
   // Cetiri po valu daju gotovo istu dobit uz upola manji vrsni pritisak.
-  const [zadnjeOcitanje, aktivniAlarmi, mjerenja, arhive] = await Promise.all([
+  const prviVal = await Promise.all([
     prisma.ocitanjeTemperature.findFirst({
       where: { tankId: id },
       orderBy: { mjerenoU: "desc" },
@@ -872,7 +874,20 @@ export default async function TankPregledPage({
         arhiviranoAt: true,
       },
     }),
+
+    // Otvorena fermentacija ovog tanka — odredjuje koji se gumb prikazuje.
+    // NAMJERNO bez granice arhive: fermentacija se zatvara ondje gdje je i
+    // otvorena, pa i kad je tank u meduvremenu ispraznjen ili arhiviran.
+    // Skrivanje bi ostavilo zapis zauvijek otvoren, bez ijednog gumba.
+    prisma.fermentacija.findFirst({
+      where: { tankId: id, krajAt: null, obrisano: false },
+      orderBy: { pocetakAt: "desc" },
+      select: { id: true, pocetakAt: true, kvasacNaziv: true },
+    }),
   ]);
+
+  const [zadnjeOcitanje, aktivniAlarmi, mjerenja, arhive, otvorenaFermentacija] =
+    prviVal;
 
   // GRANICA ARHIVE — jedna crta za cijelu stranicu.
   //
@@ -1595,6 +1610,42 @@ export default async function TankPregledPage({
   const zadnje = sloziZadnjeMjerenjePoPoljima(mjerenjaZaTop);
   const from = `/tankovi/${tank.id}`;
 
+  // PONUDA POCETKA — zadnje izvrseno DODAVANJE na ovom tanku.
+  //
+  // Bez ijednog novog upita: `izvrseniZadaci` su vec procitani, sa stavkama i
+  // nazivima preparata. Racuna se samo kad tank NEMA otvorenu fermentaciju,
+  // jer se pri zatvaranju ne nudi nista.
+  //
+  // NE FILTRIRA SE PO KVASCU. `Preparation.jeKvasac` postoji od faze 1, ali
+  // nijedan od 76 preparata jos nije oznacen, pa bi filtar ovdje uvijek dao
+  // prazno. Zato se nudi ZADNJE DODAVANJE i imenuju se preparati iz njega, a
+  // covjek prosudi je li to inokulacija. Cim katalog bude oznacen, ovdje se
+  // doda uvjet i ponuda postane uza — forma se ne mijenja.
+  const ponudaKvasca = otvorenaFermentacija
+    ? null
+    : (() => {
+        const kandidat = izvrseniZadaci
+          .filter((z) => z.vrsta === "DODAVANJE" && z.status === "IZVRSEN" && z.izvrsenoAt)
+          .sort(
+            (a, b) =>
+              new Date(b.izvrsenoAt as Date).getTime() -
+              new Date(a.izvrsenoAt as Date).getTime()
+          )[0];
+
+        if (!kandidat?.izvrsenoAt) return null;
+
+        const nazivi = [
+          ...(kandidat.preparat?.naziv ? [kandidat.preparat.naziv] : []),
+          ...kandidat.stavke.map((x) => x.preparat?.naziv).filter((x): x is string => !!x),
+        ];
+
+        return {
+          zadatakId: kandidat.id,
+          izvrsenoAt: kandidat.izvrsenoAt.toISOString(),
+          preparati: [...new Set(nazivi)],
+        };
+      })();
+
   const slobodno =
     Number(tank.kapacitet ?? 0) - Number(tank.kolicinaVinaUTanku ?? 0);
 
@@ -1627,7 +1678,29 @@ export default async function TankPregledPage({
           </div>
         </div>
 
-        <TankSwitcher currentId={id} />
+        {/* Desni kut zaglavlja. Gumb granice fermentacije stoji uz prekidac
+            tankova, odvojen od radnji nad tankom (Arhiviraj, Sastav) — jer
+            fermentacija je svojstvo VINA, a ne posude. */}
+        <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+          <TankSwitcher currentId={id} />
+          <FermentacijaGumb
+            tankId={tank.id}
+            brojTanka={tank.broj}
+            smije={smijeUPodrumu(prijavljeni.role)}
+            otvorena={
+              otvorenaFermentacija
+                ? {
+                    id: otvorenaFermentacija.id,
+                    pocetakAt: otvorenaFermentacija.pocetakAt.toISOString(),
+                    kvasacNaziv: otvorenaFermentacija.kvasacNaziv,
+                  }
+                : null
+            }
+            ponuda={ponudaKvasca}
+            tankJePrazan={tankJePrazan}
+            style={linkButtonPrimaryStyle}
+          />
+        </div>
       </div>
 
       <Link

@@ -22,3 +22,22 @@ export type Rola = "ADMIN" | "ENOLOG" | "PODRUM" | "PREGLED";
 export function jeL12(rola: Rola | string | null | undefined): boolean {
   return rola === "ADMIN" || rola === "PODRUM";
 }
+
+/**
+ * Smije li rola raditi u podrumu (zadaci, pretoci, granica fermentacije)?
+ *
+ * ADMIN, ENOLOG i PODRUM. RAZLIKUJE SE od `jeL12`, koji ENOLOG-a NE ukljucuje:
+ * enolog ne uredjuje sastav tanka i ne arhivira, ali odredjuje kad fermentacija
+ * pocinje i zavrsava. Tko za to posegne za `jeL12`, sakrit ce gumb bas onome
+ * cija je to odluka.
+ *
+ * Parnjak posluziteljskog `smijeRaditiUPodrumu` (lib/zadatak-auth.ts), koji
+ * prima `AuthUser` i vuce za sobom sesiju i Prismu. Ovaj prima golu rolu i
+ * nema nijednu ovisnost, pa se smije uvesti i u klijentsku komponentu.
+ * Dva zapisa istog pravila su namjerna i moraju ostati u koraku.
+ *
+ * OVO JE SAMO ZA PRIKAZ — bravu drzi provjera u ruti.
+ */
+export function smijeUPodrumu(rola: Rola | string | null | undefined): boolean {
+  return rola === "ADMIN" || rola === "ENOLOG" || rola === "PODRUM";
+}
