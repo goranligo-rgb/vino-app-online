@@ -109,6 +109,18 @@ function citajIsKorekcijski(
   return v === true || v === "true" || v === 1;
 }
 
+// jeKvasac: samo eksplicitni true. Izostanak kljuca vraca `undefined`, sto
+// Prisma tretira kao "ne diraj" — stari klijent koji polje ne salje ne moze
+// slucajno ugasiti oznaku.
+//
+// SLUZI SAMO ZA PONUDU U FORMI FERMENTACIJE. Ne filtrira ispis preparata —
+// vidi biljesku uz Preparation.jeKvasac u schema.prisma.
+function citajJeKvasac(body: unknown, kljuc: string): boolean | undefined {
+  if (!imaKljuc(body, kljuc)) return undefined;
+  const v = polje(body, kljuc);
+  return v === true || v === "true" || v === 1;
+}
+
 function citajKorekcijaTip(
   body: unknown,
   kljuc: string
@@ -339,6 +351,7 @@ export async function POST(req: Request) {
     const minimalnaKolicina = citajBrojIliNulu(body, "minimalnaKolicina");
     const skladisnaJedinicaId = citajTekstIliNull(body, "skladisnaJedinicaId");
     const aktivan = citajAktivan(body, "aktivan");
+    const jeKvasac = citajJeKvasac(body, "jeKvasac") ?? false;
 
     const isKorekcijski = citajIsKorekcijski(body, "isKorekcijski") ?? false;
 
@@ -469,6 +482,7 @@ export async function POST(req: Request) {
           minimalnaKolicina,
           skladisnaJedinicaId,
           aktivan,
+          jeKvasac,
 
           isKorekcijski,
           korekcijaTip: isKorekcijski ? (korekcijaTip as any) : null,
@@ -561,6 +575,7 @@ export async function PUT(req: Request) {
     const minimalnaKolicina = citajBrojIliNulu(body, "minimalnaKolicina");
     const skladisnaJedinicaId = citajTekstIliNull(body, "skladisnaJedinicaId");
     const aktivan = citajAktivan(body, "aktivan");
+    const jeKvasac = citajJeKvasac(body, "jeKvasac");
 
     const isKorekcijski = citajIsKorekcijski(body, "isKorekcijski");
 
@@ -782,6 +797,7 @@ export async function PUT(req: Request) {
           minimalnaKolicina,
           skladisnaJedinicaId,
           aktivan,
+          jeKvasac,
           isKorekcijski,
 
           ...korekcijaPolja,

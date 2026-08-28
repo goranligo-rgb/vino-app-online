@@ -85,6 +85,8 @@ type Preparat = {
   skladisnaJedinicaId?: string | null;
   skladisnaJedinica?: Unit | null;
   aktivan?: boolean;
+  /** Samo za ponudu pri otvaranju fermentacije — ne filtrira ispis. */
+  jeKvasac?: boolean;
 
   isKorekcijski?: boolean;
   korekcijaTip?: KorekcijaTip | null;
@@ -183,6 +185,7 @@ export default function PreparatPage() {
     minimalnaKolicina: "",
     skladisnaJedinicaId: "",
     aktivan: true,
+    jeKvasac: false,
 
     isKorekcijski: false,
     korekcijaTip: "",
@@ -445,6 +448,7 @@ export default function PreparatPage() {
               : Number(novi.minimalnaKolicina),
           skladisnaJedinicaId: novi.skladisnaJedinicaId || null,
           aktivan: novi.aktivan,
+          jeKvasac: novi.jeKvasac,
 
           isKorekcijski: novi.isKorekcijski,
           korekcijaTip: novi.isKorekcijski ? novi.korekcijaTip || null : null,
@@ -490,6 +494,7 @@ export default function PreparatPage() {
         minimalnaKolicina: "",
         skladisnaJedinicaId: "",
         aktivan: true,
+        jeKvasac: false,
 
         isKorekcijski: false,
         korekcijaTip: "",
@@ -602,6 +607,7 @@ export default function PreparatPage() {
           minimalnaKolicina: p.minimalnaKolicina ?? 0,
           skladisnaJedinicaId: p.skladisnaJedinicaId ?? null,
           aktivan: p.aktivan ?? true,
+          jeKvasac: p.jeKvasac ?? false,
 
           isKorekcijski: p.isKorekcijski ?? false,
           korekcijaTip: p.isKorekcijski ? p.korekcijaTip ?? null : null,
@@ -1285,6 +1291,20 @@ export default function PreparatPage() {
                     Aktivan preparat
                   </label>
 
+                  {/* Oznaka sluzi SAMO tome da forma fermentacije zna koji
+                      preparat ponuditi kao pocetak. Ispis preparata u
+                      dnevniku se po njoj NE filtrira. */}
+                  <label className="flex items-center gap-2 text-sm font-medium text-stone-700">
+                    <input
+                      type="checkbox"
+                      checked={novi.jeKvasac}
+                      onChange={(e) =>
+                        setNovi({ ...novi, jeKvasac: e.target.checked })
+                      }
+                    />
+                    Kvasac
+                  </label>
+
                   <label className="flex items-center gap-2 text-sm font-medium text-stone-700">
                     <input
                       ref={korekcijskiRef}
@@ -1644,6 +1664,22 @@ export default function PreparatPage() {
                               }
                             />
                             Aktivan
+                          </label>
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">
+                            Fermentacija
+                          </label>
+                          <label className="flex h-10 items-center gap-2 border border-emerald-200 bg-white px-3 text-sm text-stone-700">
+                            <input
+                              type="checkbox"
+                              checked={p.jeKvasac === true}
+                              onChange={(e) =>
+                                promijeniPreparat(p.id, "jeKvasac", e.target.checked)
+                              }
+                            />
+                            Kvasac
                           </label>
                         </div>
 

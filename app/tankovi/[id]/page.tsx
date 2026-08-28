@@ -1616,11 +1616,16 @@ export default async function TankPregledPage({
   // nazivima preparata. Racuna se samo kad tank NEMA otvorenu fermentaciju,
   // jer se pri zatvaranju ne nudi nista.
   //
-  // NE FILTRIRA SE PO KVASCU. `Preparation.jeKvasac` postoji od faze 1, ali
-  // nijedan od 76 preparata jos nije oznacen, pa bi filtar ovdje uvijek dao
-  // prazno. Zato se nudi ZADNJE DODAVANJE i imenuju se preparati iz njega, a
-  // covjek prosudi je li to inokulacija. Cim katalog bude oznacen, ovdje se
-  // doda uvjet i ponuda postane uza — forma se ne mijenja.
+  // Filtar po `jeKvasac` dolazi OVDJE — i samo ovdje. Danas ga nema jer
+  // nijedan od 76 preparata nije oznacen, pa bi uvijek dao prazno; nudi se
+  // ZADNJE DODAVANJE i imenuju se preparati iz njega, a covjek prosudi je li
+  // to inokulacija. Cim katalog bude oznacen, ovdje se doda uvjet i ponuda
+  // postane uza — forma se ne mijenja.
+  //
+  // TAJ FILTAR NE SMIJE POBJECI NA ISPIS. Dnevnik fermentacije prikazuje SVE
+  // sto je islo u most — kvasac, hranu, enzime, zastitne pripravke — iz
+  // Zadatak/ZadatakStavka bez ijednog filtra. `jeKvasac` odgovara samo na
+  // "sto forma smije ponuditi kao pocetak".
   const ponudaKvasca = otvorenaFermentacija
     ? null
     : (() => {

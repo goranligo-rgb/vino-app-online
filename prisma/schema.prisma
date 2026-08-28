@@ -501,6 +501,12 @@ model Preparation {
   /// Sluzi SAMO za suzavanje popisa pri otvaranju fermentacije: katalog ima
   /// 76 preparata, a kvasaca je dvadesetak. Nije klasifikacija preparata,
   /// nista drugo ga ne cita. false = "nije oznacen kao kvasac".
+  ///
+  /// NIKAD NE FILTRIRAJ ISPIS PO OVOME. Dnevnik fermentacije mora pokazati
+  /// SVE sto je islo u most — kvasac, hranu, enzime, zastitne pripravke —
+  /// citano iz Zadatak/ZadatakStavka BEZ ijednog filtra. `jeKvasac` odgovara
+  /// na jedno jedino pitanje: "koji preparat forma smije ponuditi kao pocetak
+  /// fermentacije". Filtar po njemu na ispisu pojeo bi pola dnevnika.
   jeKvasac                   Boolean                 @default(false)
   additions                  Addition[]
   skladisnaJedinica          Unit?                   @relation("PreparationStockUnit", fields: [skladisnaJedinicaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
