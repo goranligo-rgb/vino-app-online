@@ -1288,7 +1288,14 @@ export default async function TankPregledPage({
 
   // Kartica se prikazuje i kad tank NEMA nijedno svoje punjenje — to je i bio
   // cijeli problem: tank napunjen pretokom nije pokazivao nikakvu berbu.
-  const prikaziBerbu = imaPodatakaOBerbi || naslijedenoStavki > 0;
+  //
+  // Od 28.08.2026 kartica nosi i gumb granice fermentacije, pa se prikazuje i
+  // kad zapisa berbe uopce nema: bez toga bi tank bez berbe ostao bez ijednog
+  // nacina da se fermentacija otvori ili zatvori. Gumb se ionako prikazuje
+  // samo roli koja ga smije koristiti (FermentacijaGumb vraca null inace).
+  const smijeFermentaciju = smijeUPodrumu(prijavljeni.role);
+  const prikaziBerbu =
+    imaPodatakaOBerbi || naslijedenoStavki > 0 || smijeFermentaciju;
 
   const ukupnoZapisa =
     mjerenja.length +
@@ -1683,29 +1690,7 @@ export default async function TankPregledPage({
           </div>
         </div>
 
-        {/* Desni kut zaglavlja. Gumb granice fermentacije stoji uz prekidac
-            tankova, odvojen od radnji nad tankom (Arhiviraj, Sastav) — jer
-            fermentacija je svojstvo VINA, a ne posude. */}
-        <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
-          <TankSwitcher currentId={id} />
-          <FermentacijaGumb
-            tankId={tank.id}
-            brojTanka={tank.broj}
-            smije={smijeUPodrumu(prijavljeni.role)}
-            otvorena={
-              otvorenaFermentacija
-                ? {
-                    id: otvorenaFermentacija.id,
-                    pocetakAt: otvorenaFermentacija.pocetakAt.toISOString(),
-                    kvasacNaziv: otvorenaFermentacija.kvasacNaziv,
-                  }
-                : null
-            }
-            ponuda={ponudaKvasca}
-            tankJePrazan={tankJePrazan}
-            style={linkButtonPrimaryStyle}
-          />
-        </div>
+        <TankSwitcher currentId={id} />
       </div>
 
       <Link
@@ -1825,8 +1810,53 @@ export default async function TankPregledPage({
               ? `${stavkeBerbe.length} s ovog tanka · ${naslijedenoStavki} kroz blend`
               : "stavki punjenja"
           }
+          akcija={
+            // Fermentacija je svojstvo VINA, ne posude — zato stoji ovdje, uz
+            // berbu, a ne medu radnjama nad tankom (Arhiviraj, Sastav).
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <FermentacijaGumb
+                tankId={tank.id}
+                brojTanka={tank.broj}
+                smije={smijeFermentaciju}
+                otvorena={
+                  otvorenaFermentacija
+                    ? {
+                        id: otvorenaFermentacija.id,
+                        pocetakAt: otvorenaFermentacija.pocetakAt.toISOString(),
+                        kvasacNaziv: otvorenaFermentacija.kvasacNaziv,
+                      }
+                    : null
+                }
+                ponuda={ponudaKvasca}
+                tankJePrazan={tankJePrazan}
+                style={linkButtonPrimaryStyle}
+              />
+
+              {/* Dnevnik se nudi samo kad fermentacija postoji — prazan papir
+                  nikome ne treba. */}
+              {otvorenaFermentacija ? (
+                <Link
+                  href={`/fermentacija/${otvorenaFermentacija.id}`}
+                  style={linkButtonSecondaryStyle}
+                >
+                  Dnevnik fermentacije
+                </Link>
+              ) : (
+                <Link href="/fermentacija" style={linkButtonSecondaryStyle}>
+                  Fermentacije
+                </Link>
+              )}
+            </div>
+          }
         >
           <div style={{ display: "grid", gap: 10, padding: 10 }}>
+            {stavkeBerbe.length === 0 && naslijedenoStavki === 0 ? (
+              <div style={mutedTextStyle}>
+                Za ovaj tank nema zapisa berbe — ni vlastitog punjenja ni
+                naslijeđenog kroz blend.
+              </div>
+            ) : null}
+
             {stavkeBerbe.map(({ punjenje, s }) => (
               <BerbaStavkaKartica
                 key={s.id}

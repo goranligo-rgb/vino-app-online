@@ -25,10 +25,19 @@ import { Card } from "./kartica";
 export default function BerbaPrekidac({
   broj,
   pod,
+  akcija,
   children,
 }: {
   broj: number;
   pod?: string | null;
+  /**
+   * Radnja nad VINOM, ne nad karticom — danas granica fermentacije.
+   *
+   * Stoji IZVAN kvacice, ispod nje i desno. Namjerno: kvacica skuplja popis
+   * zapisa berbe, a fermentacija s tim popisom nema veze. Da je unutra,
+   * sklapanje popisa bi sakrilo i jedini nacin da se fermentacija zatvori.
+   */
+  akcija?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [prikazi, setPrikazi] = useState(true);
@@ -50,10 +59,18 @@ export default function BerbaPrekidac({
         </label>
       }
     >
+      {akcija ? <div style={akcijaStyle}>{akcija}</div> : null}
+
       {prikazi ? children : null}
     </Card>
   );
 }
+
+const akcijaStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  marginBottom: 10,
+};
 
 const kvacicaStyle: React.CSSProperties = {
   display: "inline-flex",

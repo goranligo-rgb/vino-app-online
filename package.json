@@ -24,7 +24,8 @@
     "berba:poravnaj": "tsx scripts/poravnaj-knjigu.ts",
     "mjerenja:provjeri": "tsx scripts/provjeri-mjerenja-berba.ts",
     "fermentacija:provjeri": "tsx scripts/provjeri-fermentacija-prozor.ts",
-    "kvasci:oznaci": "tsx scripts/oznaci-kvasce.ts"
+    "kvasci:oznaci": "tsx scripts/oznaci-kvasce.ts",
+    "fermentacija:ispis": "tsx scripts/provjeri-fermentacija-ispis.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

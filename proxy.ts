@@ -69,6 +69,10 @@ export async function proxy(req: NextRequest) {
       // koja se ovdje zeli je da neprijavljeni ide na /login.
       pathname.startsWith("/sadrzaj-tanka") ||
       pathname.startsWith("/dodavanje") ||
+      // Dnevnik fermentacije. Enolog odredjuje kad fermentacija pocinje i
+      // zavrsava (vidi smijeUPodrumu u lib/auth-role.ts), pa mu i ispis
+      // pripada. Prefiks, jer su i pregled sezone i pojedini dnevnik njegovi.
+      pathname.startsWith("/fermentacija") ||
       /^\/tankovi\/[^/]+$/.test(pathname);
 
     if (!allowed) {
@@ -117,5 +121,9 @@ export const config = {
     // stranicu (jer API sad vraca 401) umjesto poziva na prijavu.
     "/sadrzaj-tanka/:path*",
     "/dodavanje/:path*",
+    // Dnevnik fermentacije. Mora biti OVDJE, ne samo u allow-listi: sto nije
+    // u matcheru proxy uopce ne vidi, pa bi stranica bila otvorena svakome
+    // tko zna URL — isti propust koji su dvije gornje vec imale.
+    "/fermentacija/:path*",
   ],
 };
