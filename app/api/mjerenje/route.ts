@@ -71,7 +71,6 @@ export async function POST(req: Request) {
 
     const {
       tankId,
-      korisnikId,
       alkohol,
       ukupneKiseline,
       hlapiveKiseline,
@@ -99,7 +98,13 @@ export async function POST(req: Request) {
       const createdMjerenje = await tx.mjerenje.create({
         data: {
           tankId: String(tankId),
-          korisnikId: korisnikId || null,
+
+          // Tko je mjerio cita se IZ SESIJE, ne iz tijela zahtjeva. Do
+          // 28.08.2026. je stajalo `korisnikId: korisnikId || null`, a
+          // forma ga nije slala - pa je svih 88 zatecenih mjerenja ostalo
+          // bez imena. Uz to je svatko mogao potpisati mjerenje bilo kime.
+          // Zatecenih 88 OSTAJE NULL: ime se ne nagadja unatrag.
+          korisnikId: user.id,
 
           alkohol: brojIliNull(alkohol),
           ukupneKiseline: brojIliNull(ukupneKiseline),
@@ -196,7 +201,6 @@ export async function PUT(req: Request) {
     const {
       id,
       tankId,
-      korisnikId,
       alkohol,
       ukupneKiseline,
       hlapiveKiseline,
@@ -222,7 +226,10 @@ export async function PUT(req: Request) {
       where: { id: String(id) },
       data: {
         tankId: tankId || undefined,
-        korisnikId: korisnikId === "" ? null : korisnikId ?? undefined,
+
+        // `korisnikId` se pri uredjivanju NE dira. Tko je mjerio ostaje tko
+        // je mjerio - ispravak brojke ne prepisuje autora na onoga tko je
+        // ispravljao. Prije je stizao iz tijela zahtjeva, dakle bilo tko.
 
         alkohol: alkohol !== undefined ? brojIliNull(alkohol) : undefined,
         ukupneKiseline:
