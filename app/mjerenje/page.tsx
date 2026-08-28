@@ -579,10 +579,12 @@ export default function MjerenjePage() {
     const form = formaRef.current;
     if (!form) return;
 
+    // Gumb "Spremi mjerenje" NAMJERNO nije u ovom lancu. Dok je bio, Enter
+    // sa zadnjeg polja bi na njega dosao fokus, a sljedeci Enter bi poslao
+    // formu — pa je jedan pritisak viska spremao mjerenje bez vrijednosti.
+    // Spremanje je sada uvijek svjestan klik. Enter na zadnjem polju stane.
     const polja = Array.from(
-      form.querySelectorAll<HTMLElement>(
-        'select, input, textarea, button[type="submit"]'
-      )
+      form.querySelectorAll<HTMLElement>("select, input, textarea")
     ).filter((el) => {
       const disabled =
         (

@@ -20,6 +20,33 @@ function datumIliNull(v: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * Ima li zapis ista izmjereno.
+ *
+ * Do 28.08.2026. je ruta trazila samo `tankId`, pa je prazna forma stvarala
+ * mjerenje bez ijedne brojke. Takav redak se u popisu prikaze kao red crtica,
+ * ulazi u "zadnje mjerenje" i nista ne kaze.
+ *
+ * NAPOMENA NIJE VRIJEDNOST. Biljeska bez ijedne brojke nije mjerenje — nema
+ * je gdje procitati (`imaKlasicneParametre` u app/mjerenje/page.tsx trazi
+ * upravo ove stupce), a za biljesku uz tank vec postoji zadatak.
+ *
+ * Bentotest JEST dovoljan sam za sebe: to je zaseban postupak s vlastitim
+ * datumom i statusom, i forma ga vec zna prikazati sama (`jeSamoBentotest`).
+ *
+ * Guard stoji SAMO na ovoj ruti. Automatske retke nakon pretoka i filtracije
+ * pisu `tx.mjerenje.create` izravno (app/api/pretok/route.ts, lib/filtracija.ts)
+ * i oni namjerno smiju biti bez vrijednosti — nose samo napomenu o podrijetlu.
+ */
+function imaIkakvuVrijednost(v: {
+  brojevi: Array<number | null>;
+  bentotestDatum: Date | null;
+  bentotestStatus: string | null;
+}): boolean {
+  if (v.brojevi.some((x) => x !== null)) return true;
+  return v.bentotestDatum !== null || v.bentotestStatus !== null;
+}
+
 export async function GET(req: Request) {
   const user = await getAuthUser();
 
@@ -94,6 +121,36 @@ export async function POST(req: Request) {
 
     const datumMjerenja = datumIliNull(izmjerenoAt) ?? new Date();
 
+    const bentoDatum = datumIliNull(bentotestDatum);
+    const bentoStatus =
+      bentotestStatus === "" || bentotestStatus == null
+        ? null
+        : String(bentotestStatus);
+
+    const vrijednosti = {
+      alkohol: brojIliNull(alkohol),
+      ukupneKiseline: brojIliNull(ukupneKiseline),
+      hlapiveKiseline: brojIliNull(hlapiveKiseline),
+      slobodniSO2: brojIliNull(slobodniSO2),
+      ukupniSO2: brojIliNull(ukupniSO2),
+      secer: brojIliNull(secer),
+      ph: brojIliNull(ph),
+      temperatura: brojIliNull(temperatura),
+    };
+
+    if (
+      !imaIkakvuVrijednost({
+        brojevi: Object.values(vrijednosti),
+        bentotestDatum: bentoDatum,
+        bentotestStatus: bentoStatus,
+      })
+    ) {
+      return NextResponse.json(
+        { error: "Mjerenje mora imati barem jednu vrijednost." },
+        { status: 400 }
+      );
+    }
+
     const mjerenje = await prisma.$transaction(async (tx) => {
       const createdMjerenje = await tx.mjerenje.create({
         data: {
@@ -106,20 +163,10 @@ export async function POST(req: Request) {
           // Zatecenih 88 OSTAJE NULL: ime se ne nagadja unatrag.
           korisnikId: user.id,
 
-          alkohol: brojIliNull(alkohol),
-          ukupneKiseline: brojIliNull(ukupneKiseline),
-          hlapiveKiseline: brojIliNull(hlapiveKiseline),
-          slobodniSO2: brojIliNull(slobodniSO2),
-          ukupniSO2: brojIliNull(ukupniSO2),
-          secer: brojIliNull(secer),
-          ph: brojIliNull(ph),
-          temperatura: brojIliNull(temperatura),
+          ...vrijednosti,
 
-          bentotestDatum: datumIliNull(bentotestDatum),
-          bentotestStatus:
-            bentotestStatus === "" || bentotestStatus == null
-              ? null
-              : String(bentotestStatus),
+          bentotestDatum: bentoDatum,
+          bentotestStatus: bentoStatus,
 
           izmjerenoAt: datumMjerenja,
           napomena:
