@@ -10,6 +10,8 @@ import {
   danasZaDateInput,
   godinaIzDatuma,
   pocetnoMjerenjeIzStavki,
+  odredistaIzForme,
+  stanjePodjele,
 } from "@/lib/berba-polja";
 
 type Tank = {
@@ -24,6 +26,18 @@ type Tank = {
 type Sorta = {
   id: string;
   naziv: string;
+};
+
+/**
+ * Jedan redak podjele: koliko litara te stavke ide u koji tank.
+ *
+ * Kad je redak JEDAN, polje `litre` se ne prikazuje ni ne cita — u taj tank
+ * ide cijela stavka. Litre se traze tek od drugog retka, jer tek tada postoji
+ * sto podijeliti.
+ */
+type RedakTanka = {
+  tankId: string;
+  litre: string;
 };
 
 type StavkaPunjenja = {
@@ -51,6 +65,18 @@ type StavkaPunjenja = {
   // "izricito ne". Vidi prisma/schema.prisma.
   maceracija: boolean | null;
   maceracijaSati: string;
+  /**
+   * PODJELA U VISE TANKOVA.
+   *
+   * Jedna berba — jedno grozdje s jednog polozaja, ubrano jednom — cesto ide u
+   * dva ili vise tankova: samotok u jedan, presovina u drugi, ili jednostavno
+   * ne stane u jedan. To je JEDNA berba, ne dvije.
+   *
+   * PRAZAN popis znaci "nema podjele": stavka cijela ide u tank odabran gore.
+   * Tako je bilo oduvijek i tako ostaje dok netko ne pritisne "Dodaj tank" —
+   * a tada se `tankovi` uopce ne salje, pa API ide zatecenim putem.
+   */
+  tankovi: RedakTanka[];
   // Samo za UI, NIKAD se ne salje: je li korisnik sam dirao godinu berbe.
   // Dok je false, promjena datuma berbe povlaci godinu za sobom.
   godinaRucno: boolean;
@@ -59,7 +85,7 @@ type StavkaPunjenja = {
 // Polja stavke koja su obicni tekstualni inputi — sva idu kroz istu izmjenu.
 type TekstualnoPoljeStavke = Exclude<
   keyof StavkaPunjenja,
-  "godinaRucno" | "maceracija"
+  "godinaRucno" | "maceracija" | "tankovi"
 >;
 
 type ZadnjePunjenje = {
@@ -131,6 +157,7 @@ const praznaStavka = (): StavkaPunjenja => ({
   napomenaBerbe: "",
   maceracija: null,
   maceracijaSati: "",
+  tankovi: [],
   godinaRucno: false,
 });
 
@@ -299,7 +326,9 @@ export default function PunjenjePage() {
   function promijeniGodinuBerbe(index: number, value: string) {
     setStavke((prev) =>
       prev.map((stavka, i) =>
-        i === index ? { ...stavka, godinaBerbe: value, godinaRucno: true } : stavka
+        i === index
+          ? { ...stavka, godinaBerbe: value, godinaRucno: true }
+          : stavka
       )
     );
   }
@@ -328,9 +357,9 @@ export default function PunjenjePage() {
       if (!form) return;
 
       const inputs = Array.from(
-        form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
-          "input, select, textarea"
-        )
+        form.querySelectorAll<
+          HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+        >("input, select, textarea")
       ).filter((el) => !el.hasAttribute("disabled"));
 
       const target = inputs[inputs.length - 6];
@@ -343,6 +372,107 @@ export default function PunjenjePage() {
       if (prev.length === 1) return prev;
       return prev.filter((_, i) => i !== index);
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Podjela u vise tankova
+  // -------------------------------------------------------------------------
+
+  /**
+   * "Dodaj tank". Prvi pritisak otvara podjelu: nastaju DVA retka odjednom —
+   * prvi s tankom odabranim gore i svim litrama stavke, drugi prazan.
+   *
+   * Zasto dva a ne jedan: jedan redak nije podjela nego isto stanje kao prije,
+   * samo s vise klikanja. Covjek koji je pritisnuo "Dodaj tank" hoce drugi
+   * tank, a prvi je vec odabran gore — nema razloga da ga upisuje ponovno.
+   */
+  function dodajTank(index: number) {
+    setStavke((prev) =>
+      prev.map((stavka, i) => {
+        if (i !== index) return stavka;
+
+        if (stavka.tankovi.length === 0) {
+          return {
+            ...stavka,
+            tankovi: [
+              { tankId, litre: stavka.kolicinaLitara },
+              { tankId: "", litre: "" },
+            ],
+          };
+        }
+
+        return {
+          ...stavka,
+          tankovi: [...stavka.tankovi, { tankId: "", litre: "" }],
+        };
+      })
+    );
+  }
+
+  function promijeniTankRedak(
+    index: number,
+    redak: number,
+    polje: keyof RedakTanka,
+    value: string
+  ) {
+    setStavke((prev) =>
+      prev.map((stavka, i) =>
+        i === index
+          ? {
+              ...stavka,
+              tankovi: stavka.tankovi.map((r, j) =>
+                j === redak ? { ...r, [polje]: value } : r
+              ),
+            }
+          : stavka
+      )
+    );
+  }
+
+  /**
+   * Brisanje retka podjele.
+   *
+   * Kad ostane samo jedan redak, podjele vise nema. Popis se tada NE prazni
+   * nego ostaje s tim jednim retkom, a njegov tank se prepise gore u odabir —
+   * inace bi vino tiho otislo u tank koji je ostao odabran u gornjem polju, a
+   * ne u onaj koji je covjek namjerno ostavio.
+   *
+   * Gornji odabir se dira samo kad je stavka JEDNA; kod vise stavki bi to
+   * pomaknulo i tankove ostalih stavki koje se na njega oslanjaju.
+   */
+  function obrisiTankRedak(index: number, redak: number) {
+    // Racuna se IZVAN `setStavke` updatera: ondje bi `setTankId` bio poziv
+    // stanja iz tudjeg azuriranja stanja, na sto React s pravom vice. Ovo je
+    // rukovatelj dogadjajem, pa je `stavke` iz istog rendera tocan.
+    const stavka = stavke[index];
+    const jednaStavka = stavke.length === 1;
+    const preostali = stavka.tankovi.filter((_, j) => j !== redak);
+
+    let noviTankovi = preostali;
+
+    if (preostali.length <= 1) {
+      const zadnji = preostali[0];
+
+      if (jednaStavka) {
+        // Podjele vise nema: preostali tank postaje onaj odabran gore i popis
+        // se prazni. Bez tog prepisivanja bi vino tiho otislo u tank koji je
+        // ostao u gornjem polju, a ne u onaj koji je covjek namjerno ostavio.
+        if (zadnji?.tankId) setTankId(zadnji.tankId);
+        noviTankovi = [];
+      } else {
+        // Kod vise stavki gornji odabir dijele i druge stavke, pa se ne dira.
+        // Popis se tada prazni samo ako preostali tank i JEST onaj odabran
+        // gore; inace ostaje kao jedan redak, da se ne izgubi.
+        noviTankovi =
+          !zadnji || !zadnji.tankId || zadnji.tankId === tankId
+            ? []
+            : [{ ...zadnji, litre: "" }];
+      }
+    }
+
+    setStavke((prev) =>
+      prev.map((s, i) => (i === index ? { ...s, tankovi: noviTankovi } : s))
+    );
   }
 
   function handleEnterMoveNext(
@@ -359,9 +489,12 @@ export default function PunjenjePage() {
     if (!form) return;
 
     const focusable = Array.from(
-      form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>(
-        'input, select, textarea, button[type="button"], button[type="submit"]'
-      )
+      form.querySelectorAll<
+        | HTMLInputElement
+        | HTMLSelectElement
+        | HTMLTextAreaElement
+        | HTMLButtonElement
+      >('input, select, textarea, button[type="button"], button[type="submit"]')
     ).filter((el) => {
       const disabled = el.hasAttribute("disabled");
       const hidden =
@@ -390,13 +523,115 @@ export default function PunjenjePage() {
     [tankId, tankovi]
   );
 
+  /**
+   * Kamo stvarno ide jedna stavka, u cijelim mililitrima.
+   *
+   * Tri slucaja, istim redom kojim ih cita i posluzitelj
+   * (`procitajOdredista` u app/api/punjenje/route.ts):
+   *   prazan popis  -> cijela stavka u tank odabran gore
+   *   jedan redak   -> cijela stavka u taj tank; litre se ne upisuju
+   *   dva i vise    -> onoliko koliko pise u svakom retku
+   */
+  /** Kamo stvarno ide jedna stavka. Racun stoji u lib/berba-polja.ts. */
+  function odredistaStavke(s: StavkaPunjenja) {
+    return odredistaIzForme(
+      s.tankovi,
+      parseBroj(s.kolicinaLitara),
+      tankId,
+      parseBroj
+    );
+  }
+
+  /** Koliko ukupno ulazi u koji tank, zbrojeno po SVIM stavkama. */
+  const raspodjelaPoTankovima = useMemo(() => {
+    const mapa = new Map<string, number>();
+
+    for (const s of stavke) {
+      for (const o of odredistaStavke(s)) {
+        mapa.set(o.tankId, (mapa.get(o.tankId) ?? 0) + o.ml);
+      }
+    }
+
+    return mapa;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stavke, tankId]);
+
+  /**
+   * Stanje svakog tanka koji sudjeluje: koliko u njega ulazi i stane li.
+   *
+   * Provjera kapaciteta ide PO TANKU. Zbroj svih litara nad jednim tankom bio
+   * bi besmislen cim postoji podjela — svaki tank prima samo svoj dio, i samo
+   * svoj dio mora stati.
+   */
+  const stanjeTankova = useMemo(() => {
+    return Array.from(raspodjelaPoTankovima.entries()).map(([tid, ml]) => {
+      const tank = tankovi.find((t) => t.id === tid);
+      const ulazi = ml / 1000;
+      const trenutno = Number(tank?.kolicinaVinaUTanku || 0);
+      const kapacitet = Number(tank?.kapacitet || 0);
+      const nakon = trenutno + ulazi;
+
+      return {
+        tid,
+        tank,
+        ulazi,
+        trenutno,
+        kapacitet,
+        slobodno: Math.max(kapacitet - trenutno, 0),
+        nakon,
+        slobodnoNakon: Math.max(kapacitet - nakon, 0),
+        prelazi: !!tank && nakon > kapacitet,
+      };
+    });
+  }, [raspodjelaPoTankovima, tankovi]);
+
+  const preopterećeni = stanjeTankova.filter((x) => x.prelazi);
+
+  /**
+   * Stanje podjele jedne stavke — ono sto se ispisuje kao "upisano X od Y L".
+   *
+   * `null` kad podjele nema (manje od dva retka): tada nema sto ne stimati.
+   */
+  function podjelaStavke(s: StavkaPunjenja) {
+    return stanjePodjele(s.tankovi, parseBroj(s.kolicinaLitara), parseBroj);
+  }
+
+  /** Sve stavke cija podjela ne valja — zajedno s razlogom. */
+  const lošePodjele = stavke
+    .map((s, i) => ({ i, p: podjelaStavke(s) }))
+    .filter(
+      (x) =>
+        x.p &&
+        (!x.p.slaze || x.p.bezTanka > 0 || x.p.bezLitara > 0 || x.p.ponovljen)
+    );
+
   const trenutnoUTanku = Number(odabraniTank?.kolicinaVinaUTanku || 0);
   const kapacitetTanka = Number(odabraniTank?.kapacitet || 0);
   const slobodnoMjesto = Math.max(kapacitetTanka - trenutnoUTanku, 0);
 
-  const stanjeNakonPunjenja = trenutnoUTanku + ukupnoLitara;
-  const slobodnoNakonPunjenja = Math.max(kapacitetTanka - stanjeNakonPunjenja, 0);
-  const prelaziKapacitet = !!odabraniTank && stanjeNakonPunjenja > kapacitetTanka;
+  // Koliko ulazi BAS u tank odabran gore. S podjelom to vise nije `ukupnoLitara`
+  // — dio je otisao drugamo, pa bi zbroj svih litara ovdje lagao.
+  const uOdabraniTank = (raspodjelaPoTankovima.get(tankId) ?? 0) / 1000;
+
+  const stanjeNakonPunjenja = trenutnoUTanku + uOdabraniTank;
+  const slobodnoNakonPunjenja = Math.max(
+    kapacitetTanka - stanjeNakonPunjenja,
+    0
+  );
+
+  /**
+   * Sazetak ide PO TANKU umjesto po jednom.
+   *
+   * Ne samo kad ih je vise: i kad je u igri tocno jedan tank ali NIJE onaj
+   * odabran gore (stavka ima podjelu s jednim retkom). Kartice bi tada
+   * pokazivale kapacitet i stanje tanka u koji nista ne ulazi.
+   */
+  const viseTankova =
+    stanjeTankova.length > 1 ||
+    (stanjeTankova.length === 1 && stanjeTankova[0].tid !== tankId);
+
+  /** Podjela je otvorena i gornji odabir se za nju vise ne koristi. */
+  const podjelaOtvorena = stavke.length === 1 && stavke[0].tankovi.length > 0;
 
   // Grid polja unutar skupine u kartici stavke. Ovisi o isMobile pa ne moze
   // biti modulska konstanta kao ostali stilovi.
@@ -439,12 +674,169 @@ export default function PunjenjePage() {
       .sort((a, b) => b.litara - a.litara);
   }, [stavke, ukupnoLitara]);
 
+  /**
+   * Popis "tank + litre" za jednu stavku, s gumbom "Dodaj tank".
+   *
+   * Isti blok stoji na DVA mjesta, ovisno o broju stavki:
+   *   jedna stavka -> gore, odmah uz odabir tanka. To je gotovo uvijek, i
+   *                   tako je i trazeno: covjek bira tank i tu do njega doda
+   *                   drugi, bez otvaranja kartice stavke.
+   *   vise stavki  -> u kartici svake stavke, jer svaka ide u svoje tankove.
+   */
+  function popisTankova(index: number) {
+    const stavka = stavke[index];
+    const p = podjelaStavke(stavka);
+    const otvoren = stavka.tankovi.length > 0;
+
+    return (
+      <div style={podjelaBoxStyle}>
+        <div style={podjelaHeaderRow}>
+          <span style={labelMini}>
+            {otvoren ? "Tankovi ove berbe" : "Ide li ova berba u više tankova?"}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => dodajTank(index)}
+            style={smallGhostButton}
+            disabled={saving}
+          >
+            + Dodaj tank
+          </button>
+        </div>
+
+        {otvoren ? (
+          <div style={{ display: "grid", gap: 10 }}>
+            {stavka.tankovi.map((r, j) => {
+              const stanje = stanjeTankova.find((x) => x.tid === r.tankId);
+
+              return (
+                <div
+                  key={j}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: isMobile
+                      ? "1fr"
+                      : "minmax(0, 1fr) 140px auto",
+                    gap: 8,
+                    alignItems: "start",
+                  }}
+                >
+                  <div>
+                    <select
+                      value={r.tankId}
+                      onChange={(e) =>
+                        promijeniTankRedak(index, j, "tankId", e.target.value)
+                      }
+                      onKeyDown={handleEnterMoveNext}
+                      style={inputStyle}
+                      disabled={loadingTankovi || saving}
+                    >
+                      <option value="">Odaberi tank</option>
+                      {tankovi.map((t) => {
+                        const trenutno = Number(t.kolicinaVinaUTanku || 0);
+                        const slobodno = Math.max(
+                          Number(t.kapacitet || 0) - trenutno,
+                          0
+                        );
+
+                        return (
+                          <option key={t.id} value={t.id}>
+                            Tank {t.broj}
+                            {t.tip ? ` — ${t.tip}` : ""}
+                            {` — slobodno ${formatBroj(slobodno)} L`}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    {/* Kapacitet PO TANKU, dok se upisuje. `stanjeTankova`
+                        zbraja sve stavke, pa ovo pokazuje koliko u taj tank
+                        ulazi UKUPNO — ne samo iz ovog retka. */}
+                    {stanje?.prelazi ? (
+                      <div style={tankPunStyle}>
+                        Ne stane: slobodno {formatBroj(stanje.slobodno)} L, a
+                        ulazi {formatBroj(stanje.ulazi)} L.
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {stavka.tankovi.length > 1 ? (
+                    <input
+                      value={r.litre}
+                      onChange={(e) =>
+                        promijeniTankRedak(index, j, "litre", e.target.value)
+                      }
+                      onKeyDown={handleEnterMoveNext}
+                      inputMode="decimal"
+                      placeholder="litre"
+                      style={inputStyle}
+                      disabled={saving}
+                    />
+                  ) : (
+                    // Jedan redak nije podjela — u taj tank ide cijela stavka,
+                    // pa nema sto upisati.
+                    <div style={{ ...labelMini, alignSelf: "center" }}>
+                      cijela stavka
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => obrisiTankRedak(index, j)}
+                    style={smallDangerButton}
+                    disabled={saving}
+                    aria-label={`Ukloni ${j + 1}. tank`}
+                    title="Ukloni ovaj tank"
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {/* Zbroj se vidi DOK SE UPISUJE, da se odmah vidi kad se ne slaze. */}
+        {p ? (
+          p.ukupnoMl === 0 ? (
+            <div style={zbrojLoseStyle}>
+              Upiši ukupne litre mošta ove stavke da se podjela može provjeriti.
+            </div>
+          ) : (
+            <div
+              style={
+                p.slaze && p.bezTanka === 0 && p.bezLitara === 0 && !p.ponovljen
+                  ? zbrojOkStyle
+                  : zbrojLoseStyle
+              }
+            >
+              Upisano {formatBroj(p.upisano)} od {formatBroj(p.ukupno)} L
+              {p.slaze
+                ? ""
+                : p.razlika > 0
+                  ? ` — ${formatBroj(p.razlika)} L previše`
+                  : ` — nedostaje ${formatBroj(-p.razlika)} L`}
+              {p.bezTanka > 0 ? " · odaberi tank u svakom retku" : ""}
+              {p.bezLitara > 0 ? " · upiši litre u svakom retku" : ""}
+              {p.ponovljen ? " · isti tank je naveden dvaput" : ""}
+            </div>
+          )
+        ) : null}
+      </div>
+    );
+  }
+
   async function spremiPunjenje(e: React.FormEvent) {
     e.preventDefault();
     setPoruka("");
     setZadnjeSpremljenoTankId("");
 
-    if (!tankId) {
+    // Gornji odabir tanka je obavezan samo za stavke koje nemaju vlastitu
+    // podjelu. Cim stavka ima svoj popis tankova, gornji se za nju ne koristi.
+    const trebaGornjiTank = stavke.some((s) => s.tankovi.length === 0);
+
+    if (trebaGornjiTank && !tankId) {
       setPoruka("Odaberi tank.");
       return;
     }
@@ -476,6 +868,23 @@ export default function PunjenjePage() {
         // tvrdnje da je maceracije uopce bilo.
         maceracijaSati:
           s.maceracija === true ? brojIliNull(s.maceracijaSati) : null,
+        // PODJELA se salje SAMO kad postoji. Prazan popis znaci "cijela stavka
+        // u tank odabran gore" — tada kljuc ne ide uopce i API prolazi
+        // zatecenim putem, isto kao prije ove promjene.
+        ...(s.tankovi.length > 0
+          ? {
+              tankovi: s.tankovi.map((r) => ({
+                tankId: r.tankId,
+                // Jedan redak = cijela stavka. Litre se tada ne upisuju rukom
+                // (nema sto dijeliti), pa ih klijent popunjava sam — posluzitelj
+                // trazi da se zbroj poklopi do mililitra.
+                litre:
+                  s.tankovi.length === 1
+                    ? parseBroj(s.kolicinaLitara)
+                    : parseBroj(r.litre),
+              })),
+            }
+          : {}),
       }))
       .filter((s) => s.nazivSorte !== "" || s.kolicinaLitara > 0);
 
@@ -502,14 +911,47 @@ export default function PunjenjePage() {
       return;
     }
 
-    if (ukupnoLitara > slobodnoMjesto) {
+    // PODJELA mora biti cijela i dosljedna prije nego se išta pošalje. Iste
+    // tri provjere radi i posluzitelj (`procitajOdredista`); ovdje su zato da
+    // ih Ivana vidi dok tipka, a ne kao grešku nakon spremanja.
+    if (lošePodjele.length > 0) {
+      const { i, p } = lošePodjele[0];
+
+      if (p!.bezTanka > 0) {
+        setPoruka(`Stavka ${i + 1}: odaberi tank u svakom retku podjele.`);
+      } else if (p!.bezLitara > 0) {
+        setPoruka(`Stavka ${i + 1}: upiši litre u svakom retku podjele.`);
+      } else if (p!.ponovljen) {
+        setPoruka(
+          `Stavka ${i + 1}: isti tank je naveden više puta. Spoji ga u jedan redak.`
+        );
+      } else {
+        setPoruka(
+          `Stavka ${i + 1}: po tankovima je raspoređeno ${formatBroj(
+            p!.upisano
+          )} L, a ukupna količina je ${formatBroj(p!.ukupno)} L.`
+        );
+      }
+
+      return;
+    }
+
+    // Kapacitet PO TANKU. Dosad je bila jedna provjera nad jednim tankom; sa
+    // podjelom svaki tank prima samo svoj dio i samo taj dio mora stati.
+    if (preopterećeni.length > 0) {
+      const x = preopterećeni[0];
+
       setPoruka(
-        `U tanku je trenutno ${formatBroj(
-          trenutnoUTanku
+        `Tank ${x.tank?.broj}: trenutno je u njemu ${formatBroj(
+          x.trenutno
         )} L, slobodno je još ${formatBroj(
-          slobodnoMjesto
-        )} L, a pokušavaš upisati ${formatBroj(ukupnoLitara)} L.`
+          x.slobodno
+        )} L, a pokušavaš upisati ${formatBroj(x.ulazi)} L.` +
+          (preopterećeni.length > 1
+            ? ` (I još ${preopterećeni.length - 1} tank/a ne stane.)`
+            : "")
       );
+
       return;
     }
 
@@ -637,7 +1079,9 @@ export default function PunjenjePage() {
 
                 <div style={heroStatCard}>
                   <div style={heroStatLabel}>Ukupno grožđa</div>
-                  <div style={heroStatValue}>{formatBroj(ukupnoKgGrozdja)} kg</div>
+                  <div style={heroStatValue}>
+                    {formatBroj(ukupnoKgGrozdja)} kg
+                  </div>
                 </div>
 
                 <div style={heroStatCard}>
@@ -646,9 +1090,17 @@ export default function PunjenjePage() {
                 </div>
 
                 <div style={heroStatCard}>
-                  <div style={heroStatLabel}>Tank</div>
+                  <div style={heroStatLabel}>
+                    {viseTankova ? "Tankovi" : "Tank"}
+                  </div>
                   <div style={heroStatValue}>
-                    {odabraniTank ? `#${odabraniTank.broj}` : "-"}
+                    {viseTankova
+                      ? stanjeTankova
+                          .map((x) => (x.tank ? `#${x.tank.broj}` : "?"))
+                          .join(" ")
+                      : odabraniTank
+                        ? `#${odabraniTank.broj}`
+                        : "-"}
                   </div>
                 </div>
               </div>
@@ -683,7 +1135,11 @@ export default function PunjenjePage() {
                       onChange={(e) => setTankId(e.target.value)}
                       onKeyDown={handleEnterMoveNext}
                       style={inputStyle}
-                      disabled={loadingTankovi || saving}
+                      // Dok je podjela otvorena, tankovi se biraju u popisu
+                      // ispod. Da je polje ostalo aktivno, promjena ovdje ne bi
+                      // pomaknula nijedan redak podjele — pisalo bi jedno, a
+                      // vrijedilo drugo.
+                      disabled={loadingTankovi || saving || podjelaOtvorena}
                     >
                       <option value="">Odaberi tank</option>
                       {tankovi.map((tank) => {
@@ -704,6 +1160,11 @@ export default function PunjenjePage() {
                         );
                       })}
                     </select>
+                    {podjelaOtvorena ? (
+                      <span style={upozorenjeVrijemeStyle}>
+                        Berba je podijeljena — tankovi se biraju u popisu ispod.
+                      </span>
+                    ) : null}
                   </label>
 
                   <label style={labelStyle}>
@@ -740,6 +1201,22 @@ export default function PunjenjePage() {
                     </span>
                   </label>
                 </div>
+
+                {/* Dok je stavka jedna — a to je gotovo uvijek — popis
+                    tankova stoji ovdje, odmah uz odabir tanka. Cim se doda
+                    druga stavka, seli se u kartice: svaka berba ide u svoje
+                    tankove i zajednicki popis vise ne bi imao znacenje. */}
+                {stavke.length === 1 ? popisTankova(0) : null}
+
+                {stavke.length > 1 ? (
+                  <div style={{ ...podjelaBoxStyle, marginTop: 12 }}>
+                    <span style={labelMini}>
+                      Više stavki — tankovi se biraju u svakoj stavci zasebno.
+                      Stavka koja nema svoj popis cijela ide u tank odabran
+                      gore.
+                    </span>
+                  </div>
+                ) : null}
 
                 <label style={{ ...labelStyle, marginTop: 10 }}>
                   <span style={labelText}>Napomena</span>
@@ -785,7 +1262,9 @@ export default function PunjenjePage() {
                     return (
                       <div key={index} style={stavkaCardStyle}>
                         <div style={stavkaTopRow}>
-                          <div style={stavkaNaslovStyle}>Stavka {index + 1}</div>
+                          <div style={stavkaNaslovStyle}>
+                            Stavka {index + 1}
+                          </div>
                           <div style={stavkaUdioStyle}>
                             Udio: {formatBroj(postotak)}%
                           </div>
@@ -865,7 +1344,11 @@ export default function PunjenjePage() {
                             <input
                               value={stavka.vinograd}
                               onChange={(e) =>
-                                promijeniStavku(index, "vinograd", e.target.value)
+                                promijeniStavku(
+                                  index,
+                                  "vinograd",
+                                  e.target.value
+                                )
                               }
                               onKeyDown={handleEnterMoveNext}
                               placeholder="npr. Lukovec"
@@ -879,7 +1362,11 @@ export default function PunjenjePage() {
                             <input
                               value={stavka.parcela}
                               onChange={(e) =>
-                                promijeniStavku(index, "parcela", e.target.value)
+                                promijeniStavku(
+                                  index,
+                                  "parcela",
+                                  e.target.value
+                                )
                               }
                               onKeyDown={handleEnterMoveNext}
                               placeholder="npr. 1274/3"
@@ -893,7 +1380,11 @@ export default function PunjenjePage() {
                             <input
                               value={stavka.polozaj}
                               onChange={(e) =>
-                                promijeniStavku(index, "polozaj", e.target.value)
+                                promijeniStavku(
+                                  index,
+                                  "polozaj",
+                                  e.target.value
+                                )
                               }
                               onKeyDown={handleEnterMoveNext}
                               placeholder="npr. Lukovec (stari)"
@@ -1026,7 +1517,11 @@ export default function PunjenjePage() {
                             <input
                               value={stavka.kiseline}
                               onChange={(e) =>
-                                promijeniStavku(index, "kiseline", e.target.value)
+                                promijeniStavku(
+                                  index,
+                                  "kiseline",
+                                  e.target.value
+                                )
                               }
                               onKeyDown={handleEnterMoveNext}
                               placeholder="npr. 5,6"
@@ -1071,6 +1566,10 @@ export default function PunjenjePage() {
                             />
                           </label>
                         </div>
+
+                        {/* Kad je stavka jedna, ovaj popis stoji gore uz odabir
+                            tanka i ovdje se NE ponavlja. */}
+                        {stavke.length > 1 ? popisTankova(index) : null}
 
                         <div style={stavkaButtonsRow}>
                           <button
@@ -1127,51 +1626,105 @@ export default function PunjenjePage() {
                     </div>
                   </div>
 
-                  <div style={summaryCardStyle}>
-                    <div style={summaryTitleStyle}>Kapacitet tanka</div>
-                    <div style={summaryValueStyle}>
-                      {odabraniTank ? `${formatBroj(kapacitetTanka)} L` : "-"}
-                    </div>
-                  </div>
+                  {/* S vise tankova ove cetiri kartice nemaju znacenje — svaki
+                      tank ima svoj kapacitet i svoje stanje. Tada ih zamjenjuje
+                      popis po tanku, nize. */}
+                  {viseTankova ? null : (
+                    <>
+                      <div style={summaryCardStyle}>
+                        <div style={summaryTitleStyle}>Kapacitet tanka</div>
+                        <div style={summaryValueStyle}>
+                          {odabraniTank
+                            ? `${formatBroj(kapacitetTanka)} L`
+                            : "-"}
+                        </div>
+                      </div>
 
-                  <div style={summaryCardStyle}>
-                    <div style={summaryTitleStyle}>Trenutno u tanku</div>
-                    <div style={summaryValueStyle}>
-                      {odabraniTank ? `${formatBroj(trenutnoUTanku)} L` : "-"}
-                    </div>
-                  </div>
+                      <div style={summaryCardStyle}>
+                        <div style={summaryTitleStyle}>Trenutno u tanku</div>
+                        <div style={summaryValueStyle}>
+                          {odabraniTank
+                            ? `${formatBroj(trenutnoUTanku)} L`
+                            : "-"}
+                        </div>
+                      </div>
 
-                  <div style={summaryCardStyle}>
-                    <div style={summaryTitleStyle}>Slobodno prije punjenja</div>
-                    <div style={summaryValueStyle}>
-                      {odabraniTank ? `${formatBroj(slobodnoMjesto)} L` : "-"}
-                    </div>
-                  </div>
+                      <div style={summaryCardStyle}>
+                        <div style={summaryTitleStyle}>
+                          Slobodno prije punjenja
+                        </div>
+                        <div style={summaryValueStyle}>
+                          {odabraniTank
+                            ? `${formatBroj(slobodnoMjesto)} L`
+                            : "-"}
+                        </div>
+                      </div>
 
-                  <div style={summaryCardStyle}>
-                    <div style={summaryTitleStyle}>Stanje nakon punjenja</div>
-                    <div style={summaryValueStyle}>
-                      {odabraniTank
-                        ? `${formatBroj(stanjeNakonPunjenja)} L`
-                        : "-"}
-                    </div>
-                  </div>
+                      <div style={summaryCardStyle}>
+                        <div style={summaryTitleStyle}>
+                          Stanje nakon punjenja
+                        </div>
+                        <div style={summaryValueStyle}>
+                          {odabraniTank
+                            ? `${formatBroj(stanjeNakonPunjenja)} L`
+                            : "-"}
+                        </div>
+                      </div>
 
-                  <div style={summaryCardStyle}>
-                    <div style={summaryTitleStyle}>Slobodno nakon punjenja</div>
-                    <div style={summaryValueStyle}>
-                      {odabraniTank
-                        ? `${formatBroj(slobodnoNakonPunjenja)} L`
-                        : "-"}
-                    </div>
-                  </div>
+                      <div style={summaryCardStyle}>
+                        <div style={summaryTitleStyle}>
+                          Slobodno nakon punjenja
+                        </div>
+                        <div style={summaryValueStyle}>
+                          {odabraniTank
+                            ? `${formatBroj(slobodnoNakonPunjenja)} L`
+                            : "-"}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
 
-                {odabraniTank && prelaziKapacitet ? (
+                {viseTankova ? (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={pregledTitleStyle}>Po tanku</div>
+
+                    {stanjeTankova.map((x) => (
+                      <div key={x.tid} style={tankRedStyle}>
+                        <span style={sortaNazivStyle}>
+                          Tank {x.tank ? x.tank.broj : "?"}
+                        </span>
+                        <span
+                          style={{
+                            ...sortaVrijednostStyle,
+                            color: x.prelazi ? "#9f1239" : undefined,
+                            fontWeight: x.prelazi ? 700 : undefined,
+                          }}
+                        >
+                          ulazi {formatBroj(x.ulazi)} L · bilo{" "}
+                          {formatBroj(x.trenutno)} L · nakon{" "}
+                          {formatBroj(x.nakon)} od {formatBroj(x.kapacitet)} L
+                          {x.prelazi ? " — NE STANE" : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {preopterećeni.length > 0 ? (
                   <div style={warningBoxStyle}>
-                    Upozorenje: nakon ovog punjenja tank bi imao{" "}
-                    {formatBroj(stanjeNakonPunjenja)} L, a kapacitet je{" "}
-                    {formatBroj(kapacitetTanka)} L.
+                    {preopterećeni.length === 1
+                      ? `Upozorenje: tank ${preopterećeni[0].tank?.broj} bi nakon ovog punjenja imao ${formatBroj(
+                          preopterećeni[0].nakon
+                        )} L, a kapacitet je ${formatBroj(preopterećeni[0].kapacitet)} L.`
+                      : `Upozorenje: ${preopterećeni.length} tankova ne bi stalo — ` +
+                        preopterećeni
+                          .map(
+                            (x) =>
+                              `tank ${x.tank?.broj} (${formatBroj(x.nakon)} od ${formatBroj(x.kapacitet)} L)`
+                          )
+                          .join(", ") +
+                        "."}
                   </div>
                 ) : null}
 
@@ -1579,6 +2132,81 @@ const warningBoxStyle: React.CSSProperties = {
   background: "linear-gradient(180deg, #fff1f2 0%, #ffe4e6 100%)",
   color: "#9f1239",
   fontWeight: 700,
+};
+
+// --- Podjela u vise tankova -------------------------------------------------
+
+const podjelaBoxStyle: React.CSSProperties = {
+  marginTop: 12,
+  padding: 12,
+  border: "1px solid #ecd9dd",
+  background: "linear-gradient(180deg, #fffdfd 0%, #fff7f8 100%)",
+};
+
+const podjelaHeaderRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 10,
+  flexWrap: "wrap",
+  marginBottom: 10,
+};
+
+const smallGhostButton: React.CSSProperties = {
+  padding: "7px 12px",
+  border: "1px solid #e6d2d7",
+  background: "linear-gradient(180deg, #ffffff 0%, #fdf1f3 100%)",
+  color: "#612632",
+  fontWeight: 600,
+  fontSize: 13,
+  cursor: "pointer",
+};
+
+const smallDangerButton: React.CSSProperties = {
+  padding: "7px 10px",
+  border: "1px solid #f3c6ce",
+  background: "#fff2f4",
+  color: "#9f1239",
+  fontWeight: 700,
+  fontSize: 13,
+  cursor: "pointer",
+  lineHeight: 1,
+};
+
+/** "upisano X od Y L" — zeleno kad se slaze, crveno kad ne. */
+const zbrojOkStyle: React.CSSProperties = {
+  marginTop: 10,
+  padding: "8px 10px",
+  border: "1px solid #bbf7d0",
+  background: "#f0fdf4",
+  color: "#166534",
+  fontWeight: 700,
+  fontSize: 13,
+};
+
+const zbrojLoseStyle: React.CSSProperties = {
+  ...zbrojOkStyle,
+  border: "1px solid #fecaca",
+  background: "#fff1f2",
+  color: "#9f1239",
+};
+
+/** Redak "u ovaj tank ne stane" ispod odabira tanka. */
+const tankPunStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 700,
+  color: "#9f1239",
+  marginTop: 4,
+};
+
+const tankRedStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  padding: "8px 0",
+  borderBottom: "1px solid #f2e3e6",
+  fontSize: 14,
+  flexWrap: "wrap",
 };
 
 const pregledTitleStyle: React.CSSProperties = {

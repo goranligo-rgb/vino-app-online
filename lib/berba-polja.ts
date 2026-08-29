@@ -249,3 +249,133 @@ export function pocetnoMjerenjeIzStavki(
     izmjerenoAt: datumiBerbe[0] ?? datumPunjenja,
   };
 }
+
+// ---------------------------------------------------------------------------
+// PODJELA BERBE U VISE TANKOVA — racun koji forma pokazuje dok se upisuje
+//
+// Jedna berba cesto ide u dva ili vise tankova: samotok u jedan, presovina u
+// drugi, ili jednostavno ne stane u jedan. Forma to mora provjeriti DOK Ivana
+// tipka — kapacitet po tanku i zbroj litara — a ne tek kao gresku nakon
+// spremanja.
+//
+// Isti racun radi i posluzitelj (`procitajOdredista` u app/api/punjenje).
+// Ovdje je zato sto se ondje ne moze uvesti: ruta radi nad razlozenim tijelom
+// zahtjeva, forma nad nizovima znakova iz polja. Dvije izvedbe, jedno
+// pravilo — i obje su pokrivene testovima.
+// ---------------------------------------------------------------------------
+
+/** Redak podjele kakav stoji u formi: oba polja su tekst iz inputa. */
+export type RedakTankaForme = {
+  tankId: string;
+  litre: string;
+};
+
+/** Koliko cega ide u koji tank, u cijelim mililitrima. */
+export type OdredisteForme = {
+  tankId: string;
+  ml: number;
+};
+
+/**
+ * Litre u cijele mililitre.
+ *
+ * Zrcali `uMl` iz lib/filtracija.ts, koji se u "use client" datoteci NE MOZE
+ * uvesti — povlaci Prisma klijent i berba-model. Formula mora ostati ista, jer
+ * se u mililitrima usporedjuje zbroj podjele: u litrama 100.1 + 200.2 daje
+ * 300.29999999999995 i ispravna bi podjela ispala kriva.
+ */
+export function uMlForme(litre: number): number {
+  return Math.round(Number(litre || 0) * 1000);
+}
+
+/**
+ * Kamo stvarno ide jedna stavka. Tri slucaja, istim redom kojim ih cita i
+ * posluzitelj:
+ *
+ *   prazan popis -> cijela stavka u tank odabran gore
+ *   jedan redak  -> cijela stavka u taj tank; litre se ne upisuju
+ *   dva i vise   -> onoliko koliko pise u svakom retku
+ *
+ * Redci bez odabranog tanka ispadaju: jos nisu podatak. Zato zbroj koji vrati
+ * ova funkcija NE MORA biti jednak kolicini stavke — to provjerava
+ * `stanjePodjele`.
+ */
+export function odredistaIzForme(
+  tankovi: RedakTankaForme[],
+  kolicinaLitara: number,
+  zadaniTankId: string,
+  parseBroj: (v: string) => number
+): OdredisteForme[] {
+  const ukupnoMl = uMlForme(kolicinaLitara);
+
+  if (tankovi.length === 0) {
+    return zadaniTankId ? [{ tankId: zadaniTankId, ml: ukupnoMl }] : [];
+  }
+
+  if (tankovi.length === 1) {
+    const r = tankovi[0];
+    return r.tankId ? [{ tankId: r.tankId, ml: ukupnoMl }] : [];
+  }
+
+  return tankovi
+    .filter((r) => r.tankId)
+    .map((r) => ({ tankId: r.tankId, ml: uMlForme(parseBroj(r.litre)) }));
+}
+
+export type StanjePodjele = {
+  ukupnoMl: number;
+  upisanoMl: number;
+  ukupno: number;
+  upisano: number;
+  /** Pozitivno = upisano je vise nego sto stavka ima. */
+  razlika: number;
+  slaze: boolean;
+  /** Koliko redaka jos nema odabran tank. */
+  bezTanka: number;
+  /**
+   * Koliko redaka ima tank ali nema litre.
+   *
+   * Bez ovoga bi podjela 3000 = 3000 + (prazno) izgledala TOCNO — zbroj se
+   * slaze jer prazno polje vrijedi nula — a posluzitelj bi ju odbio ("litre
+   * za 2. tank moraju biti vece od nule"). Greska koja stigne tek nakon
+   * spremanja je izgubljen unos.
+   */
+  bezLitara: number;
+  /** Je li isti tank naveden dvaput. */
+  ponovljen: boolean;
+};
+
+/**
+ * Stanje podjele jedne stavke — ono sto se ispisuje kao "upisano X od Y L".
+ *
+ * `null` kad podjele nema (manje od dva retka): tada nema sto ne stimati, jer
+ * u jedan tank ide cijela stavka.
+ */
+export function stanjePodjele(
+  tankovi: RedakTankaForme[],
+  kolicinaLitara: number,
+  parseBroj: (v: string) => number
+): StanjePodjele | null {
+  if (tankovi.length < 2) return null;
+
+  const ukupnoMl = uMlForme(kolicinaLitara);
+  const upisanoMl = tankovi.reduce(
+    (z, r) => z + uMlForme(parseBroj(r.litre)),
+    0
+  );
+  const odabrani = tankovi.filter((r) => r.tankId).map((r) => r.tankId);
+
+  return {
+    ukupnoMl,
+    upisanoMl,
+    ukupno: ukupnoMl / 1000,
+    upisano: upisanoMl / 1000,
+    razlika: (upisanoMl - ukupnoMl) / 1000,
+    slaze: upisanoMl === ukupnoMl && ukupnoMl > 0,
+    bezTanka: tankovi.length - odabrani.length,
+    bezLitara: tankovi.filter(
+      (r) => r.tankId && uMlForme(parseBroj(r.litre)) <= 0
+    ).length,
+    ponovljen: new Set(odabrani).size !== odabrani.length,
+  };
+}

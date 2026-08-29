@@ -21,6 +21,9 @@ import {
   opisMaceracije,
   formatSati,
   pocetnoMjerenjeIzStavki,
+  odredistaIzForme,
+  stanjePodjele,
+  uMlForme,
 } from "../lib/berba-polja";
 
 let pao = 0;
@@ -48,7 +51,11 @@ jednako(tekstIliNull("\t\n "), null, "tekstIliNull(tab + newline)");
 jednako(tekstIliNull(null), null, "tekstIliNull(null)");
 jednako(tekstIliNull(undefined), null, "tekstIliNull(undefined)");
 jednako(tekstIliNull("Lukovec 2"), "Lukovec 2", "tekstIliNull normalan tekst");
-jednako(tekstIliNull("  Lukovec 2  "), "Lukovec 2", "tekstIliNull trima rubove");
+jednako(
+  tekstIliNull("  Lukovec 2  "),
+  "Lukovec 2",
+  "tekstIliNull trima rubove"
+);
 // Nula kao tekst je podatak, ne praznina.
 jednako(tekstIliNull("0"), "0", 'tekstIliNull("0") ostaje "0"');
 
@@ -75,7 +82,11 @@ jednako(brojIliNull("3.4"), 3.4, 'brojIliNull("3.4") -> 3.4');
 jednako(brojIliNull(" 7,2 "), 7.2, "brojIliNull trima pa parsira");
 jednako(brojIliNull("7754"), 7754, "brojIliNull cijeli broj");
 jednako(brojIliNull("2026"), 2026, "brojIliNull godina berbe");
-jednako(brojIliNull("-1"), -1, "brojIliNull propusta negativan (validacija je drugdje)");
+jednako(
+  brojIliNull("-1"),
+  -1,
+  "brojIliNull propusta negativan (validacija je drugdje)"
+);
 
 // ---------------------------------------------------------------------------
 // 3. datumIliNull — samo "YYYY-MM-DD" prolazi
@@ -84,11 +95,23 @@ jednako(brojIliNull("-1"), -1, "brojIliNull propusta negativan (validacija je dr
 jednako(datumIliNull(""), null, 'datumIliNull("")');
 jednako(datumIliNull("   "), null, 'datumIliNull("   ")');
 jednako(datumIliNull(null), null, "datumIliNull(null)");
-jednako(datumIliNull("2026-08-23"), "2026-08-23", "datumIliNull ispravan datum");
+jednako(
+  datumIliNull("2026-08-23"),
+  "2026-08-23",
+  "datumIliNull ispravan datum"
+);
 jednako(datumIliNull("  2026-08-23  "), "2026-08-23", "datumIliNull trima");
 jednako(datumIliNull("23.08.2026"), null, "datumIliNull odbija hrvatski oblik");
-jednako(datumIliNull("2026-08-23T07:04"), null, "datumIliNull odbija datum-vrijeme");
-jednako(datumIliNull("2026-8-3"), null, "datumIliNull odbija nenadopunjen oblik");
+jednako(
+  datumIliNull("2026-08-23T07:04"),
+  null,
+  "datumIliNull odbija datum-vrijeme"
+);
+jednako(
+  datumIliNull("2026-8-3"),
+  null,
+  "datumIliNull odbija nenadopunjen oblik"
+);
 
 // ---------------------------------------------------------------------------
 // 4. danasZaDateInput — lokalni sat, ne UTC
@@ -130,7 +153,11 @@ jednako(
 jednako(godinaIzDatuma("2026-08-23"), 2026, "godinaIzDatuma tekuca godina");
 jednako(godinaIzDatuma("2025-10-05"), 2025, "godinaIzDatuma prosla berba");
 jednako(godinaIzDatuma(""), null, "godinaIzDatuma prazno");
-jednako(godinaIzDatuma("23.08.2026"), null, "godinaIzDatuma odbija krivi oblik");
+jednako(
+  godinaIzDatuma("23.08.2026"),
+  null,
+  "godinaIzDatuma odbija krivi oblik"
+);
 
 // ---------------------------------------------------------------------------
 // 6. Cijela stavka — onako kako je forma slozi prije slanja
@@ -206,7 +233,11 @@ for (const polje of [
   "opis",
   "napomenaBerbe",
 ] as const) {
-  jednako(golaStavka[polje], null, `gola stavka: ${polje} je NULL (ne 0, ne "")`);
+  jednako(
+    golaStavka[polje],
+    null,
+    `gola stavka: ${polje} je NULL (ne 0, ne "")`
+  );
 }
 
 // Puna stavka — sve prolazi, ukljucujuci upisanu nulu.
@@ -261,13 +292,21 @@ jednako(nulaStavka.secer, 0, "upisana nula secera ostaje 0");
 // Maceracija — tri stanja i hrvatska sklonidba sati
 // ---------------------------------------------------------------------------
 
-jednako(opisMaceracije(null, null), null, "NULL = nije se pitalo, nista se ne pise");
+jednako(
+  opisMaceracije(null, null),
+  null,
+  "NULL = nije se pitalo, nista se ne pise"
+);
 jednako(opisMaceracije(undefined, 3), null, "undefined se ponasa kao NULL");
 jednako(opisMaceracije(false, null), "ne", "false = izricito nije bilo");
 jednako(opisMaceracije(false, 3), "ne", "sati uz 'ne' se ignoriraju");
 jednako(opisMaceracije(true, null), "da", "true bez sati");
 jednako(opisMaceracije(true, 3), "da — 3 sata", "true sa satima");
-jednako(opisMaceracije(true, 0), "da — 0 sati", "nula sati je podatak, ne praznina");
+jednako(
+  opisMaceracije(true, 0),
+  "da — 0 sati",
+  "nula sati je podatak, ne praznina"
+);
 
 jednako(formatSati(1), "1 sat", "1 sat");
 jednako(formatSati(2), "2 sata", "2 sata");
@@ -278,7 +317,6 @@ jednako(formatSati(12), "12 sati", "12 sati (iznimka, ne '12 sata')");
 jednako(formatSati(21), "21 sat", "21 sat");
 jednako(formatSati(24), "24 sata", "24 sata");
 jednako(formatSati(1.5), "1,5 sata", "decimalni broj ide s 'sata'");
-
 
 // ---------------------------------------------------------------------------
 // pocetnoMjerenjeIzStavki — secer/kiseline/pH iz berbe moraju postati Mjerenje
@@ -337,7 +375,11 @@ const dvije = pocetnoMjerenjeIzStavki(
   [stavka(1000, 80, null, null), stavka(3000, 100, null, null)],
   "2026-08-21T09:00"
 );
-jednako(dvije?.secer, 95, "dvije stavke: ponderirano po litrama, ne aritmeticki");
+jednako(
+  dvije?.secer,
+  95,
+  "dvije stavke: ponderirano po litrama, ne aritmeticki"
+);
 
 // PRAZNO NIJE NULA. Ako bi prazno uslo kao 0, ovo bi dalo 22.5 umjesto 90.
 const jednaPrazna = pocetnoMjerenjeIzStavki(
@@ -389,8 +431,10 @@ jednako(
   "datum berbe ima prednost pred datumom punjenja"
 );
 jednako(
-  pocetnoMjerenjeIzStavki([stavka(5200, 90, null, null, null)], "2026-08-24T09:00")
-    ?.izmjerenoAt,
+  pocetnoMjerenjeIzStavki(
+    [stavka(5200, 90, null, null, null)],
+    "2026-08-24T09:00"
+  )?.izmjerenoAt,
   "2026-08-24T09:00",
   "bez datuma berbe pada na datum punjenja"
 );
@@ -425,6 +469,265 @@ jednako(
   )?.izmjerenoAt,
   "2026-08-24T09:00",
   "neispravan datum berbe pada na datum punjenja"
+);
+
+// ---------------------------------------------------------------------------
+// PODJELA BERBE U VISE TANKOVA — racun koji forma pokazuje dok se upisuje
+//
+// Ovo je ono sto Ivana vidi PRIJE spremanja: stane li u tank i slaze li se
+// zbroj. Posluzitelj isto provjerava (scripts/test-punjenje-podjela.ts), ali
+// greska koja stigne tek nakon spremanja je izgubljen unos.
+// ---------------------------------------------------------------------------
+
+console.log("");
+
+// `parseBroj` iz forme: zarez je decimalni znak, prazno polje je nula.
+const pb = (v: string) => {
+  if (v == null) return 0;
+  const n = Number(String(v).replace(",", ".").trim());
+  return Number.isFinite(n) ? n : 0;
+};
+
+jednako(uMlForme(1800), 1800000, "litre u mililitre");
+jednako(uMlForme(333.334), 333334, "tri decimale su granica mililitra");
+jednako(uMlForme(0), 0, "nula je nula");
+
+// --- odredistaIzForme: tri slucaja ---
+
+jednako(
+  JSON.stringify(odredistaIzForme([], 3000, "T5", pb)),
+  JSON.stringify([{ tankId: "T5", ml: 3000000 }]),
+  "prazan popis: cijela stavka u tank odabran gore"
+);
+
+jednako(
+  JSON.stringify(odredistaIzForme([], 3000, "", pb)),
+  JSON.stringify([]),
+  "prazan popis bez odabranog tanka: nista, jos nije podatak"
+);
+
+jednako(
+  JSON.stringify(
+    odredistaIzForme([{ tankId: "T9", litre: "" }], 3000, "T5", pb)
+  ),
+  JSON.stringify([{ tankId: "T9", ml: 3000000 }]),
+  "jedan redak: cijela stavka u taj tank, prazne litre se ne citaju"
+);
+
+jednako(
+  JSON.stringify(
+    odredistaIzForme(
+      [
+        { tankId: "T5", litre: "1800" },
+        { tankId: "T7", litre: "1200" },
+      ],
+      3000,
+      "",
+      pb
+    )
+  ),
+  JSON.stringify([
+    { tankId: "T5", ml: 1800000 },
+    { tankId: "T7", ml: 1200000 },
+  ]),
+  "dva retka: onoliko koliko pise u svakom"
+);
+
+// Redak bez tanka ispada — jos nije podatak, ali zbroj ga zato NE pokriva.
+jednako(
+  odredistaIzForme(
+    [
+      { tankId: "T5", litre: "1800" },
+      { tankId: "", litre: "1200" },
+    ],
+    3000,
+    "",
+    pb
+  ).length,
+  1,
+  "redak bez odabranog tanka ispada iz raspodjele"
+);
+
+// Zarez kao decimalni znak — tako Ivana tipka.
+jednako(
+  odredistaIzForme(
+    [
+      { tankId: "T5", litre: "1800,5" },
+      { tankId: "T7", litre: "1199,5" },
+    ],
+    3000,
+    "",
+    pb
+  )[0].ml,
+  1800500,
+  "zarez se cita kao decimalni znak"
+);
+
+// --- stanjePodjele: "upisano X od Y L" ---
+
+jednako(stanjePodjele([], 3000, pb), null, "bez podjele nema sto ne stimati");
+jednako(
+  stanjePodjele([{ tankId: "T5", litre: "" }], 3000, pb),
+  null,
+  "jedan redak nije podjela"
+);
+
+{
+  const p = stanjePodjele(
+    [
+      { tankId: "T5", litre: "1800" },
+      { tankId: "T7", litre: "1200" },
+    ],
+    3000,
+    pb
+  )!;
+  jednako(p.slaze, true, "1800 + 1200 = 3000 se slaze");
+  jednako(p.upisano, 3000, "upisano 3000");
+  jednako(p.ukupno, 3000, "od 3000");
+  jednako(p.razlika, 0, "bez razlike");
+  jednako(p.bezTanka, 0, "svi redci imaju tank");
+  jednako(p.ponovljen, false, "nijedan tank nije ponovljen");
+}
+
+{
+  const p = stanjePodjele(
+    [
+      { tankId: "T5", litre: "1800" },
+      { tankId: "T7", litre: "1000" },
+    ],
+    3000,
+    pb
+  )!;
+  jednako(p.slaze, false, "manjak se ne slaze");
+  jednako(p.razlika, -200, "nedostaje 200 L");
+}
+
+{
+  const p = stanjePodjele(
+    [
+      { tankId: "T5", litre: "1800" },
+      { tankId: "T7", litre: "1400" },
+    ],
+    3000,
+    pb
+  )!;
+  jednako(p.slaze, false, "visak se ne slaze");
+  jednako(p.razlika, 200, "200 L previse");
+}
+
+// RUB zbog kojeg se racuna u mililitrima. U litrama 100.1 + 200.2 daje
+// 300.29999999999995, pa bi ispravna podjela bila odbijena bez razloga.
+jednako(100.1 + 200.2 === 300.3, false, "u pokretnom zarezu to NIJE jednako");
+jednako(
+  stanjePodjele(
+    [
+      { tankId: "T5", litre: "100.1" },
+      { tankId: "T7", litre: "200.2" },
+    ],
+    300.3,
+    pb
+  )!.slaze,
+  true,
+  "a u mililitrima se slaze"
+);
+
+// Tri neravna dijela.
+jednako(
+  stanjePodjele(
+    [
+      { tankId: "T5", litre: "333.333" },
+      { tankId: "T7", litre: "333.333" },
+      { tankId: "T9", litre: "333.334" },
+    ],
+    1000,
+    pb
+  )!.slaze,
+  true,
+  "tri neravna dijela se zbroje tocno na 1000"
+);
+
+// Prazna ukupna kolicina ne smije proci kao "slaze se s nulom".
+jednako(
+  stanjePodjele(
+    [
+      { tankId: "T5", litre: "" },
+      { tankId: "T7", litre: "" },
+    ],
+    0,
+    pb
+  )!.slaze,
+  false,
+  "0 od 0 se NE racuna kao da se slaze"
+);
+
+// Nepotpuni redci i ponovljen tank.
+jednako(
+  stanjePodjele(
+    [
+      { tankId: "T5", litre: "1800" },
+      { tankId: "", litre: "1200" },
+    ],
+    3000,
+    pb
+  )!.bezTanka,
+  1,
+  "prebrojan je redak bez tanka"
+);
+
+jednako(
+  stanjePodjele(
+    [
+      { tankId: "T5", litre: "1800" },
+      { tankId: "T5", litre: "1200" },
+    ],
+    3000,
+    pb
+  )!.ponovljen,
+  true,
+  "isti tank dvaput je prepoznat"
+);
+
+// Redak s tankom ali BEZ litara. Zbroj se slaze (prazno vrijedi nula), pa bi
+// bez `bezLitara` forma pokazala zeleno, a posluzitelj bi odbio spremanje.
+{
+  const p = stanjePodjele(
+    [
+      { tankId: "T5", litre: "3000" },
+      { tankId: "T7", litre: "" },
+    ],
+    3000,
+    pb
+  )!;
+  jednako(p.slaze, true, "zbroj se formalno slaze");
+  jednako(p.bezTanka, 0, "oba retka imaju tank");
+  jednako(p.bezLitara, 1, "ali jedan nema litre — i to se mora vidjeti");
+}
+
+jednako(
+  stanjePodjele(
+    [
+      { tankId: "T5", litre: "1800" },
+      { tankId: "T7", litre: "1200" },
+    ],
+    3000,
+    pb
+  )!.bezLitara,
+  0,
+  "ispravna podjela nema redaka bez litara"
+);
+
+// Nula upisana rukom je isto sto i prazno: u tank ne ulazi nista.
+jednako(
+  stanjePodjele(
+    [
+      { tankId: "T5", litre: "3000" },
+      { tankId: "T7", litre: "0" },
+    ],
+    3000,
+    pb
+  )!.bezLitara,
+  1,
+  "upisana nula se broji kao redak bez litara"
 );
 
 // ---------------------------------------------------------------------------
