@@ -174,6 +174,51 @@ export async function stanjeSvihTankova(
   return mapa;
 }
 
+/** Jedan tank u koji je berba USLA, s litrama tog ulaza. */
+export type UlazniTank = {
+  tankId: string;
+  ml: number;
+  litre: number;
+};
+
+/**
+ * U KOJE JE TANKOVE BERBA USLA — iz njezinih ULAZ redaka.
+ *
+ * Razlicito od `gdjeJeBerba`, i to je cijela poanta:
+ *   `gdjeJeBerba`         -> gdje je vino DANAS (nakon pretoka, izlaza, ispravaka)
+ *   `ulazniTankoviBerbe`  -> gdje je USLO, sto se poslije nikad ne mijenja
+ *
+ * Otkad jedna berba smije uci u vise tankova (samotok u jedan, presovina u
+ * drugi), `Berba.prviTankId` je "jedan od", ne "jedini" — pun popis stoji samo
+ * ovdje. Cita se na dva mjesta: stranica berbe ga ispisuje, a cuvar brisanja
+ * po njemu prepoznaje berbu razlivenu u vise tankova.
+ *
+ * Zbraja po tanku jer se dva ULAZ retka u isti tank ne smiju prikazati kao dva
+ * tanka; knjiga ih doduse odbija pri upisu, ali backfill starijih zapisa nije
+ * prosao kroz tu provjeru.
+ */
+export async function ulazniTankoviBerbe(
+  db: CitacBerbe,
+  berbaId: string
+): Promise<UlazniTank[]> {
+  const redci = await db.$queryRaw<Array<{ tankId: string; ml: number }>>`
+    SELECT k."uTankId" AS "tankId",
+           SUM(ROUND(k.litre::numeric * 1000))::float8 AS ml
+    FROM "BerbaKretanje" k
+    WHERE k."berbaId" = ${berbaId}
+      AND k.vrsta = 'ULAZ'
+      AND k."uTankId" IS NOT NULL
+    GROUP BY k."uTankId"
+    ORDER BY ml DESC, k."uTankId" ASC
+  `;
+
+  return redci.map((r) => ({
+    tankId: r.tankId,
+    ml: Number(r.ml),
+    litre: uLitre(Number(r.ml)),
+  }));
+}
+
 /** Gdje je danas jedna berba — po tankovima. Obrnut smjer od `stanjeTanka`. */
 export async function gdjeJeBerba(
   db: CitacBerbe,

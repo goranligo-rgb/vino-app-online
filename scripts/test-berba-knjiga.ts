@@ -46,7 +46,13 @@ import {
   zabiljeziUlazUVise,
   type Tx,
 } from "../lib/berba-knjiga";
-import { litreUTanku, podrijetloTanka, stanjeTanka } from "../lib/berba-model";
+import {
+  gdjeJeBerba,
+  litreUTanku,
+  podrijetloTanka,
+  stanjeTanka,
+  ulazniTankoviBerbe,
+} from "../lib/berba-model";
 
 let pao = 0;
 let proslo = 0;
@@ -1045,6 +1051,80 @@ async function main() {
     );
   });
 
+
+  await scenarij(
+    "\n21. ulazniTankoviBerbe: gdje je USLO, ne gdje JEST danas",
+    async (tx) => {
+      const t1 = await napraviTank(tx, 0);
+      const t2 = await napraviTank(tx, 0);
+      const cilj = await napraviTank(tx, 0);
+
+      const r = await zabiljeziUlazUVise(tx, {
+        odredista: [
+          { tankId: t1.id, litre: 1800 },
+          { tankId: t2.id, litre: 1200 },
+        ],
+        nazivSorte: "Grasevina",
+        veza: { punjenjeId: "test-ulazni-tankovi" },
+      });
+
+      const ulazni = await ulazniTankoviBerbe(tx, r.berbaId);
+
+      jednako(ulazni.length, 2, "berba je usla u dva tanka");
+      jednako(ulazni[0].tankId, t1.id, "prvi je onaj s najvise litara");
+      jednako(ulazni[0].litre, 1800, "i to 1800 L");
+      jednako(ulazni[1].litre, 1200, "drugi ima 1200 L");
+
+      // KLJUCNO: pretok NE mijenja popis ulaza. Vino je iz T1 otislo, ali u
+      // T1 JEST uslo — i to se poslije nikad ne mijenja.
+      await zabiljeziPrijenos(tx, {
+        izvori: [{ tankId: t1.id, litre: 1800 }],
+        ciljevi: [{ tankId: cilj.id, litre: 1800 }],
+        vrsta: "PRETOK",
+        veza: { pretokId: "test-ulazni-pretok" },
+      });
+
+      jednako(await litreUTanku(tx, t1.id), 0, "u T1 danas nema nista");
+
+      const nakon = await ulazniTankoviBerbe(tx, r.berbaId);
+      jednako(nakon.length, 2, "popis ulaza je i dalje dva tanka");
+      jednako(nakon.find((u) => u.tankId === t1.id)?.litre, 1800, "T1 i dalje pise 1800 L");
+
+      // Za usporedbu: `gdjeJeBerba` pokazuje DANASNJE stanje i vidi tri tanka,
+      // od kojih T1 vise nije medju njima.
+      const danas = await gdjeJeBerba(tx, r.berbaId);
+      jednako(
+        danas.some((m) => m.tankId === t1.id),
+        false,
+        "gdjeJeBerba T1 vise ne vidi — to je druga tvrdnja"
+      );
+      jednako(
+        danas.some((m) => m.tankId === cilj.id),
+        true,
+        "ali vidi cilj pretoka, koji NIJE ulazni tank"
+      );
+      jednako(
+        nakon.some((u) => u.tankId === cilj.id),
+        false,
+        "a cilj pretoka nije u popisu ulaza"
+      );
+    }
+  );
+
+  await scenarij("\n22. ulazniTankoviBerbe: jedan tank ostaje jedan", async (tx) => {
+    const t = await napraviTank(tx, 0);
+    const b = await ulaz(tx, t.id, 750);
+
+    const ulazni = await ulazniTankoviBerbe(tx, b);
+    jednako(ulazni.length, 1, "jedan ULAZ = jedan tank");
+    jednako(ulazni[0].tankId, t.id, "i to taj tank");
+    jednako(ulazni[0].litre, 750, "sa svojim litrama");
+
+    // Ovo je uvjet po kojem cuvar brisanja razlikuje dva slucaja: 1 = smije
+    // se brisati, >1 = odbija se. Bez toga bi cuvar gledao trenutno stanje i
+    // pustio brisanje berbe ciji je drugi tank vec ispraznjen pretokom.
+    jednako(ulazni.length > 1, false, "cuvar ovu berbu NE odbija");
+  });
   // -------------------------------------------------------------------------
 
   console.log("");

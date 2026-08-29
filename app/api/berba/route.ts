@@ -82,13 +82,34 @@ export async function GET() {
     const ulazi = await prisma.berbaKretanje.findMany({
       where: { vrsta: "ULAZ" },
       orderBy: { dogodenoAt: "asc" },
-      select: { berbaId: true, dogodenoAt: true, uTankId: true, punjenjeId: true },
+      select: {
+        berbaId: true,
+        dogodenoAt: true,
+        uTankId: true,
+        punjenjeId: true,
+        litre: true,
+      },
     });
 
     const prviUlaz = new Map<string, (typeof ulazi)[number]>();
 
+    // SVI ulazi po berbi, ne samo prvi. Otkad jedna berba smije uci u vise
+    // tankova — samotok u jedan, presovina u drugi — `prviTankId` je "jedan
+    // od", ne "jedini", pa bi ispis samo njega precutio pola berbe.
+    //
+    // Zbraja se po tanku: dva ULAZ retka u isti tank su jedan tank. Knjiga ih
+    // doduse odbija pri upisu, ali zapisi iz backfilla nisu prosli kroz tu
+    // provjeru.
+    const sviUlazi = new Map<string, Map<string, number>>();
+
     for (const u of ulazi) {
       if (!prviUlaz.has(u.berbaId)) prviUlaz.set(u.berbaId, u);
+
+      if (!u.uTankId) continue;
+
+      const poTanku = sviUlazi.get(u.berbaId) ?? new Map<string, number>();
+      poTanku.set(u.uTankId, (poTanku.get(u.uTankId) ?? 0) + Number(u.litre));
+      sviUlazi.set(u.berbaId, poTanku);
     }
 
     // 3) Brojevi tankova. Bez stranog kljuca na `Tank` — tank je mogao biti
@@ -145,8 +166,24 @@ export async function GET() {
         ispravljenoAt: b.ispravljenoAt,
         razlogIspravka: b.razlogIspravka,
 
+        // "Jedan od", ne "jedini" — berba smije uci u vise tankova. Ostaje
+        // radi zatecenih citatelja; pun popis je `tankovi` nize.
         prviTankId: b.prviTankId,
         prviTankBroj: b.prviTankId ? brojTanka.get(b.prviTankId) ?? null : null,
+
+        /**
+         * SVI tankovi u koje je berba USLA, s litrama po tanku.
+         *
+         * Gdje je USLO, ne gdje JEST danas: pretok i izlaz ovo ne mijenjaju.
+         * Poredano po litrama silazno, pa je prvi ujedno i najveci dio.
+         */
+        tankovi: Array.from(sviUlazi.get(b.id)?.entries() ?? [])
+          .map(([tankId, litre]) => ({
+            tankId,
+            broj: brojTanka.get(tankId) ?? null,
+            litre,
+          }))
+          .sort((x, y) => y.litre - x.litre || (x.broj ?? 0) - (y.broj ?? 0)),
 
         // Stavka punjenja iz koje je zapis nastao — jedino po cemu se berba
         // moze obrisati (`DELETE /api/punjenje-stavka/[id]`). Zapisi

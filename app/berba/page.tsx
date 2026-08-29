@@ -6,7 +6,9 @@
  * SAMO ONO STO JE USLO
  * --------------------
  * Sorta, kilogrami, litre, datum berbe, polozaj, secer, kiseline, pH, oznaka i
- * prvi tank. Sve su to podaci o TRENUTKU ULASKA u podrum i ne mijenjaju se
+ * tankovi u koje je usla — jedna berba smije uci u vise njih (samotok u jedan,
+ * presovina u drugi). Sve su to podaci o TRENUTKU ULASKA u podrum i ne
+ * mijenjaju se
  * nikad: berba 2026 je 15.650 L i nakon sto je pola prodano ili napunjeno u
  * boce.
  *
@@ -27,7 +29,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { opisMaceracije } from "@/lib/berba-polja";
+import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
 
 type Berba = {
   id: string;
@@ -63,6 +65,14 @@ type Berba = {
 
   prviTankId: string | null;
   prviTankBroj: number | null;
+  /**
+   * SVI tankovi u koje je berba USLA, s litrama po tanku, od najveceg dijela.
+   *
+   * Jedna berba smije uci u vise tankova — samotok u jedan, presovina u drugi
+   * — pa je `prviTankBroj` samo "jedan od". Filtri i ispis idu po ovom popisu.
+   * Gdje je USLO, ne gdje JEST danas: pretok i izlaz ovo ne mijenjaju.
+   */
+  tankovi: Array<{ tankId: string; broj: number | null; litre: number }>;
   izvornaPunjenjeStavkaId: string | null;
 };
 
@@ -97,6 +107,23 @@ type SortaPoGodinama = {
 };
 
 const BEZ_GODISTA = "bez-godista";
+
+/**
+ * Brojevi svih tankova u koje je berba usla.
+ *
+ * Rezerva na `prviTankBroj` je za zapise ciji ULAZ retci nemaju upisan tank —
+ * takvih ima iz backfilla. Bez nje bi ispali iz filtra po tanku, koji je dosad
+ * radio bas po tom polju.
+ */
+function brojeviTankova(b: Berba): number[] {
+  const iz = b.tankovi
+    .map((t) => t.broj)
+    .filter((n): n is number => n !== null && n !== undefined);
+
+  if (iz.length > 0) return iz;
+
+  return b.prviTankBroj != null ? [b.prviTankBroj] : [];
+}
 
 function formatBroj(v?: number | null, digits = 2) {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return "-";
@@ -388,7 +415,14 @@ export default function BerbaPage() {
 
     return uGodini.filter((b) => {
       if (filterSorta && b.nazivSorte !== filterSorta) return false;
-      if (filterTank && String(b.prviTankBroj ?? "") !== filterTank) return false;
+      // Filtar po tanku gleda SVE tankove berbe, ne samo prvi. Inace bi berba
+      // razlivena u T5 i T7 ispala iz filtra "T7", iako je pola nje ondje.
+      if (
+        filterTank &&
+        !brojeviTankova(b).some((n) => String(n) === filterTank)
+      ) {
+        return false;
+      }
 
       if (tekst) {
         const haystack = [
@@ -397,7 +431,7 @@ export default function BerbaPage() {
           b.oznakaBerbe,
           b.vinograd,
           b.napomena,
-          String(b.prviTankBroj ?? ""),
+          brojeviTankova(b).join(" "),
           String(b.godina ?? ""),
         ]
           .filter(Boolean)
@@ -417,7 +451,7 @@ export default function BerbaPage() {
   );
 
   const tankovi = useMemo(
-    () => uniqueSorted(uGodini.map((b) => b.prviTankBroj)),
+    () => uniqueSorted(uGodini.flatMap((b) => brojeviTankova(b))),
     [uGodini]
   );
 
@@ -1072,8 +1106,32 @@ export default function BerbaPage() {
                         ) : (
                           <Oznaka variant="upozorenje">Bez godišta</Oznaka>
                         )}
-                        {b.prviTankBroj != null ? (
-                          <Oznaka>Prvi tank {b.prviTankBroj}</Oznaka>
+                        {/* SVI tankovi u koje je berba usla. Jedna berba smije
+                            uci u vise njih — samotok u jedan, presovina u drugi
+                            — pa bi ispis samo prvoga precutio pola berbe. Uz
+                            svaki tank stoje i litre, jer "T5 i T7" ne kaze je li
+                            podjela 1800/1200 ili 2900/100. */}
+                        {b.tankovi.length > 1 ? (
+                          <>
+                            <Oznaka variant="strong">
+                              {b.tankovi.length}{" "}
+                              {hrvatskiOblik(
+                                b.tankovi.length,
+                                "tank",
+                                "tanka",
+                                "tankova"
+                              )}
+                            </Oznaka>
+                            {b.tankovi.map((t) => (
+                              <Oznaka key={t.tankId}>
+                                Tank {t.broj ?? "?"} — {formatBroj(t.litre)} L
+                              </Oznaka>
+                            ))}
+                          </>
+                        ) : b.tankovi.length === 1 ? (
+                          <Oznaka>Tank {b.tankovi[0].broj ?? "?"}</Oznaka>
+                        ) : b.prviTankBroj != null ? (
+                          <Oznaka>Tank {b.prviTankBroj}</Oznaka>
                         ) : null}
                       </div>
 

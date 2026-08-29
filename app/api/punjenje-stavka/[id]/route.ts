@@ -14,7 +14,7 @@ import {
   zabiljeziIzlaz,
   zabiljeziUlaz,
 } from "@/lib/berba-knjiga";
-import { gdjeJeBerba } from "@/lib/berba-model";
+import { gdjeJeBerba, ulazniTankoviBerbe } from "@/lib/berba-model";
 
 /** Kolicina u tanku, u cijelim mililitrima — kako knjiga i racuna. */
 async function kolicinaTankaMl(tx: Tx, tankId: string): Promise<number> {
@@ -59,6 +59,10 @@ export async function DELETE(_req: Request, { params }: Params) {
         kolicinaLitara: true,
         kolicinaKgGrozdja: true,
         godinaBerbe: true,
+        // Veza na zapis berbe. Za berbu razlivenu u vise tankova ovo je jedina
+        // veza koju stavke u DRUGOM tanku imaju — `izvornaPunjenjeStavkaId`
+        // je @unique i nosi ga samo stavka iz prvog tanka.
+        berbaId: true,
         punjenje: {
           select: {
             id: true,
@@ -113,13 +117,59 @@ export async function DELETE(_req: Request, { params }: Params) {
 
       // KNJIGA BERBE — zapis berbe koji je nastao BAS IZ OVE stavke.
       //
-      // Veza je `izvornaPunjenjeStavkaId` (unique), koju punjenje upisuje pri
-      // nastanku, a backfill pri rekonstrukciji povijesti. Stavke starije od
-      // toga zapisa nemaju — tada se ide samo razmjernim putem nize.
+      // DVIJE veze, i obje su potrebne:
+      //   `PunjenjeStavka.berbaId`        — dijeljiva; nose ju SVE stavke jedne
+      //                                     berbe, i u prvom i u ostalim tankovima
+      //   `Berba.izvornaPunjenjeStavkaId` — @unique; zatecena veza, nosi ju samo
+      //                                     jedna stavka, i drze je stariji
+      //                                     zapisi i backfill
+      //
+      // Da se gledala samo druga, brisanje stavke iz DRUGOG tanka ne bi naslo
+      // nikakvu berbu, preskocilo bi ciljano povlacenje i zavrsilo na
+      // razmjernom putu nize — koji bi tanku upisao izmisljeni ISPRAVAK.
+      // Stavke starije od obje veze nemaju nijednu; tada se ide razmjernim
+      // putem, kao i dosad.
       const berbaStavke = await tx.berba.findFirst({
-        where: { izvornaPunjenjeStavkaId: id, obrisano: false },
+        where: {
+          obrisano: false,
+          OR: [
+            ...(stavka.berbaId ? [{ id: stavka.berbaId }] : []),
+            { izvornaPunjenjeStavkaId: id },
+          ],
+        },
         select: { id: true, nazivSorte: true, kolicinaLitara: true },
       });
+
+      // CUVAR: berba razlivena u VISE TANKOVA se ovuda ne brise.
+      //
+      // Gleda se struktura ULAZA, ne trenutno stanje: dio berbe je mogao vec
+      // otici pretokom iz drugog tanka, pa bi `gdjeJeBerba` nize vidjela samo
+      // jedan tank i pustila brisanje — a ono bi meko obrisalo zapis koji jos
+      // drzi stavka u tom drugom tanku.
+      //
+      // Odbija se cijelo, s tocnom porukom. Jedna berba je jedna berba: brise
+      // se cijela ili nikako, a to znaci provjeriti cuvare (kasnija punjenja,
+      // izvrseni zadaci) na SVIM njezinim tankovima i povuci ispravak u
+      // svakom. To je zaseban zahvat i jos nije napravljen; dotad je posteno
+      // reci da nije podrzano, umjesto tiho raditi krivo.
+      if (berbaStavke) {
+        const ulazni = await ulazniTankoviBerbe(tx, berbaStavke.id);
+
+        if (ulazni.length > 1) {
+          const brojevi = await tx.tank.findMany({
+            where: { id: { in: ulazni.map((u) => u.tankId) } },
+            select: { broj: true },
+            orderBy: { broj: "asc" },
+          });
+
+          const popis = brojevi.map((b) => `T${b.broj}`).join(" i ");
+
+          throw new BerbaGreska(
+            `Ova berba je u tankovima ${popis} — jedna berba razlivena u više tankova. ` +
+              `Brisanje berbe iz više tankova još nije podržano: briše se cijela ili nikako.`
+          );
+        }
+      }
 
       // KNJIGA BERBE, 1/2: koliko je vina u tanku PRIJE zahvata.
       //
