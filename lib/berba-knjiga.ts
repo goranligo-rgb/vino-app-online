@@ -379,43 +379,92 @@ export type RezultatUlaza = {
   litre: number;
 };
 
+/** Jedno odrediste ulaza: koliko litara te iste berbe ide u koji tank. */
+export type OdredisteUlaza = {
+  tankId: string;
+  litre: number;
+};
+
 /**
- * Grozdje / most ulazi u podrum: nastaje zapis berbe I prvi redak knjige.
+ * Ulaz jedne berbe u VISE tankova.
  *
- * Oboje ili nista — zato je `tx` obavezan. Berba bez ijednog ULAZ retka bila bi
- * zapis o vinu koje nigdje nije, a ULAZ bez berbe je nemoguc (strani kljuc).
- *
- * `kolicinaLitara` na berbi i litre ULAZ retka su ISTI broj. To nije
- * podvostrucenje nego dvije razlicite tvrdnje koje se moraju poklopiti na
- * pocetku: prva je "toliko je ubrano", druga "toliko je uslo u tank". Kasnija
- * kretanja mijenjaju samo drugu. `scripts/provjeri-berbu.ts` cuva da su na
- * pocetku jednake.
+ * Isto sto i `UlazBerbe`, samo sto umjesto para (tankId, litre) stoji popis
+ * odredista. Sva ostala polja su nedirnuta — jer i opisuju jednu te istu berbu.
  */
-export async function zabiljeziUlaz(
+export type UlazBerbeUVise = Omit<UlazBerbe, "tankId" | "litre"> & {
+  odredista: OdredisteUlaza[];
+};
+
+export type RezultatUlazaUVise = {
+  berbaId: string;
+  /** Po jedan redak za svako odrediste, redoslijedom kojim su predana. */
+  kretanja: Array<{
+    tankId: string;
+    kretanjeId: string;
+    ml: number;
+    litre: number;
+  }>;
+  /** Zbroj svih odredista. Toliko stoji i na `Berba.kolicinaLitara`. */
+  ml: number;
+  litre: number;
+};
+
+/**
+ * Jezgra ULAZA. Oba javna ulaza (`zabiljeziUlaz`, `zabiljeziUlazUVise`) idu
+ * ovuda, pa je ponasanje jedno. `gdje` je samo ime u porukama o gresci.
+ */
+async function upisiUlaz(
   tx: Tx,
-  ulaz: UlazBerbe
-): Promise<RezultatUlaza> {
-  provjeriVezu(ulaz.veza, "zabiljeziUlaz", ulaz.napomenaKretanja ?? null);
+  ulaz: UlazBerbeUVise,
+  gdje: string
+): Promise<RezultatUlazaUVise> {
+  provjeriVezu(ulaz.veza, gdje, ulaz.napomenaKretanja ?? null);
 
-  const ml = uMl(ulaz.litre);
+  const odredista = ulaz.odredista ?? [];
 
-  if (ml <= 0) {
-    throw new BerbaGreska(
-      `zabiljeziUlaz: kolicina mora biti veca od nule (dobiveno ${ulaz.litre}).`
-    );
+  if (odredista.length === 0) {
+    throw new BerbaGreska(`${gdje}: berba mora uci u barem jedan tank.`);
   }
 
-  if (!String(ulaz.tankId ?? "").trim()) {
-    throw new BerbaGreska("zabiljeziUlaz: nedostaje tank u koji vino ulazi.");
+  // Sve provjere PRIJE ijednog upisa. Djelomicno upisana berba — jedan tank
+  // da, drugi ne — bila bi gora od nikakve: tvrdila bi da je grozdja bilo
+  // manje nego sto ga je bilo, a nista je poslije ne bi razlikovalo od berbe
+  // koja je stvarno tolika.
+  const komadi = odredista.map((o, i) => {
+    const tankId = String(o?.tankId ?? "").trim();
+
+    if (!tankId) {
+      throw new BerbaGreska(`${gdje}: nedostaje tank na ${i + 1}. retku.`);
+    }
+
+    const ml = uMl(o?.litre);
+
+    if (ml <= 0) {
+      throw new BerbaGreska(
+        `${gdje}: kolicina za ${i + 1}. tank mora biti veca od nule (dobiveno ${o?.litre}).`
+      );
+    }
+
+    return { tankId, ml, litre: uLitre(ml) };
+  });
+
+  // Isti tank dvaput nije podatak nego greska u unosu. Dva ULAZ retka u isti
+  // tank knjiga zbraja ispravno, ali korisnik je ocito htio jedan redak i
+  // negdje se zabunio — bolje odbiti nego tiho spojiti.
+  if (new Set(komadi.map((k) => k.tankId)).size !== komadi.length) {
+    throw new BerbaGreska(
+      `${gdje}: isti tank je naveden vise puta. Spoji ga u jedan redak.`
+    );
   }
 
   const naziv = String(ulaz.nazivSorte ?? "").trim();
 
   if (!naziv) {
-    throw new BerbaGreska("zabiljeziUlaz: nedostaje naziv sorte.");
+    throw new BerbaGreska(`${gdje}: nedostaje naziv sorte.`);
   }
 
-  const litre = uLitre(ml);
+  const ukupnoMl = komadi.reduce((zbroj, k) => zbroj + k.ml, 0);
+  const ukupnoLitre = uLitre(ukupnoMl);
   const kada = ulaz.dogodenoAt ?? new Date();
 
   const berba = await tx.berba.create({
@@ -425,8 +474,10 @@ export async function zabiljeziUlaz(
       sortaId: ulaz.sortaId ?? null,
       datumBerbe: ulaz.datumBerbe ?? null,
       godinaBerbe: ulaz.godinaBerbe ?? null,
+      // Kilogrami se NE dijele po tankovima: ubrano je jednom, s jednog
+      // polozaja. Sto je od toga zavrsilo u kojem tanku mjeri se litrama.
       kolicinaKgGrozdja: ulaz.kolicinaKgGrozdja ?? null,
-      kolicinaLitara: litre,
+      kolicinaLitara: ukupnoLitre,
       polozaj: ulaz.polozaj ?? null,
       parcela: ulaz.parcela ?? null,
       vinograd: ulaz.vinograd ?? null,
@@ -438,32 +489,129 @@ export async function zabiljeziUlaz(
       maceracijaSati: ulaz.maceracijaSati ?? null,
       napomena: ulaz.napomena ?? null,
       korisnikId: ulaz.korisnikId ?? null,
-      prviTankId: ulaz.tankId,
+      // Prvi tank s popisa. Kad ih je vise, ovo je "jedan od", ne "jedini" —
+      // potpun popis stoji u ULAZ retcima i cita se odande.
+      prviTankId: komadi[0].tankId,
       izvornaPunjenjeStavkaId: ulaz.izvornaPunjenjeStavkaId ?? null,
       izvornaArhivaStavkaId: ulaz.izvornaArhivaStavkaId ?? null,
     },
     select: { id: true },
   });
 
-  const kretanje = await tx.berbaKretanje.create({
-    data: {
-      berbaId: berba.id,
-      izTankId: null,
-      uTankId: ulaz.tankId,
-      litre,
-      vrsta: "ULAZ",
-      pretokId: ulaz.veza.pretokId ?? null,
-      zadatakId: ulaz.veza.zadatakId ?? null,
-      izlazVinaId: ulaz.veza.izlazVinaId ?? null,
-      punjenjeId: ulaz.veza.punjenjeId ?? null,
-      dogodenoAt: kada,
-      korisnikId: ulaz.korisnikId ?? null,
-      napomena: ulaz.napomenaKretanja ?? null,
-    },
-    select: { id: true },
-  });
+  const kretanja: RezultatUlazaUVise["kretanja"] = [];
 
-  return { berbaId: berba.id, kretanjeId: kretanje.id, ml, litre };
+  // Sekvencijalno, ne Promise.all — jedna transakcijska veza (lib/paralelno.ts).
+  for (const k of komadi) {
+    const kretanje = await tx.berbaKretanje.create({
+      data: {
+        berbaId: berba.id,
+        izTankId: null,
+        uTankId: k.tankId,
+        litre: k.litre,
+        vrsta: "ULAZ",
+        pretokId: ulaz.veza.pretokId ?? null,
+        zadatakId: ulaz.veza.zadatakId ?? null,
+        izlazVinaId: ulaz.veza.izlazVinaId ?? null,
+        punjenjeId: ulaz.veza.punjenjeId ?? null,
+        dogodenoAt: kada,
+        korisnikId: ulaz.korisnikId ?? null,
+        napomena: ulaz.napomenaKretanja ?? null,
+      },
+      select: { id: true },
+    });
+
+    kretanja.push({
+      tankId: k.tankId,
+      kretanjeId: kretanje.id,
+      ml: k.ml,
+      litre: k.litre,
+    });
+  }
+
+  return { berbaId: berba.id, kretanja, ml: ukupnoMl, litre: ukupnoLitre };
+}
+
+/**
+ * Grozdje / most ulazi u podrum, u VISE tankova odjednom.
+ *
+ * Nastaje TOCNO JEDAN zapis `Berba` i po jedan ULAZ redak za svaki tank.
+ *
+ * ZASTO JEDNA BERBA, A NE PO JEDNA PO TANKU
+ * -----------------------------------------
+ * Jedna berba je jedno grozdje s jednog polozaja, ubrano jednom. To sto je u
+ * podrumu razliveno u dva tanka — samotok u jedan, presovina u drugi, ili
+ * jednostavno ne stane u jedan — ne cini ju dvjema berbama. Dva poziva
+ * `zabiljeziUlaz` dala bi dva zapisa: dva polozaja gdje je jedan, dvaput
+ * ubrano gdje je ubrano jednom, i kilograme koji se moraju ili podijeliti
+ * (netocno) ili udvostruciti (jos netocnije).
+ *
+ * LITRE SE OVDJE NE DIJELE NEGO ZBRAJAJU
+ * --------------------------------------
+ * Za razliku od pretoka i izlaza, ovdje se nista ne raspodjeljuje: za svaki
+ * tank su litre upisane rukom. Svaka se zasebno pretvori u cijele mililitre,
+ * pa je zbroj tocan po definiciji — `podijeliMl` ovdje nema sto raditi i
+ * namjerno se ne zove.
+ *
+ * `Berba.kolicinaLitara` je ZBROJ svih ULAZ redaka. Tvrdnja je ista kao i
+ * dosad ("toliko je ubrano" = "toliko je uslo u podrum"), samo sto podrum sad
+ * smije biti vise tankova; `scripts/provjeri-berbu.ts` tu jednakost vec cuva
+ * nad zbrojem kretanja, pa ga ovo ne mijenja.
+ */
+export async function zabiljeziUlazUVise(
+  tx: Tx,
+  ulaz: UlazBerbeUVise
+): Promise<RezultatUlazaUVise> {
+  return upisiUlaz(tx, ulaz, "zabiljeziUlazUVise");
+}
+
+/**
+ * Grozdje / most ulazi u podrum: nastaje zapis berbe I prvi redak knjige.
+ *
+ * Oboje ili nista — zato je `tx` obavezan. Berba bez ijednog ULAZ retka bila bi
+ * zapis o vinu koje nigdje nije, a ULAZ bez berbe je nemoguc (strani kljuc).
+ *
+ * `kolicinaLitara` na berbi i litre ULAZ retka su ISTI broj. To nije
+ * podvostrucenje nego dvije razlicite tvrdnje koje se moraju poklopiti na
+ * pocetku: prva je "toliko je ubrano", druga "toliko je uslo u tank". Kasnija
+ * kretanja mijenjaju samo drugu. `scripts/provjeri-berbu.ts` cuva da su na
+ * pocetku jednake.
+ *
+ * Otkad postoji `zabiljeziUlazUVise`, ovo je njegov slucaj s jednim
+ * odredistem — jedan kod, jedno ponasanje. Potpis i povratna vrijednost su
+ * nepromijenjeni. Vlastite provjere tanka i kolicine stoje samo zato da
+ * poruka o gresci govori o tanku, a ne o "1. retku" popisa koji pozivatelj
+ * nije ni vidio.
+ */
+export async function zabiljeziUlaz(
+  tx: Tx,
+  ulaz: UlazBerbe
+): Promise<RezultatUlaza> {
+  const { tankId, litre, ...ostalo } = ulaz;
+
+  provjeriVezu(ulaz.veza, "zabiljeziUlaz", ulaz.napomenaKretanja ?? null);
+
+  if (uMl(litre) <= 0) {
+    throw new BerbaGreska(
+      `zabiljeziUlaz: kolicina mora biti veca od nule (dobiveno ${litre}).`
+    );
+  }
+
+  if (!String(tankId ?? "").trim()) {
+    throw new BerbaGreska("zabiljeziUlaz: nedostaje tank u koji vino ulazi.");
+  }
+
+  const r = await upisiUlaz(
+    tx,
+    { ...ostalo, odredista: [{ tankId, litre }] },
+    "zabiljeziUlaz"
+  );
+
+  return {
+    berbaId: r.berbaId,
+    kretanjeId: r.kretanja[0].kretanjeId,
+    ml: r.ml,
+    litre: r.litre,
+  };
 }
 
 // ---------------------------------------------------------------------------

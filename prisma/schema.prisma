@@ -929,6 +929,16 @@ model PunjenjeTanka {
   prethodnoGodiste        Int?
   prethodniSastavJson     Json?
   korisnikId              String?
+
+  /// Oznaka koja povezuje punjenja nastala JEDNIM spremanjem forme.
+  ///
+  /// Kad jedna berba ide u vise tankova, svaki tank dobiva svoje
+  /// `PunjenjeTanka` — jer je ono jedini izvor iz kojeg se tanku preracunava
+  /// kolicina i iz kojeg arhiviranje kopira podatke berbe. Grupa je onda
+  /// jedino po cemu se poslije zna da je to bio jedan cin, a ne dva.
+  /// Goli stupac, bez FK — nema na sto pokazivati.
+  grupaId                 String?
+
   korisnik                User?            @relation(fields: [korisnikId], references: [id])
   stavke                  PunjenjeStavka[]
   pocetnoMjerenje         Mjerenje?        @relation("PocetnoMjerenjePunjenja", fields: [pocetnoMjerenjeId], references: [id])
@@ -936,6 +946,7 @@ model PunjenjeTanka {
 
   @@index([tankId])
   @@index([pocetnoMjerenjeId])
+  @@index([grupaId])
   @@index([korisnikId])
 }
 
@@ -965,6 +976,18 @@ model PunjenjeStavka {
   // Slobodan opis ("preko noci", "na kljucu") ide u napomenaBerbe.
   maceracija        Boolean?
   maceracijaSati    Float?
+
+  /// Zapis berbe iz kojeg je ova stavka nastala.
+  ///
+  /// DIJELJIV, za razliku od `Berba.izvornaPunjenjeStavkaId`: kad jedna berba
+  /// ide u vise tankova, svaki tank ima svoju stavku, a sve pokazuju na ISTI
+  /// zapis berbe. Zato veza stoji ovdje — ona druga je @unique pa ju moze
+  /// zauzeti samo jedna stavka, i ostaje kakva jest radi zatecenih zapisa.
+  ///
+  /// Goli stupac, bez FK: arhiviranje brise stavke, a zapis berbe mora
+  /// prezivjeti — isti obrazac kao `Berba.prviTankId`.
+  berbaId           String?
+
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @default(now()) @updatedAt
   obrisano          Boolean       @default(false)
@@ -974,6 +997,7 @@ model PunjenjeStavka {
   sorta             Sorta?        @relation(fields: [sortaId], references: [id])
 
   @@index([punjenjeId])
+  @@index([berbaId])
   @@index([sortaId])
   @@index([obrisano])
 }

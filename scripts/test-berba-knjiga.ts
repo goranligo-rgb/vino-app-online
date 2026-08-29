@@ -43,6 +43,7 @@ import {
   zabiljeziPonistenje,
   zabiljeziPrijenos,
   zabiljeziUlaz,
+  zabiljeziUlazUVise,
   type Tx,
 } from "../lib/berba-knjiga";
 import { litreUTanku, podrijetloTanka, stanjeTanka } from "../lib/berba-model";
@@ -801,6 +802,247 @@ async function main() {
     const nakon = await stanjeTanka(tx, t.id, { svi: true });
     jednako(nakon.find((s) => s.berbaId === a)?.ml, 0, "povucena berba je na nuli");
     jednako(await litreUTanku(tx, t.id), 400, "u tanku ostaje samo druga berba");
+  });
+
+  await scenarij("\n15. Jedna berba u vise tankova: jedan zapis, vise ULAZA", async (tx) => {
+    const t1 = await napraviTank(tx, 0);
+    const t2 = await napraviTank(tx, 0);
+    const t3 = await napraviTank(tx, 0);
+
+    // Samotok u jedan tank, presovina u drugi, ostatak u treci. Jedno
+    // grozdje, jedan polozaj, 4.200 kg ubrano JEDNOM.
+    const r = await zabiljeziUlazUVise(tx, {
+      odredista: [
+        { tankId: t1.id, litre: 1800 },
+        { tankId: t2.id, litre: 1200 },
+        { tankId: t3.id, litre: 500 },
+      ],
+      nazivSorte: "Grasevina",
+      kolicinaKgGrozdja: 4200,
+      polozaj: "12",
+      veza: { punjenjeId: "test-vise-tankova" },
+    });
+
+    jednako(r.kretanja.length, 3, "nastala su tri ULAZ retka");
+    jednako(r.litre, 3500, "zbroj odredista je ukupna kolicina");
+
+    const berbe = await tx.berba.findMany({
+      where: { id: r.berbaId },
+      select: { kolicinaLitara: true, kolicinaKgGrozdja: true, prviTankId: true, polozaj: true },
+    });
+
+    jednako(berbe.length, 1, "postoji TOCNO JEDAN zapis berbe, ne tri");
+    jednako(berbe[0].kolicinaLitara, 3500, "kolicinaLitara je zbroj svih tankova");
+    jednako(
+      berbe[0].kolicinaKgGrozdja,
+      4200,
+      "kilogrami se NE dijele po tankovima — ubrano je jednom"
+    );
+    jednako(berbe[0].polozaj, "12", "polozaj je jedan, kao i berba");
+    jednako(berbe[0].prviTankId, t1.id, "prviTankId je prvi tank s popisa");
+
+    const ulazi = await tx.berbaKretanje.findMany({
+      where: { berbaId: r.berbaId, vrsta: "ULAZ" },
+      select: { uTankId: true, litre: true },
+    });
+
+    const poTanku: Record<string, number> = {};
+    for (const u of ulazi) poTanku[String(u.uTankId)] = u.litre;
+
+    jednako(poTanku[t1.id], 1800, "u prvi tank je uslo 1800 L");
+    jednako(poTanku[t2.id], 1200, "u drugi tank je uslo 1200 L");
+    jednako(poTanku[t3.id], 500, "u treci tank je uslo 500 L");
+
+    jednako(await litreUTanku(tx, t1.id), 1800, "knjiga vidi 1800 L u prvom tanku");
+    jednako(await litreUTanku(tx, t2.id), 1200, "knjiga vidi 1200 L u drugom tanku");
+    jednako(await litreUTanku(tx, t3.id), 500, "knjiga vidi 500 L u trecem tanku");
+
+    // Ista berba je u sva tri tanka — to je i smisao: podrijetlo svakog od njih
+    // vodi na isti zapis, pa ispis berbe zna da je to jedno grozdje.
+    const p1 = await podrijetloTanka(tx, t1.id);
+    const p2 = await podrijetloTanka(tx, t2.id);
+
+    jednako(p1.stavke.length, 1, "prvi tank ima jednu berbu u podrijetlu");
+    jednako(p2.stavke.length, 1, "drugi tank ima jednu berbu u podrijetlu");
+    jednako(
+      p1.stavke[0].berbaId,
+      p2.stavke[0].berbaId,
+      "i to ISTU berbu u oba tanka"
+    );
+    jednako(p1.ukupnoL, 1800, "podrijetlo prvog tanka broji njegovih 1800 L");
+    jednako(p2.ukupnoL, 1200, "podrijetlo drugog tanka broji njegovih 1200 L");
+  });
+
+  await scenarij("\n16. Vise tankova: pretok iz jednog ne dira druge", async (tx) => {
+    const t1 = await napraviTank(tx, 0);
+    const t2 = await napraviTank(tx, 0);
+    const cilj = await napraviTank(tx, 0);
+
+    const r = await zabiljeziUlazUVise(tx, {
+      odredista: [
+        { tankId: t1.id, litre: 2000 },
+        { tankId: t2.id, litre: 1000 },
+      ],
+      nazivSorte: "Grasevina",
+      veza: { punjenjeId: "test-vise-pretok" },
+    });
+
+    await zabiljeziPrijenos(tx, {
+      izvori: [{ tankId: t1.id, litre: 800 }],
+      ciljevi: [{ tankId: cilj.id, litre: 800 }],
+      vrsta: "PRETOK",
+      veza: { pretokId: "test-vise-pretok-1" },
+    });
+
+    jednako(await litreUTanku(tx, t1.id), 1200, "iz prvog tanka je otislo 800 L");
+    jednako(await litreUTanku(tx, t2.id), 1000, "drugi tank je NEDIRNUT");
+    jednako(await litreUTanku(tx, cilj.id), 800, "cilj je primio 800 L");
+
+    // Berba je i dalje jedna, sad razlivena u tri tanka.
+    const mjesta = await tx.berbaKretanje.groupBy({
+      by: ["berbaId"],
+      where: { berbaId: r.berbaId },
+      _count: true,
+    });
+    jednako(mjesta.length, 1, "i dalje je rijec o jednoj berbi");
+  });
+
+  await scenarij("\n17. Vise tankova: poništenje prazni SVE tankove", async (tx) => {
+    const t1 = await napraviTank(tx, 0);
+    const t2 = await napraviTank(tx, 0);
+
+    const r = await zabiljeziUlazUVise(tx, {
+      odredista: [
+        { tankId: t1.id, litre: 1800 },
+        { tankId: t2.id, litre: 1200 },
+      ],
+      nazivSorte: "Grasevina",
+      veza: { punjenjeId: "test-vise-ponisti" },
+    });
+
+    await zabiljeziPonistenje(tx, { punjenjeId: "test-vise-ponisti" });
+
+    jednako(await litreUTanku(tx, t1.id), 0, "prvi tank je prazan");
+    jednako(await litreUTanku(tx, t2.id), 0, "drugi tank je prazan");
+
+    const berba = await tx.berba.findUnique({ where: { id: r.berbaId } });
+    tvrdi(berba != null, "zapis berbe je i dalje tu");
+    jednako(berba?.obrisano, false, "ponistenje ga ne oznacava obrisanim");
+  });
+
+  await scenarij("\n18. Vise tankova: odbijeni unosi, i nista se ne upise napola", async (tx) => {
+    const t1 = await napraviTank(tx, 0);
+    const t2 = await napraviTank(tx, 0);
+
+    const prazno = await pukne(() =>
+      zabiljeziUlazUVise(tx, {
+        odredista: [],
+        nazivSorte: "Grasevina",
+        veza: { punjenjeId: "test-vise-prazno" },
+      })
+    );
+    tvrdi(String(prazno).includes("barem jedan tank"), "prazan popis tankova puca");
+
+    const dvaput = await pukne(() =>
+      zabiljeziUlazUVise(tx, {
+        odredista: [
+          { tankId: t1.id, litre: 100 },
+          { tankId: t1.id, litre: 200 },
+        ],
+        nazivSorte: "Grasevina",
+        veza: { punjenjeId: "test-vise-dvaput" },
+      })
+    );
+    tvrdi(String(dvaput).includes("vise puta"), "isti tank dvaput puca");
+
+    // KLJUCNO: drugi redak je neispravan. Prvi se NE SMIJE upisati — inace bi
+    // u knjizi ostala berba s manje litara nego sto je grozdja bilo, i nista
+    // je poslije ne bi razlikovalo od berbe koja je stvarno tolika.
+    const nula = await pukne(() =>
+      zabiljeziUlazUVise(tx, {
+        odredista: [
+          { tankId: t1.id, litre: 1800 },
+          { tankId: t2.id, litre: 0 },
+        ],
+        nazivSorte: "Grasevina",
+        veza: { punjenjeId: "test-vise-nula" },
+      })
+    );
+    tvrdi(String(nula).includes("2. tank"), "poruka kaze KOJI redak ne valja");
+
+    jednako(
+      await tx.berba.count({ where: { kretanja: { some: { punjenjeId: "test-vise-nula" } } } }),
+      0,
+      "nijedan zapis berbe nije ostao od pukloga unosa"
+    );
+    jednako(await litreUTanku(tx, t1.id), 0, "prvi tank je ostao prazan — nista se ne upise napola");
+  });
+
+  await scenarij("\n19. Vise tankova: decimale se zbrajaju tocno, do mililitra", async (tx) => {
+    const t1 = await napraviTank(tx, 0);
+    const t2 = await napraviTank(tx, 0);
+    const t3 = await napraviTank(tx, 0);
+
+    const r = await zabiljeziUlazUVise(tx, {
+      odredista: [
+        { tankId: t1.id, litre: 333.333 },
+        { tankId: t2.id, litre: 333.333 },
+        { tankId: t3.id, litre: 333.334 },
+      ],
+      nazivSorte: "Grasevina",
+      veza: { punjenjeId: "test-vise-decimale" },
+    });
+
+    jednako(r.ml, uMl(1000), "zbroj u mililitrima je tocno 1.000 L");
+    jednako(r.litre, 1000, "i u litrama");
+
+    const zbrojTankova =
+      uMl(await litreUTanku(tx, t1.id)) +
+      uMl(await litreUTanku(tx, t2.id)) +
+      uMl(await litreUTanku(tx, t3.id));
+
+    jednako(zbrojTankova, uMl(1000), "zbroj po tankovima je jednak berbi, bez ostatka");
+  });
+
+  await scenarij("\n20. Jedan tank i dalje prolazi starim potpisom", async (tx) => {
+    const t = await napraviTank(tx, 0);
+
+    // `zabiljeziUlaz` je sad omotac nad `zabiljeziUlazUVise`. Povratna
+    // vrijednost i ponasanje moraju ostati doslovno isti — ovo je zastita
+    // od toga da refaktor tiho promijeni put kojim ide svako punjenje.
+    const r = await zabiljeziUlaz(tx, {
+      tankId: t.id,
+      litre: 750,
+      nazivSorte: "Grasevina",
+      kolicinaKgGrozdja: 1000,
+      veza: { punjenjeId: "test-jedan-omotac" },
+    });
+
+    tvrdi(typeof r.kretanjeId === "string" && r.kretanjeId.length > 0, "vraca kretanjeId");
+    jednako(r.litre, 750, "vraca litre");
+    jednako(r.ml, uMl(750), "vraca mililitre");
+
+    const ulazi = await tx.berbaKretanje.count({
+      where: { berbaId: r.berbaId, vrsta: "ULAZ" },
+    });
+    jednako(ulazi, 1, "jedan tank = tocno jedan ULAZ redak");
+
+    const berba = await tx.berba.findUnique({ where: { id: r.berbaId } });
+    jednako(berba?.kolicinaLitara, 750, "kolicinaLitara je nepromijenjena");
+    jednako(berba?.prviTankId, t.id, "prviTankId je taj tank");
+
+    const bezTanka = await pukne(() =>
+      zabiljeziUlaz(tx, {
+        tankId: "  ",
+        litre: 100,
+        nazivSorte: "Grasevina",
+        veza: { punjenjeId: "test-jedan-bez-tanka" },
+      })
+    );
+    tvrdi(
+      String(bezTanka).includes("nedostaje tank u koji vino ulazi"),
+      "poruka za jedan tank govori o tanku, ne o retku popisa"
+    );
   });
 
   // -------------------------------------------------------------------------
