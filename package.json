@@ -25,7 +25,8 @@
     "mjerenja:provjeri": "tsx scripts/provjeri-mjerenja-berba.ts",
     "fermentacija:provjeri": "tsx scripts/provjeri-fermentacija-prozor.ts",
     "kvasci:oznaci": "tsx scripts/oznaci-kvasce.ts",
-    "fermentacija:ispis": "tsx scripts/provjeri-fermentacija-ispis.ts"
+    "fermentacija:ispis": "tsx scripts/provjeri-fermentacija-ispis.ts",
+    "test:punjenje:podjela": "tsx scripts/test-punjenje-podjela.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
