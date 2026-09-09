@@ -1800,6 +1800,280 @@ export default async function TankPregledPage({
         </div>
       </Card>
 
+      <Card title="Otvoreni zadaci" broj={otvoreniZadaci.length}>
+        {otvoreniZadaci.length === 0 ? (
+          <div style={mutedTextStyle}>Nema otvorenih zadataka.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {otvoreniZadaci.map((z) => {
+              const imaStavke = z.stavke && z.stavke.length > 0;
+
+              return (
+                <details key={z.id} style={openTaskDetailsStyle}>
+                  <summary style={openTaskSummaryStyle}>
+                    <div style={{ display: "grid", gap: 2 }}>
+                      <div style={summaryMainTextStyle}>
+                        {z.naslov || z.vrsta || "Zadatak"}
+                      </div>
+                      <div style={summarySubTextStyle}>
+                        {sazetakZadatka(z)}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 10 }}
+                    >
+                      <div style={summaryRightStyle}>
+                        {formatDatum(z.zadanoAt)}
+                      </div>
+                      <span
+                        style={{ ...statusPillStyle, ...statusBadge(z.status) }}
+                      >
+                        {z.status}
+                      </span>
+                    </div>
+                  </summary>
+
+                  <div style={detailsContentStyle}>
+                    <DetailRow label="Vrsta" value={z.vrsta ?? "—"} />
+                    <DetailRow label="Tip zadatka" value={tipZadatkaLabel(z)} />
+                    <DetailRow
+                      label="Zadao"
+                      value={prikaziKorisnika(z.zadaoKorisnik)}
+                    />
+                    <DetailRow
+                      label="Izvršio"
+                      value={prikaziKorisnika(z.izvrsioKorisnik)}
+                    />
+                    <DetailRow label="Zadano" value={formatDatum(z.zadanoAt)} />
+                    <DetailRow
+                      label="Napomena"
+                      value={z.napomena?.trim() ? z.napomena : "—"}
+                    />
+
+                    {imaStavke ? (
+                      <>
+                        <DetailRow
+                          label="Broj preparata"
+                          value={String(z.stavke.length)}
+                        />
+                        <div style={innerSectionTitleStyle}>Stavke zadatka</div>
+
+                        <div style={{ display: "grid", gap: 8 }}>
+                          {z.stavke.map((s, index) => (
+                            <div key={s.id} style={subBoxStyle}>
+                              <div style={subBoxTopStyle}>
+                                <strong style={{ fontWeight: 600 }}>
+                                  {index + 1}. {s.preparat?.naziv ?? "—"}
+                                </strong>
+                                <span style={{ fontSize: 12, color: "#7f1d1d" }}>
+                                  Vezana stavka
+                                </span>
+                              </div>
+
+                              <div style={{ display: "grid", gap: 4, marginTop: 8 }}>
+                                <div style={subMetaTextStyle}>
+                                  Preporučena doza: {preporucenaDozaText(s.preparat)}
+                                </div>
+                                <div style={subMetaTextStyle}>
+                                  Odabrana doza:{" "}
+                                  {s.doza != null
+                                    ? `${formatBroj(s.doza)} ${s.jedinica?.naziv ?? ""}`.trim()
+                                    : "—"}
+                                </div>
+                                <div style={subMetaTextStyle}>
+                                  Volumen u tanku:{" "}
+                                  {s.volumenUTanku != null
+                                    ? `${formatBroj(s.volumenUTanku)} L`
+                                    : "—"}
+                                </div>
+                                <div style={subMetaTextStyle}>
+                                  Ukupno za dodati:{" "}
+                                  {s.izracunataKolicina != null
+                                    ? `${formatBroj(s.izracunataKolicina)} ${
+                                        s.izlaznaJedinica?.naziv ?? ""
+                                      }`.trim()
+                                    : "—"}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <DetailRow
+                          label="Sredstvo"
+                          value={z.preparat?.naziv ?? "—"}
+                        />
+                        <DetailRow
+                          label="Preporučena doza"
+                          value={preporucenaDozaText(z.preparat)}
+                        />
+                        <DetailRow
+                          label="Odabrana doza"
+                          value={
+                            z.doza != null
+                              ? `${formatBroj(z.doza)} ${z.jedinica?.naziv ?? ""}`.trim()
+                              : "—"
+                          }
+                        />
+                        <DetailRow
+                          label="Volumen u tanku"
+                          value={
+                            z.volumenUTanku != null
+                              ? `${formatBroj(z.volumenUTanku)} L`
+                              : "—"
+                          }
+                        />
+                        <DetailRow
+                          label="Ukupno za dodati"
+                          value={
+                            z.izracunataKolicina != null
+                              ? `${formatBroj(z.izracunataKolicina)} ${
+                                  z.izlaznaJedinica?.naziv ?? ""
+                                }`.trim()
+                              : "—"
+                          }
+                        />
+                      </>
+                    )}
+                  </div>
+                </details>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      <div id="hladjenje" style={{ scrollMarginTop: 16 }} />
+
+      <Card title="Temperatura" pod="samo prikaz">
+        <div style={{ display: "grid", gap: 14 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 12px",
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: "0.4px",
+                background: tempStil.bg,
+                border: `1px solid ${tempStil.border}`,
+                color: tempStil.text,
+              }}
+            >
+              <span
+                style={{
+                  width: 9,
+                  height: 9,
+                  background: tempStil.dot,
+                }}
+              />
+              {tempStil.label}
+            </span>
+            <span style={{ fontSize: 12, color: "#777" }}>
+              Zadnje očitanje:{" "}
+              {zadnjeOcitanje
+                ? `${formatDatum(zadnjeOcitanje.mjerenoU)} (${prijeKoliko(
+                    zadnjeOcitanje.mjerenoU
+                  )})`
+                : "nema očitanja"}
+            </span>
+          </div>
+
+          <div style={topParamsGridStyle}>
+            <ParamTop
+              label="Trenutna temperatura"
+              value={formatTemp(zadnjeOcitanje?.temperatura)}
+              unit="°C"
+              emphasize
+              tone={tempStatus === "ALARM" ? "red" : "default"}
+            />
+            <ParamTop
+              label={hladjenjeIskljuceno ? "Zadana (zapamćena)" : "Zadana temperatura"}
+              value={formatTemp(
+                hladjenjeIskljuceno ? tank.zadnjaZadanaTemp ?? tank.zadanaTemp : zadanaStvarna
+              )}
+              unit="°C"
+            />
+            <ParamTop
+              label="Hlađenje"
+              value={
+                hladjenjeIskljuceno
+                  ? "Isključeno"
+                  : hladiSad == null
+                    ? "—"
+                    : hladiSad
+                      ? "Hladi (ON)"
+                      : "Ne hladi (OFF)"
+              }
+              tone={hladiSad ? "green" : "default"}
+            />
+          </div>
+
+          <div style={topParamsGridStyle}>
+            <ParamTop
+              label="Alarm −"
+              value={formatTemp(tank.alarmMinus)}
+              unit="°C"
+            />
+            <ParamTop
+              label="Alarm +"
+              value={formatTemp(tank.alarmPlus)}
+              unit="°C"
+            />
+            <ParamTop
+              label="Modbus adresa"
+              value={tank.modbusAdresa ?? "—"}
+            />
+          </div>
+
+          {aktivniAlarmi.length > 0 ? (
+            <div
+              style={{
+                border: "1px solid #e0776f",
+                background: "#fdecec",
+                padding: 12,
+                display: "grid",
+                gap: 6,
+              }}
+            >
+              <div style={{ fontWeight: 700, color: "#a11d1d", fontSize: 13 }}>
+                Aktivni alarmi
+              </div>
+              {aktivniAlarmi.map((a) => (
+                <div key={a.id} style={{ fontSize: 13, color: "#a11d1d" }}>
+                  <strong>{a.tip}</strong> — {a.poruka}{" "}
+                  <span style={{ color: "#c06a63" }}>
+                    ({formatDatum(a.nastaoU)})
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <HladjenjeGraf tankId={tank.id} zadanaPocetna={zadanaStvarna} />
+
+          <div style={{ fontSize: 11, color: "#999" }}>
+            Zadana temperatura i pragovi alarma mijenjaju se na{" "}
+            <Link href="/dashboard/hladjenje" style={{ color: "#1f6f8b" }}>
+              dashboardu hlađenja
+            </Link>
+            .
+          </div>
+        </div>
+      </Card>
+
       {/* --- BERBA: fiksni podaci o grozdju koje je uslo u tank. Stoje GORE,
               otvoreno, i ne mijesaju se s tekucim mjerenjima. --- */}
       {prikaziBerbu ? (
@@ -1968,280 +2242,6 @@ export default async function TankPregledPage({
           </div>
         </BerbaPrekidac>
       ) : null}
-
-      <div id="hladjenje" style={{ scrollMarginTop: 16 }} />
-
-      <Card title="Temperatura" pod="samo prikaz">
-        <div style={{ display: "grid", gap: 14 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              flexWrap: "wrap",
-            }}
-          >
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "4px 12px",
-                fontSize: 12,
-                fontWeight: 700,
-                letterSpacing: "0.4px",
-                background: tempStil.bg,
-                border: `1px solid ${tempStil.border}`,
-                color: tempStil.text,
-              }}
-            >
-              <span
-                style={{
-                  width: 9,
-                  height: 9,
-                  background: tempStil.dot,
-                }}
-              />
-              {tempStil.label}
-            </span>
-            <span style={{ fontSize: 12, color: "#777" }}>
-              Zadnje očitanje:{" "}
-              {zadnjeOcitanje
-                ? `${formatDatum(zadnjeOcitanje.mjerenoU)} (${prijeKoliko(
-                    zadnjeOcitanje.mjerenoU
-                  )})`
-                : "nema očitanja"}
-            </span>
-          </div>
-
-          <div style={topParamsGridStyle}>
-            <ParamTop
-              label="Trenutna temperatura"
-              value={formatTemp(zadnjeOcitanje?.temperatura)}
-              unit="°C"
-              emphasize
-              tone={tempStatus === "ALARM" ? "red" : "default"}
-            />
-            <ParamTop
-              label={hladjenjeIskljuceno ? "Zadana (zapamćena)" : "Zadana temperatura"}
-              value={formatTemp(
-                hladjenjeIskljuceno ? tank.zadnjaZadanaTemp ?? tank.zadanaTemp : zadanaStvarna
-              )}
-              unit="°C"
-            />
-            <ParamTop
-              label="Hlađenje"
-              value={
-                hladjenjeIskljuceno
-                  ? "Isključeno"
-                  : hladiSad == null
-                    ? "—"
-                    : hladiSad
-                      ? "Hladi (ON)"
-                      : "Ne hladi (OFF)"
-              }
-              tone={hladiSad ? "green" : "default"}
-            />
-          </div>
-
-          <div style={topParamsGridStyle}>
-            <ParamTop
-              label="Alarm −"
-              value={formatTemp(tank.alarmMinus)}
-              unit="°C"
-            />
-            <ParamTop
-              label="Alarm +"
-              value={formatTemp(tank.alarmPlus)}
-              unit="°C"
-            />
-            <ParamTop
-              label="Modbus adresa"
-              value={tank.modbusAdresa ?? "—"}
-            />
-          </div>
-
-          {aktivniAlarmi.length > 0 ? (
-            <div
-              style={{
-                border: "1px solid #e0776f",
-                background: "#fdecec",
-                padding: 12,
-                display: "grid",
-                gap: 6,
-              }}
-            >
-              <div style={{ fontWeight: 700, color: "#a11d1d", fontSize: 13 }}>
-                Aktivni alarmi
-              </div>
-              {aktivniAlarmi.map((a) => (
-                <div key={a.id} style={{ fontSize: 13, color: "#a11d1d" }}>
-                  <strong>{a.tip}</strong> — {a.poruka}{" "}
-                  <span style={{ color: "#c06a63" }}>
-                    ({formatDatum(a.nastaoU)})
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          <HladjenjeGraf tankId={tank.id} zadanaPocetna={zadanaStvarna} />
-
-          <div style={{ fontSize: 11, color: "#999" }}>
-            Zadana temperatura i pragovi alarma mijenjaju se na{" "}
-            <Link href="/dashboard/hladjenje" style={{ color: "#1f6f8b" }}>
-              dashboardu hlađenja
-            </Link>
-            .
-          </div>
-        </div>
-      </Card>
-
-      <Card title="Otvoreni zadaci" broj={otvoreniZadaci.length}>
-        {otvoreniZadaci.length === 0 ? (
-          <div style={mutedTextStyle}>Nema otvorenih zadataka.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {otvoreniZadaci.map((z) => {
-              const imaStavke = z.stavke && z.stavke.length > 0;
-
-              return (
-                <details key={z.id} style={openTaskDetailsStyle}>
-                  <summary style={openTaskSummaryStyle}>
-                    <div style={{ display: "grid", gap: 2 }}>
-                      <div style={summaryMainTextStyle}>
-                        {z.naslov || z.vrsta || "Zadatak"}
-                      </div>
-                      <div style={summarySubTextStyle}>
-                        {sazetakZadatka(z)}
-                      </div>
-                    </div>
-
-                    <div
-                      style={{ display: "flex", alignItems: "center", gap: 10 }}
-                    >
-                      <div style={summaryRightStyle}>
-                        {formatDatum(z.zadanoAt)}
-                      </div>
-                      <span
-                        style={{ ...statusPillStyle, ...statusBadge(z.status) }}
-                      >
-                        {z.status}
-                      </span>
-                    </div>
-                  </summary>
-
-                  <div style={detailsContentStyle}>
-                    <DetailRow label="Vrsta" value={z.vrsta ?? "—"} />
-                    <DetailRow label="Tip zadatka" value={tipZadatkaLabel(z)} />
-                    <DetailRow
-                      label="Zadao"
-                      value={prikaziKorisnika(z.zadaoKorisnik)}
-                    />
-                    <DetailRow
-                      label="Izvršio"
-                      value={prikaziKorisnika(z.izvrsioKorisnik)}
-                    />
-                    <DetailRow label="Zadano" value={formatDatum(z.zadanoAt)} />
-                    <DetailRow
-                      label="Napomena"
-                      value={z.napomena?.trim() ? z.napomena : "—"}
-                    />
-
-                    {imaStavke ? (
-                      <>
-                        <DetailRow
-                          label="Broj preparata"
-                          value={String(z.stavke.length)}
-                        />
-                        <div style={innerSectionTitleStyle}>Stavke zadatka</div>
-
-                        <div style={{ display: "grid", gap: 8 }}>
-                          {z.stavke.map((s, index) => (
-                            <div key={s.id} style={subBoxStyle}>
-                              <div style={subBoxTopStyle}>
-                                <strong style={{ fontWeight: 600 }}>
-                                  {index + 1}. {s.preparat?.naziv ?? "—"}
-                                </strong>
-                                <span style={{ fontSize: 12, color: "#7f1d1d" }}>
-                                  Vezana stavka
-                                </span>
-                              </div>
-
-                              <div style={{ display: "grid", gap: 4, marginTop: 8 }}>
-                                <div style={subMetaTextStyle}>
-                                  Preporučena doza: {preporucenaDozaText(s.preparat)}
-                                </div>
-                                <div style={subMetaTextStyle}>
-                                  Odabrana doza:{" "}
-                                  {s.doza != null
-                                    ? `${formatBroj(s.doza)} ${s.jedinica?.naziv ?? ""}`.trim()
-                                    : "—"}
-                                </div>
-                                <div style={subMetaTextStyle}>
-                                  Volumen u tanku:{" "}
-                                  {s.volumenUTanku != null
-                                    ? `${formatBroj(s.volumenUTanku)} L`
-                                    : "—"}
-                                </div>
-                                <div style={subMetaTextStyle}>
-                                  Ukupno za dodati:{" "}
-                                  {s.izracunataKolicina != null
-                                    ? `${formatBroj(s.izracunataKolicina)} ${
-                                        s.izlaznaJedinica?.naziv ?? ""
-                                      }`.trim()
-                                    : "—"}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <DetailRow
-                          label="Sredstvo"
-                          value={z.preparat?.naziv ?? "—"}
-                        />
-                        <DetailRow
-                          label="Preporučena doza"
-                          value={preporucenaDozaText(z.preparat)}
-                        />
-                        <DetailRow
-                          label="Odabrana doza"
-                          value={
-                            z.doza != null
-                              ? `${formatBroj(z.doza)} ${z.jedinica?.naziv ?? ""}`.trim()
-                              : "—"
-                          }
-                        />
-                        <DetailRow
-                          label="Volumen u tanku"
-                          value={
-                            z.volumenUTanku != null
-                              ? `${formatBroj(z.volumenUTanku)} L`
-                              : "—"
-                          }
-                        />
-                        <DetailRow
-                          label="Ukupno za dodati"
-                          value={
-                            z.izracunataKolicina != null
-                              ? `${formatBroj(z.izracunataKolicina)} ${
-                                  z.izlaznaJedinica?.naziv ?? ""
-                                }`.trim()
-                              : "—"
-                          }
-                        />
-                      </>
-                    )}
-                  </div>
-                </details>
-              );
-            })}
-          </div>
-        )}
-      </Card>
       {/* --- KRONOLOGIJA: jedan slijed umjesto sest kartica (Radnje, Pretoci,
               Dolasci, Punjenja, Izlazi, Izvrseni zadaci). Mjerenja NISU ovdje
               — ostaju vlastita kartica, vidi kronologija.tsx. --- */}
