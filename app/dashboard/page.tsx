@@ -76,6 +76,10 @@ export default async function DashboardPage() {
   const canSeePutnik = isLevel1 || isLevel2 || isLevel3 || isLevel4;
   const canSeeUsers = isLevel1;
   const canSeeReset = isLevel1;
+  // Isti skup rola koji ruta provjerava kroz smijeUPodrumu (ADMIN, ENOLOG,
+  // PODRUM). NAMJERNO izvan bloka canSeeMainDashboard: taj je bez ENOLOG-a,
+  // a kartica izvjestaja ima red za njegovu biljesku.
+  const canSeeIzvjestajPodruma = isLevel1 || isLevel2 || isLevel3;
   // Hlađenje ide svima OSIM putnika (PREGLED = Level 4 "samo putnik").
   const canSeeHladjenje = isLevel1 || isLevel2 || isLevel3;
 
@@ -170,6 +174,14 @@ export default async function DashboardPage() {
               href="/dashboard/hladjenje"
               title="Hlađenje"
               description="Nadzor i upravljanje temperaturom tankova"
+            />
+          )}
+
+          {canSeeIzvjestajPodruma && (
+            <DashboardCard
+              href="/dashboard/izvjestaji/podrum"
+              title="Izvještaj podruma"
+              description="Ispis kartica po tanku za obilazak: parametri, berba, grafovi i mjesto za bilješku"
             />
           )}
 

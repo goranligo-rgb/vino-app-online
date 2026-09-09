@@ -139,6 +139,25 @@ export default function MonitorPage() {
           >
             NATRAG
           </Link>
+
+          <Link
+            href="/dashboard/izvjestaji/podrum"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "1px solid #cfcfcf",
+              background: "#f8f9fa",
+              padding: "8px 12px",
+              fontSize: 12,
+              color: "#222",
+              textDecoration: "none",
+              fontWeight: 700,
+              marginLeft: 8,
+            }}
+          >
+            ISPIS
+          </Link>
         </div>
 
         <div
