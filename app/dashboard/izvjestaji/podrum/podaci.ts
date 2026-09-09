@@ -166,6 +166,10 @@ export async function dohvatiPodrum() {
       kapacitet: true,
       grana: true,
       zadanaTemp: true,
+      // Zapamcena zadana od PRIJE soft-OFF-a. Treba jer kod iskljucenog
+      // hladjenja `zadanaTemp` drzi 20,0 — oznaku "ugaseno", ne zeljenu
+      // temperaturu. Isto polje cita i stranica tanka.
+      zadnjaZadanaTemp: true,
     },
   });
   brojUpita++;

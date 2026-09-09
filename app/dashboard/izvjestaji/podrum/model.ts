@@ -14,7 +14,7 @@ import {
   type PodrumPodaci,
 } from "./podaci";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
-import { stvarnaZadana } from "@/lib/temperatura";
+import { stvarnaZadana, uBroj } from "@/lib/temperatura";
 
 const DAN_MS = 24 * 3600 * 1000;
 
@@ -78,6 +78,8 @@ export type Kartica = {
 
   tempTrenutna: number | null;
   tempZadana: number | null;
+  /** Zadana od PRIJE soft-OFF-a; jedina smislena brojka dok je hladjenje ugaseno. */
+  tempZapamcena: number | null;
   hladjenjeAktivno: boolean;
   hladjenjeIskljuceno: boolean;
   ocitanoU: Date | null;
@@ -382,6 +384,7 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
 
       tempTrenutna: oc?.temperatura ?? null,
       tempZadana: zadana,
+      tempZapamcena: uBroj(t.zadnjaZadanaTemp),
       hladjenjeAktivno: oc?.hladjenjeAktivno ?? false,
       hladjenjeIskljuceno: jeHladjenjeIskljuceno(zadana),
       ocitanoU: oc?.mjerenoU ?? null,

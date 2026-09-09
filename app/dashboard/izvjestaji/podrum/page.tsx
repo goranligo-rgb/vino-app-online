@@ -113,12 +113,27 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
         </div>
         <div className="traka-polje">
           <span className="traka-oznaka">T zadana</span>
-          {/* Broj se pokazuje UVIJEK kad postoji, i kod soft-OFF-a (zadana
-              20,0 °C). Prije je tu stajala crtica, pa je kartica tvrdila da
-              zadane nema iako je kontroler ima — a to je stanje govori polje
-              "Hlađenje: isključeno" pokraj, ne prazno polje ovdje. */}
+          {/* SOFT-OFF: kontroler nema registar za ON/OFF, pa se hladjenje gasi
+              podizanjem set pointa na SOFT_OFF_TEMP (20,0 °C) — vidi
+              lib/tank-komanda.ts. Tih 20 nije zeljena temperatura nego oznaka
+              "ugaseno", pa se ne ispisuje kao zadana. Umjesto toga ide
+              zapamcena vrijednost od prije gasenja, ista koju pokazuje i
+              stranica tanka ("Zadana (zapamćena)"). Bez nje ostaje crtica. */}
           <span className="traka-vrijednost">
-            {k.tempZadana == null ? "—" : `${broj(k.tempZadana, 1)} °C`}
+            {k.hladjenjeIskljuceno ? (
+              k.tempZapamcena == null ? (
+                "—"
+              ) : (
+                <>
+                  {broj(k.tempZapamcena, 1)} °C{" "}
+                  <span className="zamjena">(isključeno)</span>
+                </>
+              )
+            ) : k.tempZadana == null ? (
+              "—"
+            ) : (
+              `${broj(k.tempZadana, 1)} °C`
+            )}
           </span>
         </div>
         <div className={`traka-polje stanje-${stanjeHladjenja.replace("č", "c")}`}>
