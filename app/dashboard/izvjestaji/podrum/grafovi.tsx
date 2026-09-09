@@ -175,7 +175,12 @@ export function GrafSecerITemperature({
             <>
               <line x1={L} y1={sT.y(zadana)} x2={W - R} y2={sT.y(zadana)} stroke={BOJA.cilj}
                 strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
-              <text x={W - R} y={sT.y(zadana) - 3} textAnchor="end" fontSize={9} fill={BOJA.cilj}>
+              {/* Natpis referentne crte ide na LIJEVI rub, a vrijednost serije
+                  ostaje na desnom. Oba su prije bila desno pa su se preklapala
+                  cim je zadnji prosjek blizu zadane (T33: "14,3 °C" preko
+                  "zadana 15 °C"). Razdvajanje po strani rjesava cijeli razred
+                  sudara, ne samo taj jedan slucaj. */}
+              <text x={L + 3} y={sT.y(zadana) - 3} fontSize={9} fill={BOJA.cilj}>
                 zadana {zadana.toLocaleString("hr-HR", { maximumFractionDigits: 1 })} °C
               </text>
             </>
@@ -252,7 +257,10 @@ export function GrafSO2({ tjedni, ima }: { tjedni: TjedanSO2[]; ima: boolean }) 
       <line x1={L} y1={s.y(CILJ_SLOBODNI_SO2)} x2={W - R} y2={s.y(CILJ_SLOBODNI_SO2)}
         stroke={BOJA.cilj} strokeWidth={1} strokeDasharray="4 3"
         vectorEffect="non-scaling-stroke" />
-      <text x={W - R} y={s.y(CILJ_SLOBODNI_SO2) - 3} textAnchor="end" fontSize={9} fill={BOJA.cilj}>
+      {/* Isti razlog kao kod zadane temperature: natpis crte lijevo, izravne
+          oznake serija desno, da se ne sudare kad je zadnja vrijednost blizu
+          cilja od 30 mg/L. */}
+      <text x={L + 3} y={s.y(CILJ_SLOBODNI_SO2) - 3} fontSize={9} fill={BOJA.cilj}>
         cilj {CILJ_SLOBODNI_SO2} mg/L slobodnog
       </text>
 

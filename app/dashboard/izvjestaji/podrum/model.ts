@@ -177,6 +177,49 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
     const dolazak = dolazakPo.get(t.id) ?? null;
 
     // --- Desni blok: berba ili sastav ---
+    const partije = berbePo.get(t.id) ?? [];
+
+    // LITRE PO SORTI IZ KNJIGE.
+    //
+    // `TankSortaUdio` nosi samo postotak, pa bi litre inace bile izvedene iz
+    // njega (kolicina x postotak) i nosile njegovu zaokruzenu gresku. Knjiga
+    // ih zna tocno: za T9 daje 2.689,437 + 660,563 = 3.350,000 L, sto je do
+    // decimale `kolicinaVinaUTanku`.
+    //
+    // Postotak se NE racuna odavde nego ostaje iz `TankSortaUdio` — to je isti
+    // izvor koji cita pravilo >90 %, pa se prikaz i pravilo ne mogu razici.
+    const litrePoSorti = new Map<string, number>();
+    for (const b of partije) {
+      const k = norm(b.nazivSorte);
+      litrePoSorti.set(k, (litrePoSorti.get(k) ?? 0) + Number(b.litre));
+    }
+    const kolicina = Number(t.kolicinaVinaUTanku ?? 0);
+
+    // KNJIGA SE KORISTI SVE-ILI-NISTA, PO TANKU.
+    //
+    // Knjiga imenuje sorte vlastitim nazivima ("Veltlinac zeleni") koji se ne
+    // moraju poklopiti s onima u `TankSortaUdio` ("Zeleni veltlinac"), a zna
+    // drzati i sorte kojih u udjelima uopce nema. Kad se to dogodi, dio litara
+    // ispadne iz zbroja i kartica pokaze retke koji se zbrajaju na 100 %, ali
+    // im litre ne daju kolicinu u tanku — na T6 je manjkalo 7.550 od 10.500 L.
+    //
+    // Zato se knjizne litre uzimaju samo ako pokrivaju CIJELI tank (do 1 L).
+    // Inace se za sve retke izvode iz postotka, pa je kartica bar sama sa
+    // sobom u skladu. Provjereno: knjiga pokriva 10 od 15 tankova sa sastavom,
+    // medju njima i T9 zbog kojeg je ovo i krenulo.
+    const pokriveno = udjeli.reduce(
+      (s, u) => s + (litrePoSorti.get(norm(u.nazivSorte)) ?? 0),
+      0
+    );
+    const knjigaPokrivaTank =
+      udjeli.length > 0 && Math.abs(pokriveno - kolicina) <= 1;
+
+    /** Litre sorte: knjiga kad pokriva cijeli tank, inace iz postotka. */
+    const litreSorte = (nazivSorte: string, postotak: number) =>
+      knjigaPokrivaTank
+        ? (litrePoSorti.get(norm(nazivSorte)) ?? 0)
+        : (kolicina * postotak) / 100;
+
     const najveci = udjeli[0] ?? null;
     const jednosortni =
       najveci != null && Number(najveci.postotak) > PRAG_JEDNOSORTNI;
@@ -186,7 +229,6 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
       // Berba se trazi po sorti dominantnog udjela. Kad ih je vise (ista sorta
       // brana u dva navrata), uzima se ona s najvise litara u tanku — upit ih
       // vec vraca poredane silazno.
-      const partije = berbePo.get(t.id) ?? [];
       const kandidat = partije.find(
         (b) => norm(b.nazivSorte) === norm(najveci.nazivSorte)
       );
@@ -207,7 +249,7 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
           oznakaBerbe: kandidat.oznakaBerbe,
           manjinski: udjeli.slice(1).map((u) => ({
             naziv: u.nazivSorte,
-            litre: (Number(t.kolicinaVinaUTanku ?? 0) * Number(u.postotak)) / 100,
+            litre: litreSorte(u.nazivSorte, Number(u.postotak)),
             postotak: Number(u.postotak),
             izvor: null,
           })),
@@ -216,25 +258,36 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
       // Berba nije dohvatljiva -> pada na "Sastav mjesavine" nize.
     }
 
-    // Sastav se slaze iz `BlendIzvor` kad ga ima, inace iz udjela sorti.
+    // SASTAV SE PUNI IZ `TankSortaUdio`; `BlendIzvor` samo kad udjela nema.
+    //
+    // Prije je bilo obrnuto i to je bila greska u imenu bloka koliko i u
+    // podatku: u ovom repozitoriju "Sastav" znaci udjele sorti
+    // (`app/tankovi/[id]/page.tsx`, Card "Sastav"), a `BlendIzvor` je
+    // "Porijeklo vina / sastavnice blenda" — druga kartica, drugi pojam.
+    //
+    // Podatak je uz to i netocan: od 38 punih tankova `BlendIzvor` se s
+    // `TankSortaUdio` ne slaze na 9, a kod 6 od tih 9 knjiga potvrdjuje
+    // udjele. T9 je najgori — udjeli i knjiga slozno kazu Grasevina 80,28 % /
+    // Muskat zuti 19,72 %, a blend tvrdi Muskat zuti 100 %, dakle gubi 4/5
+    // tanka i proturjeci zaglavlju kartice (`Tank.sorta`), koje monitor cita
+    // iz istog polja.
     let sastav: Sastavnica[] | null = null;
     if (!berba) {
       const sirovo =
-        blend.length > 0
-          ? blend.map((b) => ({
+        udjeli.length > 0
+          ? udjeli.map((u) => ({
+              naziv: u.nazivSorte,
+              litre: litreSorte(u.nazivSorte, Number(u.postotak)),
+              postotak: Number(u.postotak),
+              izvorVrsta: null,
+              izvorBroj: null,
+            }))
+          : blend.map((b) => ({
               naziv: b.nazivVina ?? b.sorta ?? "nepoznat izvor",
               litre: Number(b.kolicina ?? 0),
               postotak: Number(b.postotak ?? 0),
               izvorVrsta: b.izvorVrsta,
               izvorBroj: b.izvorBroj,
-            }))
-          : udjeli.map((u) => ({
-              naziv: u.nazivSorte,
-              litre:
-                (Number(t.kolicinaVinaUTanku ?? 0) * Number(u.postotak)) / 100,
-              postotak: Number(u.postotak),
-              izvorVrsta: null,
-              izvorBroj: null,
             }));
 
       // Izvor se dopisuje SAMO ondje gdje naziv ne razlikuje retke. Tank 2 ima
