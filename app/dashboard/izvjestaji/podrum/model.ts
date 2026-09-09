@@ -49,6 +49,8 @@ export type BlokBerbe = {
   nazivSorte: string;
   /** Koliko partija tank drzi ukupno; 1 = zaglavlje bez dodatka. */
   ukupnoPartija: number;
+  // NEMA `manjinski`: popis sorti se od sada ispisuje na SVAKOJ kartici, iz
+  // `Kartica.sastavSvi`, jednako i pod berbom i pod mjesavinom.
   datumBerbe: Date | null;
   kolicinaKgGrozdja: number | null;
   /** °Oe. Nikad se ne prikazuje u istom stupcu kao `secerGL`. */
@@ -57,8 +59,6 @@ export type BlokBerbe = {
   ph: number | null;
   vinograd: string | null;
   oznakaBerbe: string | null;
-  /** "+ 4,5 % Muškat žuti" — manjinski udjeli jednosortnog tanka, u jednom retku. */
-  manjinski: Sastavnica[];
 };
 
 export type Stavka = {
@@ -103,6 +103,17 @@ export type Kartica = {
   /** Tocno jedno od ovoga dvoga je popunjeno. */
   berba: BlokBerbe | null;
   sastav: Sastavnica[] | null;
+
+  /**
+   * SVE sorte tanka s postotkom, za uski redak "Sastav: ..." u dnu desnog
+   * bloka — ispisuje se na SVAKOJ kartici, i pod berbom i pod mjesavinom.
+   *
+   * Postotak dolazi iz `TankSortaUdio`, istog izvora koji cita pravilo >90 %,
+   * pa redak i pravilo ne mogu reci razlicito. Zamjenjuje raniji redak
+   * "+ 4,5 % Muskat zuti", koji je pokazivao samo manjinske sorte i samo na
+   * karticama s berbom.
+   */
+  sastavSvi: Sastavnica[];
 
   grafSecer: TockaSecera[];
   grafTemp: TockaTemp[];
@@ -249,12 +260,6 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
           ph: kandidat.ph,
           vinograd: kandidat.vinograd,
           oznakaBerbe: kandidat.oznakaBerbe,
-          manjinski: udjeli.slice(1).map((u) => ({
-            naziv: u.nazivSorte,
-            litre: litreSorte(u.nazivSorte, Number(u.postotak)),
-            postotak: Number(u.postotak),
-            izvor: null,
-          })),
         };
       }
       // Berba nije dohvatljiva -> pada na "Sastav mjesavine" nize.
@@ -406,6 +411,13 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
 
       berba,
       sastav,
+
+      sastavSvi: udjeli.map((u) => ({
+        naziv: u.nazivSorte,
+        litre: litreSorte(u.nazivSorte, Number(u.postotak)),
+        postotak: Number(u.postotak),
+        izvor: null,
+      })),
 
       grafSecer,
       grafTemp,

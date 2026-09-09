@@ -13,7 +13,13 @@ import Link from "next/link";
 import { citajSesiju } from "@/lib/auth-sesija";
 import { smijeUPodrumu } from "@/lib/auth-role";
 import { dohvatiPodrum, DANA_GRAF } from "./podaci";
-import { sloziKartice, formatBrojKratko, type Kartica, type Stavka } from "./model";
+import {
+  sloziKartice,
+  formatBrojKratko,
+  type Kartica,
+  type Sastavnica,
+  type Stavka,
+} from "./model";
 import { GrafSO2, GrafSecerITemperature } from "./grafovi";
 
 export const dynamic = "force-dynamic";
@@ -58,6 +64,26 @@ function Param({ oznaka, vrijednost, jedinica }: {
   );
 }
 
+/**
+ * Uski redak sa SVIM sortama tanka, u dnu desnog bloka.
+ *
+ * Stoji na SVAKOJ kartici — i pod berbom i pod mjesavinom — jer je sastav
+ * jedino sto o vinu vrijedi bez obzira koji je blok gore. Postotak dolazi iz
+ * `TankSortaUdio`, istog izvora koji cita pravilo >90 %.
+ */
+function RedakSastava({ sastav }: { sastav: Sastavnica[] }) {
+  return (
+    <div className="manjinski">
+      Sastav:{" "}
+      {sastav.length === 0
+        ? "—"
+        : sastav
+            .map((s) => `${s.naziv} ${broj(s.postotak, 1)} %`)
+            .join(" · ")}
+    </div>
+  );
+}
+
 function PopisStavki({ naslov, stavke }: { naslov: string; stavke: Stavka[] }) {
   return (
     <div className="stupac">
@@ -92,9 +118,11 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
       <header className="zaglavlje">
         <div className="tank-broj">T{k.broj}</div>
         <div className="zaglavlje-tekst">
-          <div className="naziv-vina">{k.nazivVina || "—"}</div>
+          {/* JEDNO ime, ne dva. `nazivVina` kad postoji, inace `sorta`. Ime se
+              NE izvodi iz sastava — kartica pokazuje ono sto u bazi pise, isto
+              sto i monitor i stranica tanka. Sastav ima svoj redak nize. */}
+          <div className="naziv-vina">{k.nazivVina || k.sorta || "—"}</div>
           <div className="podnaslov">
-            {k.sorta || "—"}
             {k.grana ? <span className="grana">grana {k.grana}</span> : null}
           </div>
         </div>
@@ -199,13 +227,7 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
               <Param oznaka="Kiseline" vrijednost={k.berba.kiseline} jedinica="g/L" />
               <Param oznaka="pH" vrijednost={k.berba.ph} jedinica="" />
             </div>
-            {k.berba.manjinski.length > 0 ? (
-              <div className="manjinski">
-                {k.berba.manjinski
-                  .map((m) => `+ ${broj(m.postotak, 1)} % ${m.naziv}`)
-                  .join(" · ")}
-              </div>
-            ) : null}
+            <RedakSastava sastav={k.sastavSvi} />
             {k.berba.vinograd || k.berba.oznakaBerbe ? (
               <div className="meta">
                 {[k.berba.vinograd, k.berba.oznakaBerbe].filter(Boolean).join(" · ")}
@@ -232,6 +254,7 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
                 </div>
               ) : null}
             </div>
+            <RedakSastava sastav={k.sastavSvi} />
           </section>
         )}
       </div>
@@ -361,9 +384,24 @@ const CSS = `
   font-size: 15px; font-weight: 700; margin: 0 0 4mm; letter-spacing: .3px;
 }
 
-/* --- Kartica: pola A4. Dvije stanu na stranicu, i nijedna se ne lomi. --- */
+/* --- Kartica: pola A4 kao DONJA granica, ne kao strop. ---
+ *
+ * "height: 136mm" je rezao sadrzaj: izmjereno 09.09.2026 headless Chromeom,
+ * 15 od 38 kartica prelijevalo se izvan okvira za 2,4-7,1 mm, a citatelj to na
+ * papiru vidi kao odrezan red. "min-height" pusta karticu da naraste do svoje
+ * visine; najvisa je danas 146,8 mm.
+ *
+ * NELOMLJIVOST je uvjet: "break-inside: avoid" (i stari "page-break-inside"
+ * radi starijih preglednika) drzi karticu cijelom. Kad naraste preko pola A4,
+ * na stranicu stane samo jedna i druga ide cijela na sljedecu — nikad pola
+ * ovdje pola ondje. Zato kartica NE SMIJE imati fiksnu visinu: fiksna visina
+ * ne sprjecava lom nego ga skriva, jer sadrzaj iscuri izvan okvira.
+ *
+ * Visinu tjera blok berbe (sest redaka parametara), ne broj sorti: cetiri
+ * najvise kartice imaju po jednu sortu, a ona s pet sorti stane u 136 mm.
+ */
 .kartica {
-  height: 136mm;
+  min-height: 136mm;
   box-sizing: border-box;
   border: 1px solid #b9b4a8;
   padding: 3mm 3.5mm;
@@ -374,6 +412,14 @@ const CSS = `
   page-break-inside: avoid;
   break-inside: avoid;
   background: #ffffff;
+}
+
+/* Unutarnji blokovi se ne smiju lomiti ni sami po sebi. Bez ovoga preglednik
+   smije prelomiti npr. popis stupaca i onda "break-inside" na kartici vise
+   nema sto cuvati. */
+.kartica > * {
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .zaglavlje {
