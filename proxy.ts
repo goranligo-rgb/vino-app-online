@@ -73,6 +73,10 @@ export async function proxy(req: NextRequest) {
       // zavrsava (vidi smijeUPodrumu u lib/auth-role.ts), pa mu i ispis
       // pripada. Prefiks, jer su i pregled sezone i pojedini dnevnik njegovi.
       pathname.startsWith("/fermentacija") ||
+      // Tiskani izvjestaji podruma. Kartica ima red za biljesku enologa, pa je
+      // on i naslovnik ispisa — bez ovoga bi ga allow-lista vracala na
+      // /dashboard i vlastita provjera u ruti ne bi ni dosla na red.
+      pathname.startsWith("/dashboard/izvjestaji") ||
       /^\/tankovi\/[^/]+$/.test(pathname);
 
     if (!allowed) {
