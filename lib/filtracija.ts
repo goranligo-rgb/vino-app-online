@@ -560,6 +560,79 @@ export function udjeliIzMape(mapa: Map<string, number>): SortaUdio[] {
 }
 
 /**
+ * Blend retci kojima se opisuje vino tanka koji SAM nema blend zapisa.
+ *
+ * ZASTO POSTOJI: prije se u toj situaciji gradio JEDAN redak opisan skalarnim
+ * `Tank.sorta`. To polje drzi tocno jednu sortu, pa je tank koji je mjesavina
+ * gubio sve osim nje. Izmjereno 09.09.2026: pretok iz tanka 36, koji je imao
+ * sastav Grasevina 80,28 % / Muskat zuti 19,72 % ali nijedan blend redak,
+ * upisao je cilju (T9) "Muskat zuti 100 %" — 80 % tanka nestalo je iz
+ * porijekla. `TankSortaUdio` je istu podjelu prenio ispravno, jer putuje
+ * drugom stazom (`sastavKojiIzlazi` -> `upisiSastav`). Dvije knjige o istom
+ * vinu razisle su se na 9 od 38 punih tankova.
+ *
+ * Sastav se cita iz `udjeliSorti` — istog izvora iz kojeg ga cita `sastavUMl`
+ * neposredno pokraj, pa blend i sastav od sada govore isto.
+ *
+ * SVI RETCI NOSE ISTI POKAZIVAC (sam tank): porijeklo je jedno, dijeli se samo
+ * opis sorti. Zato ovo NE mijenja nijednu procjenu u `parametriBlenda` —
+ * ponderirani prosjek preko retaka s istim izvorom daje istu vrijednost
+ * ((k1*v + k2*v) / (k1+k2) = v). Popravlja se prikaz porijekla, ne racun.
+ *
+ * `podijeliMl` jamci da je zbroj dijelova TOCNO `ml`, ista invarijanta koju
+ * cuva `blendKojiOdlazi` kad izvor blend ima.
+ */
+export function blendIzTanka(tank: TankSaSastavom, ml: number): BlendStavka[] {
+  if (ml <= 0) return [];
+
+  const naziv = nazivZaBlend(tank);
+
+  const stavke = tank.udjeliSorti
+    .map((u) => ({ sorta: norm(u.nazivSorte), tezina: Number(u.postotak) }))
+    .filter((s) => s.sorta && s.tezina > 0);
+
+  // Bez udjela nema se sto podijeliti — pada se na skalarnu sortu, tocno kako
+  // je radilo i prije. Isti rub ima `sastavUMl`.
+  if (stavke.length === 0) {
+    return [
+      {
+        izvorTankId: tank.id,
+        izvorArhivaVinaId: null,
+        nazivVina: naziv,
+        sorta: tank.sorta ?? null,
+        kolicinaMl: ml,
+        postotak: 100,
+      },
+    ];
+  }
+
+  const dijelovi = podijeliMl(
+    stavke.map((s) => s.tezina),
+    ml
+  );
+
+  const redci = stavke
+    .map((s, i) => ({ ...s, kolicinaMl: dijelovi[i] }))
+    .filter((s) => s.kolicinaMl > 0);
+
+  const postotci = postotciIzMl(redci.map((s) => s.kolicinaMl));
+
+  // NAZIV je isti na svim retcima, SORTA nije — i to je nosivi detalj. Kljuc u
+  // `normalizirajBlend` je pokazivac + nazivVina + sorta; da sorta nije
+  // razlicita, retci bi se spojili natrag u jedan i kvar bi se vratio na
+  // sporedna vrata. Isto vrijedi nakon `preusmjeriNaArhivu`, koje mijenja samo
+  // pokazivac a sortu ostavlja.
+  return redci.map((s, i) => ({
+    izvorTankId: tank.id,
+    izvorArhivaVinaId: null,
+    nazivVina: naziv,
+    sorta: s.sorta,
+    kolicinaMl: s.kolicinaMl,
+    postotak: postotci[i],
+  }));
+}
+
+/**
  * Spaja blend stavke istog porijekla i preracunava postotke.
  * Isti obrazac kao normalizirajBlendStavke u app/api/pretok/route.ts, samo u ml.
  */
@@ -622,16 +695,7 @@ export function blendKojiOdlazi(
     );
   }
 
-  return [
-    {
-      izvorTankId: izvor.id,
-      izvorArhivaVinaId: null,
-      nazivVina: nazivZaBlend(izvor),
-      sorta: izvor.sorta ?? null,
-      kolicinaMl: prenosMl,
-      postotak: 100,
-    },
-  ];
+  return blendIzTanka(izvor, prenosMl);
 }
 
 /**
@@ -646,6 +710,18 @@ export function blendKojiOstaje(
   ostatakMl: number,
   ukupnoPrijeMl: number
 ): BlendStavka[] {
+  // NESIMETRICNO PREMA `blendKojiOdlazi`, I TO NAMJERNO.
+  //
+  // Ondje tank bez blenda dobiva retke iz `udjeliSorti` (vidi `blendIzTanka`),
+  // ovdje ne — tank bez blenda i dalje ostaje bez njega. Razlog: ono sto
+  // ODLAZI mora ciljnom tanku opisati odakle je doslo, pa opis mora postojati.
+  // Ono sto OSTAJE vec je u svom tanku i taj tank je sam sebi porijeklo;
+  // upisivanje retka koji pokazuje na samog sebe stvorilo bi karticu
+  // "Porijeklo vina" na tankovima koji je danas nemaju (5 od 38 punih,
+  // mjereno 09.09.2026) i ne bi dodalo nijedan podatak — `parametriBlenda` bi
+  // iz takvog retka procitao mjerenja istog tog tanka.
+  //
+  // Kad izvor blend IMA, racun je ispod i ondje nema nesimetrije.
   if (ostatakMl <= 0 || ukupnoPrijeMl <= 0 || izvor.blendIzvori.length === 0) {
     return [];
   }
@@ -1215,18 +1291,7 @@ export async function izvrsiFiltraciju(
             kolicinaMl: uMl(b.kolicina),
             postotak: 0,
           }))
-        : ciljPrijeMl > 0
-        ? [
-            {
-              izvorTankId: cilj.tank.id,
-              izvorArhivaVinaId: null,
-              nazivVina: nazivZaBlend(cilj.tank),
-              sorta: cilj.tank.sorta ?? null,
-              kolicinaMl: ciljPrijeMl,
-              postotak: 0,
-            },
-          ]
-        : [];
+        : blendIzTanka(cilj.tank, ciljPrijeMl);
 
     const blend = normalizirajBlend([
       ...blendCilja,

@@ -48,6 +48,7 @@
 import { Prisma } from "@prisma/client";
 import {
   FiltracijaGreska,
+  blendIzTanka,
   blendKojiOdlazi,
   blendKojiOstaje,
   nazivZaBlend,
@@ -604,18 +605,7 @@ export async function izvrsiPretok(
             kolicinaMl: uMl(b.kolicina),
             postotak: 0,
           }))
-        : prijeMl > 0
-        ? [
-            {
-              izvorTankId: t.id,
-              izvorArhivaVinaId: null,
-              nazivVina: nazivZaBlend(t),
-              sorta: t.sorta ?? null,
-              kolicinaMl: prijeMl,
-              postotak: 0,
-            },
-          ]
-        : [];
+        : blendIzTanka(t, prijeMl);
 
     const dolazeciBlend: BlendStavka[] = blendIzvoraSpojen
       .map((b, j) => ({ ...b, kolicinaMl: udjeliBlendaPoCilju[k][j], postotak: 0 }))

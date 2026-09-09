@@ -561,6 +561,56 @@ async function main() {
   });
 
   await scenarij(
+    "DOKAZ 6b: izvor BEZ blenda koji je MJESAVINA — sastav se ne gubi",
+    async (tx) => {
+      const u = await napraviKorisnika(tx);
+
+      // Tocno slucaj koji je 08.09.2026. pokvario T9: izvor nema nijedan blend
+      // redak, a nije jednosortan. Prije popravka je cilj dobivao JEDAN redak
+      // opisan skalarnim `Tank.sorta`, pa je 80 % sastava nestalo iz porijekla.
+      const izvor = await napraviTank(tx, {
+        kolicina: 1000,
+        nazivVina: "TEST mjesavina",
+        sorta: "Grasevina",
+        sastav: [
+          { nazivSorte: "Grasevina", postotak: 80 },
+          { nazivSorte: "Muskat zuti", postotak: 20 },
+        ],
+      });
+      const cilj = await napraviTank(tx, { kolicina: 0 });
+
+      await izvrsiPretok(tx, {
+        izvori: [{ tankId: izvor.id, kolicina: 500 }],
+        ciljevi: [{ tankId: cilj.id, kolicina: 500 }],
+        vrsta: "OBICNI",
+        nacin: "BEZ",
+        korisnikId: u.id,
+      });
+
+      const c = await stanje(tx, cilj.id);
+
+      jednako(c.blendRedaka, 2, "cilj je dobio DVA blend retka, ne jedan");
+      jednako(c.blendMl, uMl(500), "zbroj mililitara blenda je tocno preneseno");
+      jednako(c.postotakZbroj, 100, "postotci se zbrajaju na 100");
+
+      const redci = await tx.blendIzvor.findMany({
+        where: { ciljTankId: cilj.id },
+        orderBy: { kolicina: "desc" },
+      });
+
+      jednako(Number(redci[0].postotak), 80, "vecinska sorta nosi 80 %");
+      jednako(Number(redci[1].postotak), 20, "manjinska sorta nosi 20 %");
+      jednako(redci[0].sorta, "Grasevina", "prvi redak je Grasevina");
+      jednako(redci[1].sorta, "Muskat zuti", "drugi redak je Muskat zuti");
+
+      // Porijeklo je JEDNO — dijeli se samo opis sorti. Da pokazivaci nisu isti,
+      // `parametriBlenda` bi za te retke citao mjerenja razlicitih vina.
+      jednako(redci[0].izvorTankId, izvor.id, "prvi redak pokazuje na izvor");
+      jednako(redci[1].izvorTankId, izvor.id, "drugi redak pokazuje na ISTI izvor");
+    }
+  );
+
+  await scenarij(
     "DOKAZ 7: izvor S BLENDOM — orakul drifta, motor je egzaktan",
     async (tx) => {
       const u = await napraviKorisnika(tx);
