@@ -65,26 +65,41 @@ function Param({ oznaka, vrijednost, jedinica }: {
 }
 
 /**
- * Uski redak sa SVIM sortama tanka, u dnu desnog bloka.
+ * Blok SASTAV — sve sorte tanka, s udjelom.
  *
- * SAMO POD "BERBA". Blok "Sastav mjesavine" je i sam popis sorti — s litrama i
- * postotkom, redak po redak — pa je ovaj uski redak ispod njega ponavljao isti
- * podatak drugim rijecima. Pod berbom takvog popisa nema, a jednosortni tank
- * rijetko je stopostotno jednosortan, pa ondje redak nosi jedini podatak o
- * manjinskim sortama.
+ * ZAMJENJUJE uski redak "Sastav: Grasevina 95,5 % · Muskat zuti 4,5 %" koji je
+ * stajao u dnu bloka BERBA. Bio je najsitniji tekst na kartici (8,5px, siva),
+ * pa je sastav — podatak koji se cita jednako cesto kao secer ili pH — izgledao
+ * kao fusnota ispod pH.
+ *
+ * Sada je vlastiti blok, istog oblika kao TRENUTNI PARAMETRI i BERBA: naslov u
+ * istom stilu, nazivi sorti u punoj velicini, postotak podebljan i poravnat
+ * desno. Isti oblik kao blok SASTAV MJESAVINE na karticama mjesavina — samo bez
+ * stupca s litrama, jer kod jednosortnog tanka litre po sorti ne kazu nista sto
+ * kolicina u zaglavlju vec ne kaze.
+ *
+ * Stoji SAMO na karticama s berbom. Mjesavine imaju svoj SASTAV MJESAVINE i
+ * dvaput im ne treba — vidi biljesku uz taj blok.
  *
  * Postotak dolazi iz `TankSortaUdio`, istog izvora koji cita pravilo >90 %.
  */
-function RedakSastava({ sastav }: { sastav: Sastavnica[] }) {
+function BlokSastava({ sastav }: { sastav: Sastavnica[] }) {
   return (
-    <div className="manjinski">
-      Sastav:{" "}
-      {sastav.length === 0
-        ? "—"
-        : sastav
-            .map((s) => `${s.naziv} ${broj(s.postotak, 1)} %`)
-            .join(" · ")}
-    </div>
+    <section className="blok">
+      <h3>Sastav</h3>
+      {sastav.length === 0 ? (
+        <div className="prazno">nije zapisan</div>
+      ) : (
+        <div className="sastav">
+          {sastav.map((s, i) => (
+            <div key={`${s.naziv}-${i}`} className="sastav-red sastav-red-udio">
+              <span className="sastav-naziv">{s.naziv}</span>
+              <span className="sastav-postotak">{broj(s.postotak, 1)} %</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -190,18 +205,29 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
       </div>
 
       <div className="sredina">
-        <section className="blok">
-          <h3>Trenutni parametri</h3>
-          <div className="parametri">
-            {/* Zaostali secer u g/L. NIKAD u istom stupcu sa °Oe iz berbe. */}
-            <Param oznaka="Zaostali šećer" vrijednost={k.secerGL} jedinica="g/L" />
-            <Param oznaka="Uk. kiselina" vrijednost={k.ukupneKiseline} jedinica="g/L" />
-            <Param oznaka="pH" vrijednost={k.ph} jedinica="" />
-            <Param oznaka="SO₂ slobodni" vrijednost={k.slobodniSO2} jedinica="mg/L" />
-            <Param oznaka="SO₂ ukupni" vrijednost={k.ukupniSO2} jedinica="mg/L" />
-          </div>
-          <div className="meta">Mjereno {datum(k.mjerenoU)}</div>
-        </section>
+        {/* LIJEVI STUPAC nosi dva bloka na karticama s berbom.
+            Mjereno 10.09.2026: sadrzaj bloka TRENUTNI PARAMETRI je 35,7 mm, a
+            desnog bloka BERBA 42,0-46,2 mm — desni je taj koji diktira visinu
+            reda, pa je lijevi stupac imao 6-10 mm neiskoristenog prostora.
+            SASTAV ide onamo, a ne pod BERBU, da se ta praznina potrosi umjesto
+            da se kartica produzi za punu visinu bloka. */}
+        <div className="stupac-blokova">
+          <section className="blok">
+            <h3>Trenutni parametri</h3>
+            <div className="parametri">
+              {/* Zaostali secer u g/L. NIKAD u istom stupcu sa °Oe iz berbe. */}
+              <Param oznaka="Zaostali šećer" vrijednost={k.secerGL} jedinica="g/L" />
+              <Param oznaka="Uk. kiselina" vrijednost={k.ukupneKiseline} jedinica="g/L" />
+              <Param oznaka="pH" vrijednost={k.ph} jedinica="" />
+              <Param oznaka="SO₂ slobodni" vrijednost={k.slobodniSO2} jedinica="mg/L" />
+              <Param oznaka="SO₂ ukupni" vrijednost={k.ukupniSO2} jedinica="mg/L" />
+            </div>
+            <div className="meta">Mjereno {datum(k.mjerenoU)}</div>
+          </section>
+
+          {/* Samo uz berbu: mjesavina svoj sastav ima u desnom bloku. */}
+          {k.berba ? <BlokSastava sastav={k.sastavSvi} /> : null}
+        </div>
 
         {k.berba ? (
           <section className="blok">
@@ -238,7 +264,9 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
               <Param oznaka="Kiseline" vrijednost={k.berba.kiseline} jedinica="g/L" />
               <Param oznaka="pH" vrijednost={k.berba.ph} jedinica="" />
             </div>
-            <RedakSastava sastav={k.sastavSvi} />
+            {/* Sastav je odselio u vlastiti blok SASTAV, u lijevi stupac. Ovdje
+                je bio uski sivi redak od 8,5px — najsitniji tekst na kartici,
+                fusnota ispod pH. */}
             {k.berba.vinograd || k.berba.oznakaBerbe ? (
               <div className="meta">
                 {[k.berba.vinograd, k.berba.oznakaBerbe].filter(Boolean).join(" · ")}
@@ -531,6 +559,14 @@ const CSS = `
 .stanje-iskljuceno { background: #f3f3f1; border-color: #cfcfcb; }
 
 .sredina { display: grid; grid-template-columns: 1fr 1fr; gap: 2.4mm; }
+/* Lijevi stupac drzi dva bloka jedan ispod drugoga (TRENUTNI PARAMETRI +
+   SASTAV). Pravilo align-content: start je namjerno: bez njega bi grid
+   rastegnuo oba bloka na visinu stupca i SASTAV bi na nekim karticama bio
+   dvostruko visi od svog sadrzaja. Ovako blokovi zadrze prirodnu visinu, a
+   visak prostora ostaje ispod — ondje ga se i ne vidi, jer blokovi imaju
+   vlastiti okvir.
+   (Bez obrnutih navodnika: cijeli CSS je JS template literal.) */
+.stupac-blokova { display: grid; gap: 2.4mm; align-content: start; min-width: 0; }
 .blok { border: 1px solid #e4e0d6; padding: 1.4mm 1.8mm; min-width: 0; }
 .blok h3 {
   margin: 0 0 1mm; font-size: 8.5px; text-transform: uppercase;
@@ -551,10 +587,6 @@ const CSS = `
    odvojenim blokovima i ne smiju se citati kao ista mjera). */
 .jedinica { font-weight: 600; color: #6b7280; font-size: 8.5px; }
 
-.manjinski {
-  margin-top: 1mm; padding-top: 1mm; border-top: 1px dotted #ddd9cf;
-  font-size: 8.5px; color: #52514e;
-}
 .meta { margin-top: 1mm; font-size: 8px; color: #8a8a85; }
 
 .sastav { display: grid; gap: .5mm; }
@@ -569,6 +601,10 @@ const CSS = `
 .podnaslov-bloka { color: #8a8a85; font-weight: 600; text-transform: none; letter-spacing: 0; }
 .sastav-litre { font-variant-numeric: tabular-nums; color: #52514e; }
 .sastav-postotak { font-variant-numeric: tabular-nums; font-weight: 700; min-width: 11mm; text-align: right; }
+/* Isti redak, bez stupca s litrama — blok SASTAV na karticama s berbom.
+   Kod jednosortnog tanka litre po sorti ne kazu nista sto kolicina u zaglavlju
+   vec ne kaze, pa ostaju naziv i udio. */
+.sastav-red-udio { grid-template-columns: 1fr auto; }
 
 .grafovi { display: grid; grid-template-columns: 1fr 1fr; gap: 2.4mm; }
 .graf { width: 100%; height: auto; display: block; }
