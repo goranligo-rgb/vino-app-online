@@ -53,19 +53,23 @@ function ljestvica(vrijednosti: number[], pod: number, visina: number) {
   };
 }
 
-function PrazanPanel({ y, visina, poruka }: { y: number; visina: number; poruka: string }) {
-  return (
-    <text
-      x={L + (W - L - R) / 2}
-      y={y - visina / 2}
-      textAnchor="middle"
-      fontSize={9}
-      fill={BOJA.tekst}
-    >
-      {poruka}
-    </text>
-  );
-}
+/**
+ * RASPORED PANELA. Panel koji nema podataka se NE CRTA, a SVG se skupi.
+ *
+ * Prije je prazan panel crtao os i recenicu "nema ocitanja temperature" —
+ * trecina visine grafa potrosena na obavijest da podatka nema. Sada:
+ *
+ *   dva panela  -> H 120, osi na 54 i 112   (nepromijenjeno, znak za znak)
+ *   jedan panel -> H  62, os na 54          (upola nizi graf)
+ *   nijedan     -> komponenta vraca null
+ *
+ * Kad je panel jedini, dobiva mjesto PRVOGA, pa je puni raspored ostao
+ * netaknut i kartice s oba podatka izgledaju tocno kao prije.
+ */
+const POD_PRVI = 54; // y osi prvog panela
+const POD_DRUGI = 112; // y osi drugog panela
+const VIS_PANELA = 36; // visina crtaceg podrucja
+const DNO = 8; // prostor ispod zadnje osi, za natpise x-osi
 
 /**
  * Graf 1: zaostali secer (g/L) i temperatura (°C) kroz 10 dana.
@@ -86,17 +90,31 @@ export function GrafSecerITemperature({
 }) {
   const x = (t: number) => L + ((t - odMs) / (doMs - odMs)) * (W - L - R);
 
-  // Panel gore: secer. Panel dolje: temperatura.
-  const podS = 54;
-  const visS = 36;
-  const podT = 112;
-  const visT = 36;
+  const imaSecer = secer.length > 0;
+  const imaTemp = temp.length > 0;
 
-  const sS = secer.length > 0 ? ljestvica(secer.map((p) => p.secerGL), podS, visS) : null;
+  // Nema se sto nacrtati — kartica ostaje bez ovog grafa i skupi se za
+  // njegovu visinu. Pozivatelj zbog toga ne mora nista provjeravati.
+  if (!imaSecer && !imaTemp) return null;
+
+  // Panel gore: secer. Panel dolje: temperatura. Kad je samo jedan, on uzima
+  // mjesto gornjega i graf je upola nizi — vidi RASPORED PANELA gore.
+  const visS = VIS_PANELA;
+  const visT = VIS_PANELA;
+  const podS = POD_PRVI;
+  const podT = imaSecer ? POD_DRUGI : POD_PRVI;
+
+  // Zadnja os na kartici: do nje idu okomite crte mreze, ispod nje natpisi.
+  const podZadnji = imaTemp ? podT : podS;
+  // Ime NIJE H: modul vec ima H = 120 za puni graf, a ovaj se mijenja s brojem
+  // panela. Sjena nad modulskom konstantom bila bi zamka pri sljedecoj izmjeni.
+  const visinaSvg = podZadnji + DNO;
+
+  const sS = imaSecer ? ljestvica(secer.map((p) => p.secerGL), podS, visS) : null;
 
   const tempVrijednosti = temp.flatMap((p) => [p.min, p.max]);
-  if (zadana != null && temp.length > 0) tempVrijednosti.push(zadana);
-  const sT = temp.length > 0 ? ljestvica(tempVrijednosti, podT, visT) : null;
+  if (zadana != null && imaTemp) tempVrijednosti.push(zadana);
+  const sT = imaTemp ? ljestvica(tempVrijednosti, podT, visT) : null;
 
   // Dnevne crte mreze — po jedna na svaka dva dana, da se ne zamrsi.
   const dana = Math.round((doMs - odMs) / 86400000);
@@ -105,21 +123,22 @@ export function GrafSecerITemperature({
   );
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="graf" role="img"
+    <svg viewBox={`0 0 ${W} ${visinaSvg}`} className="graf" role="img"
       aria-label="Zaostali šećer u gramima po litri i temperatura u Celzijevim stupnjevima kroz deset dana">
       {crte.map((t) => (
-        <line key={t} x1={x(t)} y1={T} x2={x(t)} y2={podT} stroke={BOJA.mreza} strokeWidth={1}
+        <line key={t} x1={x(t)} y1={T} x2={x(t)} y2={podZadnji} stroke={BOJA.mreza} strokeWidth={1}
           vectorEffect="non-scaling-stroke" />
       ))}
 
-      {/* --- Panel: secer g/L --- */}
-      <text x={0} y={T - 3} fontSize={10} fill={BOJA.secer} fontWeight={700}>
-        Šećer g/L
-      </text>
-      <line x1={L} y1={podS} x2={W - R} y2={podS} stroke={BOJA.os} strokeWidth={1}
-        vectorEffect="non-scaling-stroke" />
-      {sS && secer.length > 0 ? (
+      {/* --- Panel: secer g/L. Crta se samo kad ima mjerenja; inace panela
+              nema, a graf je za njegovu visinu nizi. --- */}
+      {sS ? (
         <>
+          <text x={0} y={T - 3} fontSize={10} fill={BOJA.secer} fontWeight={700}>
+            Šećer g/L
+          </text>
+          <line x1={L} y1={podS} x2={W - R} y2={podS} stroke={BOJA.os} strokeWidth={1}
+            vectorEffect="non-scaling-stroke" />
           <text x={L - 3} y={sS.y(sS.hi) + 6} textAnchor="end" fontSize={9} fill={BOJA.tekst}>
             {Math.round(sS.hi)}
           </text>
@@ -140,21 +159,23 @@ export function GrafSecerITemperature({
             {secer[secer.length - 1].secerGL.toLocaleString("hr-HR", { maximumFractionDigits: 1 })} g/L
           </text>
         </>
-      ) : (
-        <PrazanPanel y={podS} visina={visS} poruka="nema mjerenja šećera" />
-      )}
+      ) : null}
 
-      {/* --- Panel: temperatura °C --- */}
+      {/* --- Panel: temperatura °C. Crta se samo kad ima ocitanja. --- */}
       {/* "prosj." NIJE ukras: traka kartice pokazuje ZADNJE ocitanje, a ova
           krivulja DNEVNI PROSJEK, pa se brojevi zakonito razlikuju (T7: traka
           18,6 °C, graf 18,1 °C). Bez oznake to izgleda kao proturjecje. */}
-      <text x={0} y={podS + 16} fontSize={10} fill={BOJA.temp} fontWeight={700}>
-        Temp. °C prosj.
-      </text>
-      <line x1={L} y1={podT} x2={W - R} y2={podT} stroke={BOJA.os} strokeWidth={1}
-        vectorEffect="non-scaling-stroke" />
-      {sT && temp.length > 0 ? (
+      {sT ? (
         <>
+          {/* Natpis se vezuje uz VLASTITU os (6 iznad vrha crtaceg podrucja),
+              ne uz `podS`. U punom rasporedu daje 112-36-6 = 70, tocno gdje je
+              i bio; u kompaktnom prati panel umjesto da visi nad tudjim
+              mjestom. */}
+          <text x={0} y={podT - visT - 6} fontSize={10} fill={BOJA.temp} fontWeight={700}>
+            Temp. °C prosj.
+          </text>
+          <line x1={L} y1={podT} x2={W - R} y2={podT} stroke={BOJA.os} strokeWidth={1}
+            vectorEffect="non-scaling-stroke" />
           <text x={L - 3} y={sT.y(sT.hi) + 6} textAnchor="end" fontSize={9} fill={BOJA.tekst}>
             {sT.hi.toFixed(0)}
           </text>
@@ -194,14 +215,12 @@ export function GrafSecerITemperature({
             {temp[temp.length - 1].avg.toLocaleString("hr-HR", { maximumFractionDigits: 1 })} °C
           </text>
         </>
-      ) : (
-        <PrazanPanel y={podT} visina={visT} poruka="nema očitanja temperature" />
-      )}
+      ) : null}
 
-      <text x={L} y={H - 1} fontSize={9} fill={BOJA.tekst}>
+      <text x={L} y={visinaSvg - 1} fontSize={9} fill={BOJA.tekst}>
         {new Date(odMs).toLocaleDateString("hr-HR", { day: "numeric", month: "numeric" })}
       </text>
-      <text x={W - R} y={H - 1} textAnchor="end" fontSize={9} fill={BOJA.tekst}>
+      <text x={W - R} y={visinaSvg - 1} textAnchor="end" fontSize={9} fill={BOJA.tekst}>
         danas
       </text>
     </svg>
@@ -210,9 +229,19 @@ export function GrafSecerITemperature({
 
 /**
  * Graf 2: slobodni i ukupni SO2 po tjednu, s ciljnom crtom na 30 mg/L.
- * Kad mjerenja nema, crtaju se prazne osi i tekst — kartica zadrzava raspored.
+ *
+ * BEZ MJERENJA SE NE CRTA. Prije su se crtale prazne osi, ciljna crta i
+ * recenica "nema mjerenja" — obrazlozenje je bilo da kartica zadrzi raspored.
+ * Raspored se u tiskanom izvjestaju ne cuva besplatno: taj prazan graf je
+ * ~36 mm visine kartice potroseno na obavijest da podatka nema. Kartica se
+ * sada skupi.
+ *
+ * Ciljna crta od 30 mg/L time nestaje s tankova bez mjerenja. To je u redu —
+ * ona je pravilo, a pravilo bez ijedne izmjerene vrijednosti nema sto reci.
  */
 export function GrafSO2({ tjedni, ima }: { tjedni: TjedanSO2[]; ima: boolean }) {
+  if (!ima) return null;
+
   const pod = 98;
   const vis = 76;
   const x = (i: number) => L + (i / (TJEDANA_SO2 - 1)) * (W - L - R);
@@ -264,39 +293,30 @@ export function GrafSO2({ tjedni, ima }: { tjedni: TjedanSO2[]; ima: boolean }) 
         cilj {CILJ_SLOBODNI_SO2} mg/L slobodnog
       </text>
 
-      {ima ? (
-        <>
-          {([
-            ["slobodni", slobodni, BOJA.so2Slobodni],
-            ["ukupni", ukupni, BOJA.so2Ukupni],
-          ] as const).map(([ime, tocke, boja]) =>
-            tocke.length === 0 ? null : (
-              <g key={ime}>
-                {tocke.length > 1 ? (
-                  <path d={putanja(tocke.map((p) => ({ x: x(p.i), y: s.y(p.v) })))}
-                    fill="none" stroke={boja} strokeWidth={2} strokeLinejoin="round"
-                    strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-                ) : null}
-                {tocke.map((p) => (
-                  <circle key={p.i} cx={x(p.i)} cy={s.y(p.v)} r={2.6} fill={boja}
-                    stroke="#ffffff" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-                ))}
-                {/* Izravna oznaka je OBAVEZNA: tirkizna je ispod 3:1 kontrasta
-                    na bijeloj podlozi, pa identitet ne smije ovisiti o boji. */}
-                <text x={x(tocke[tocke.length - 1].i) - 4}
-                  y={s.y(tocke[tocke.length - 1].v) - 5} textAnchor="end" fontSize={10}
-                  fontWeight={700} fill={boja}>
-                  {tocke[tocke.length - 1].v.toLocaleString("hr-HR", { maximumFractionDigits: 0 })}
-                </text>
-              </g>
-            )
-          )}
-        </>
-      ) : (
-        <text x={L + (W - L - R) / 2} y={pod - vis / 2} textAnchor="middle" fontSize={9}
-          fill={BOJA.tekst}>
-          nema mjerenja
-        </text>
+      {([
+        ["slobodni", slobodni, BOJA.so2Slobodni],
+        ["ukupni", ukupni, BOJA.so2Ukupni],
+      ] as const).map(([ime, tocke, boja]) =>
+        tocke.length === 0 ? null : (
+          <g key={ime}>
+            {tocke.length > 1 ? (
+              <path d={putanja(tocke.map((p) => ({ x: x(p.i), y: s.y(p.v) })))}
+                fill="none" stroke={boja} strokeWidth={2} strokeLinejoin="round"
+                strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+            ) : null}
+            {tocke.map((p) => (
+              <circle key={p.i} cx={x(p.i)} cy={s.y(p.v)} r={2.6} fill={boja}
+                stroke="#ffffff" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+            ))}
+            {/* Izravna oznaka je OBAVEZNA: tirkizna je ispod 3:1 kontrasta
+                na bijeloj podlozi, pa identitet ne smije ovisiti o boji. */}
+            <text x={x(tocke[tocke.length - 1].i) - 4}
+              y={s.y(tocke[tocke.length - 1].v) - 5} textAnchor="end" fontSize={10}
+              fontWeight={700} fill={boja}>
+              {tocke[tocke.length - 1].v.toLocaleString("hr-HR", { maximumFractionDigits: 0 })}
+            </text>
+          </g>
+        )
       )}
 
       <text x={L} y={H - 1} fontSize={9} fill={BOJA.tekst}>

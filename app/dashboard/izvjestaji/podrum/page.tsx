@@ -273,9 +273,17 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
         )}
       </div>
 
-      {/* Kartica bez ijednog podatka za grafove ne crta prazne osi — to je
-          trecina visine potrosena na recenicu "nema mjerenja". Mjesto ide
-          biljesci, koja tada dobiva cetiri linije umjesto dvije. */}
+      {/* PRAZAN GRAF SE NE CRTA — ni cijeli, ni pojedini panel.
+
+          Obje komponente same vracaju null kad nemaju sto pokazati, a graf
+          secera i temperature se skupi na jedan panel kad drugi nema podataka.
+          Ovdje ostaje samo odluka o samom okviru: kad nijedan graf ne bi nista
+          nacrtao, nema ni reda `.grafovi`, pa biljeska dobiva cetiri linije
+          umjesto dvije (to je jedino sto `bezGrafova` jos odlucuje).
+
+          Mreza ostaje `1fr 1fr` i kad prezivi samo jedan graf: rastezanje na
+          punu sirinu bilo bi kontraproduktivno, jer su grafovi SVG-ovi s
+          `height: auto` pa bi siri graf bio i visi. */}
       {k.bezGrafova ? null : (
         <div className="grafovi">
           <GrafSecerITemperature
