@@ -6,8 +6,25 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
 import { jeL12 } from "@/lib/auth-role";
+import { razlikaPolja, zabiljeziIzmjene } from "@/lib/dnevnik-izmjena";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+
+/**
+ * Polja koja `PUT` smije mijenjati i koja zato ulaze u dnevnik izmjena.
+ *
+ * JEDAN popis za citanje starog stanja i za usporedbu — da se ne razidju.
+ * `kolicinaVinaUTanku` NIJE ovdje jer ga ova ruta i ne pise (vidi biljesku uz
+ * `PUT`); mijenja ga samo cin koji ga i knjizi.
+ */
+const POLJA_DNEVNIKA_TANKA = {
+  id: true,
+  broj: true,
+  kapacitet: true,
+  tip: true,
+  sorta: true,
+  nazivVina: true,
+} as const;
 
 // GET - dohvat svih tankova
 export async function GET() {
@@ -187,32 +204,71 @@ export async function PUT(req: Request) {
       );
     }
 
-    const updatedTank = await prisma.tank.update({
-      where: { id: String(id) },
-      data: {
-        broj:
-          broj !== undefined && broj !== null && String(broj).trim() !== ""
-            ? Number(broj)
-            : undefined,
-        kapacitet:
-          kapacitet !== undefined &&
-          kapacitet !== null &&
-          String(kapacitet).trim() !== ""
-            ? Number(kapacitet)
-            : undefined,
-        // KOLICINA SE OVDJE VISE NE PISE. Nije izostavljena nego maknuta, i to
-        // je cijela poanta — vidi biljesku iznad funkcije.
-        tip: tip !== undefined ? (String(tip).trim() || null) : undefined,
-        sorta:
-          sorta !== undefined ? (String(sorta).trim() || null) : undefined,
-        // Isto pravilo kao `sorta`: nije poslano -> ne diraj, poslano prazno ->
-        // obrisi. Dva polja koja opisuju isto vino moraju se moci mijenjati
-        // zajedno; dok je ovdje bila samo `sorta`, razlika se nije dala zatvoriti.
-        nazivVina:
-          nazivVina !== undefined
-            ? String(nazivVina).trim() || null
-            : undefined,
-      },
+    // JEDNA TRANSAKCIJA: procitaj staro stanje, izmijeni, upisi dnevnik.
+    //
+    // Dnevnik je UNUTAR iste transakcije namjerno — ako upis u `ActivityLog`
+    // padne, padne i izmjena. Bolje odbijena izmjena nego tiha promjena bez
+    // traga. Jedini realan uzrok pada je da korisnik iz tokena vise ne postoji
+    // u bazi (`userId` je pravi strani kljuc), a to je samo po sebi vrijedno
+    // da se sazna.
+    const updatedTank = await prisma.$transaction(async (tx) => {
+      // Staro stanje se cita PRIJE izmjene — poslije ga vise nema odakle uzeti.
+      // `Tank` nema povijest; upravo je to i razlog zbog kojeg ovaj dnevnik
+      // postoji.
+      const prije = await tx.tank.findUnique({
+        where: { id: String(id) },
+        select: POLJA_DNEVNIKA_TANKA,
+      });
+
+      const poslije = await tx.tank.update({
+        where: { id: String(id) },
+        data: {
+          broj:
+            broj !== undefined && broj !== null && String(broj).trim() !== ""
+              ? Number(broj)
+              : undefined,
+          kapacitet:
+            kapacitet !== undefined &&
+            kapacitet !== null &&
+            String(kapacitet).trim() !== ""
+              ? Number(kapacitet)
+              : undefined,
+          // KOLICINA SE OVDJE VISE NE PISE. Nije izostavljena nego maknuta, i
+          // to je cijela poanta — vidi biljesku iznad funkcije.
+          tip: tip !== undefined ? String(tip).trim() || null : undefined,
+          sorta:
+            sorta !== undefined ? String(sorta).trim() || null : undefined,
+          // Isto pravilo kao `sorta`: nije poslano -> ne diraj, poslano prazno
+          // -> obrisi. Dva polja koja opisuju isto vino moraju se moci
+          // mijenjati zajedno; dok je ovdje bila samo `sorta`, razlika se nije
+          // dala zatvoriti.
+          nazivVina:
+            nazivVina !== undefined
+              ? String(nazivVina).trim() || null
+              : undefined,
+        },
+      });
+
+      // `prije` je null samo ako tanka nema — a tada bi `update` iznad vec
+      // bacio P2025 i ovamo se ne bi ni doslo. Provjera je zbog tipa.
+      if (prije) {
+        await zabiljeziIzmjene(tx, {
+          entityType: "Tank",
+          entityId: poslije.id,
+          // Broj PRIJE izmjene: tako je tank bio poznat u trenutku zahvata.
+          opisEntiteta: `Tank ${prije.broj}`,
+          userId: user.id,
+          izmjene: razlikaPolja(prije, poslije, [
+            "broj",
+            "kapacitet",
+            "tip",
+            "sorta",
+            "nazivVina",
+          ]),
+        });
+      }
+
+      return poslije;
     });
 
     return NextResponse.json(updatedTank);
