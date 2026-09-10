@@ -42,7 +42,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { postotciIzMl, uLitre } from "@/lib/filtracija";
 import { usporediPoBerbi } from "@/lib/berba-lanac";
-import { doTrenutkaSQL } from "@/lib/sat-knjige";
+import { doTrenutkaSQL, satKretanja } from "@/lib/sat-knjige";
 
 export type CitacBerbe = Prisma.TransactionClient | PrismaClient;
 
@@ -656,4 +656,141 @@ export function razlikaSastava(
   }
 
   return razlike.sort((p, q) => Math.abs(q.razlika) - Math.abs(p.razlika));
+}
+
+// ---------------------------------------------------------------------------
+// Koje je vino bilo u tanku u nekom trenutku (faza C)
+// ---------------------------------------------------------------------------
+
+/** Jedna berba u tanku u jednom trenutku. */
+export type UdioUTrenutku = {
+  berbaId: string;
+  nazivSorte: string;
+  oznakaBerbe: string | null;
+  datumBerbe: Date | null;
+  vrstaUnosa: "BERBA" | "ZATECENO";
+  litre: number;
+  /** Udio u onome sto je tada bilo u tanku. Zbroj je tocno 100,00. */
+  postotak: number;
+  nepoznata: boolean;
+};
+
+export type VinoUTrenutku = {
+  trenutak: Date;
+  ukupnoL: number;
+  stavke: UdioUTrenutku[];
+};
+
+/**
+ * KOJE JE VINO BILO U TANKU U SVAKOM OD ZADANIH TRENUTAKA.
+ *
+ * Ovo je cijela poanta faze C. Mjerenje ZADRZAVA svoju adresu — tank i
+ * vrijeme — jer je mjerenje stanje SMJESE u trenutku, a ne svojstvo nijedne
+ * berbe: vino od cetrnaest berbi ima jedan pH, ne cetrnaest. Ono sto se
+ * izvodi iz knjige nije vrijednost nego ODGOVOR NA PITANJE CIJE JE TO VINO
+ * BILO.
+ *
+ * JEDAN UPIT ZA SVE TRENUTKE, ne jedan po mjerenju. Tank ima najvise
+ * nekoliko desetaka redaka u knjizi, pa se svi povuku odjednom i preklope u
+ * JavaScriptu — dvadeset mjerenja inace znaci dvadeset odlazaka do baze, sto
+ * je tocno ono sto lib/paralelno.ts zabranjuje (pooler drzi 15 veza za
+ * CIJELU aplikaciju).
+ *
+ * SAT je `lib/sat-knjige.ts`, isti koji koristi i SQL grana — zato ovdje ne
+ * stoji vlastita usporedba datuma.
+ *
+ * GRANICA JE UKLJUCIVA: mjerenje iz iste sekunde kad je vino uslo mjerilo je
+ * vino koje je vec bilo unutra. Punjenje i njegovo pocetno mjerenje inace bi
+ * pala na dvije strane granice.
+ */
+export async function vinoUTrenucima(
+  db: CitacBerbe,
+  tankId: string,
+  trenuci: Date[]
+): Promise<VinoUTrenutku[]> {
+  if (trenuci.length === 0) return [];
+
+  const kretanja = await db.berbaKretanje.findMany({
+    where: { OR: [{ uTankId: tankId }, { izTankId: tankId }] },
+    select: {
+      berbaId: true,
+      uTankId: true,
+      izTankId: true,
+      litre: true,
+      dogodenoAt: true,
+      createdAt: true,
+    },
+  });
+
+  if (kretanja.length === 0) {
+    return trenuci.map((t) => ({ trenutak: t, ukupnoL: 0, stavke: [] }));
+  }
+
+  const berbe = await db.berba.findMany({
+    where: { id: { in: [...new Set(kretanja.map((k) => k.berbaId))] } },
+    select: {
+      id: true,
+      nazivSorte: true,
+      oznakaBerbe: true,
+      datumBerbe: true,
+      vrstaUnosa: true,
+      createdAt: true,
+    },
+  });
+
+  const poId = new Map(berbe.map((b) => [b.id, b]));
+
+  // Sat po retku racuna se JEDNOM, ne u petlji po trenucima.
+  const sKlokom = kretanja.map((k) => ({
+    berbaId: k.berbaId,
+    ml:
+      (k.uTankId === tankId ? Math.round(Number(k.litre) * 1000) : 0) -
+      (k.izTankId === tankId ? Math.round(Number(k.litre) * 1000) : 0),
+    sat: satKretanja(k),
+  }));
+
+  return trenuci.map((trenutak) => {
+    const ms = trenutak.getTime();
+    const poBerbi = new Map<string, number>();
+
+    for (const k of sKlokom) {
+      if (k.sat > ms) continue;
+      poBerbi.set(k.berbaId, (poBerbi.get(k.berbaId) ?? 0) + k.ml);
+    }
+
+    // Berba na nuli ili u minusu ne opisuje vino koje je tada bilo u tanku.
+    // Minus je moguc kod unatrag datiranog unosa i tada je izostavljanje
+    // jedino posteno: reci "-40 L Grasevine" znacilo bi tvrditi nesto o vinu,
+    // a to je trag redoslijeda upisa.
+    const redci = [...poBerbi.entries()]
+      .filter(([, ml]) => ml > 0)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+    if (redci.length === 0) {
+      return { trenutak, ukupnoL: 0, stavke: [] };
+    }
+
+    const postotci = postotciIzMl(redci.map(([, ml]) => ml));
+    const ukupnoMl = redci.reduce((z, [, ml]) => z + ml, 0);
+
+    return {
+      trenutak,
+      ukupnoL: uLitre(ukupnoMl),
+      stavke: redci.map(([berbaId, ml], i) => {
+        const b = poId.get(berbaId);
+        const naziv = b?.nazivSorte?.trim() || SORTA_NEPOZNATA;
+
+        return {
+          berbaId,
+          nazivSorte: naziv,
+          oznakaBerbe: b?.oznakaBerbe ?? null,
+          datumBerbe: b?.datumBerbe ?? null,
+          vrstaUnosa: (b?.vrstaUnosa ?? "ZATECENO") as "BERBA" | "ZATECENO",
+          litre: uLitre(ml),
+          postotak: postotci[i],
+          nepoznata: naziv === SORTA_NEPOZNATA,
+        };
+      }),
+    };
+  });
 }

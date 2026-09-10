@@ -23,6 +23,8 @@ import {
   sastavIzPodrijetla,
   nepoznatiDio,
   razlikaSastava,
+  vinoUTrenucima,
+  type VinoUTrenutku,
 } from "@/lib/berba-model";
 import { opisGubitka } from "@/lib/pretok-gubitak";
 import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
@@ -602,6 +604,67 @@ function PutLanca({ put, sumnjiv }: { put: KarikaLanca[]; sumnjiv: boolean }) {
  * ispod sebe (temperaturu, zadatke, kronologiju).
  */
 const NASLIJEDENO_ODMAH = 6;
+
+/**
+ * Koliko sastavnica vina stane u jedan redak uz mjerenje prije nego se ostatak
+ * skrati. Cetiri, jer peta vec prelama redak na mobitelu — a tank zna imati
+ * i sesnaest razlicitih berbi.
+ */
+const VINA_U_REDAK = 4;
+
+/**
+ * CIJE JE VINO JEDNO MJERENJE MJERILO — jedan redak, izveden iz knjige.
+ *
+ * Mjerenje ostaje na svojoj adresi: ovaj tank, ovo vrijeme. Ovdje se ne
+ * prepisuje nijedna vrijednost i nista se ne dijeli po udjelima — mjerenje je
+ * stanje smjese, ne svojstvo berbe. Knjiga odgovara samo na "sto je tada bilo
+ * u tanku", ponderirano po litrama.
+ *
+ * Prazno nije greska: knjiga za rani dio sezone ne postoji, a za trenutak
+ * prije prvog ULAZ retka posteno je reci da ne zna, umjesto pokazati nulu.
+ */
+function VinoUTrenutkuRedak({ vino }: { vino: VinoUTrenutku | undefined }) {
+  if (!vino || vino.stavke.length === 0) {
+    return (
+      <div style={vinoTadaStyle}>
+        Knjiga za taj trenutak ne zna što je bilo u tanku.
+      </div>
+    );
+  }
+
+  const prikazane = vino.stavke.slice(0, VINA_U_REDAK);
+  const ostatak = vino.stavke.length - prikazane.length;
+
+  return (
+    <div style={vinoTadaStyle}>
+      <span style={{ color: "#6b7280" }}>Vino tada:</span>{" "}
+      {prikazane.map((s, i) => (
+        <span key={s.berbaId}>
+          {i > 0 ? " · " : ""}
+          <strong style={{ fontVariantNumeric: "tabular-nums" }}>
+            {formatBroj(s.postotak, 0)}%
+          </strong>{" "}
+          {s.nazivSorte}
+          {/* Oznaka berbe razlikuje dva zapisa iste sorte. Kad je nema —
+              a zatecene je nemaju — sluzi datum berbe; bez oboje bi tank 42
+              imao tri retka "Grasevina" koja se ne razlikuju. */}
+          {s.oznakaBerbe
+            ? ` ${s.oznakaBerbe}`
+            : s.datumBerbe
+              ? ` (${formatDatumBezVremena(s.datumBerbe)})`
+              : ""}
+        </span>
+      ))}
+      {ostatak > 0 ? (
+        <span style={{ color: "#6b7280" }}> · i još {ostatak}</span>
+      ) : null}
+      <span style={{ color: "#6b7280" }}>
+        {" "}
+        — ukupno {formatBroj(vino.ukupnoL, 0)} L
+      </span>
+    </div>
+  );
+}
 
 /** Jedan naslijedjeni zapis berbe, s putem i omjerom uza se. */
 function NaslijedenaStavka({ x }: { x: StavkaULancu }) {
@@ -1413,6 +1476,28 @@ export default async function TankPregledPage({
       ? mjerenja.filter((m) => m.izmjerenoAt >= granicaArhive)
       : mjerenja
   ).slice(0, 100);
+
+  // FAZA C — CIJE JE VINO SVAKO MJERENJE MJERILO.
+  //
+  // Mjerenje ZADRZAVA svoju adresu: tank i vrijeme. Ono je stanje SMJESE u
+  // trenutku, a ne svojstvo nijedne berbe — vino od cetrnaest berbi ima jedan
+  // pH, ne cetrnaest — pa se ne seli nikamo i ne dijeli se po udjelima. Iz
+  // knjige se izvodi samo odgovor na pitanje CIJE je to vino tada bilo.
+  //
+  // Zasto to uopce treba: tank je posuda. Mjerenje od 21.08. na tanku 5 ne
+  // govori o vinu koje je u tanku 5 danas, nego o onome sto je tada bilo u
+  // njemu — a to je moglo otici u tri druga tanka.
+  //
+  // JEDAN UPIT ZA SVA MJERENJA, ne jedan po mjerenju: knjiga tanka se povuce
+  // odjednom i preklopi u JS-u za svaki trenutak. Sto mjerenja inace znaci sto
+  // odlazaka do baze (lib/paralelno.ts, pooler drzi 15 veza).
+  const vinoPoMjerenju = new Map<string, VinoUTrenutku>();
+
+  if (svaMjerenja.length > 0) {
+    const trenuci = svaMjerenja.map((m) => m.izmjerenoAt);
+    const vina = await vinoUTrenucima(prisma, id, trenuci);
+    svaMjerenja.forEach((m, i) => vinoPoMjerenju.set(m.id, vina[i]));
+  }
 
   // ---------------------------------------------------------------------------
   // KRONOLOGIJA
@@ -3097,6 +3182,13 @@ export default async function TankPregledPage({
                     </div>
                   </div>
 
+                  {/* CIJE JE VINO OVO MJERENO — izvedeno iz knjige za trenutak
+                      mjerenja. Mjerenje ostaje na svojoj adresi (ovaj tank,
+                      ovo vrijeme); knjiga samo kaze sto je tada bilo unutra.
+                      Tank je posuda, pa mjerenje od prije mjesec dana ne mora
+                      govoriti o vinu koje je danas u njemu. */}
+                  <VinoUTrenutkuRedak vino={vinoPoMjerenju.get(m.id)} />
+
                   {samoBentotest ? (
                     <div
                       style={{
@@ -3429,6 +3521,17 @@ const blendUpozorenjeStyle: React.CSSProperties = {
   background: "#fff7ed",
   border: "1px solid #fed7aa",
   padding: "8px 10px",
+};
+
+/* Redak "Vino tada" uz mjerenje: tise od samog mjerenja, jer je izvedeno, a
+   ne izmjereno. */
+const vinoTadaStyle: React.CSSProperties = {
+  fontSize: 12,
+  lineHeight: 1.5,
+  color: "#2f2f2f",
+  background: "#fafafa",
+  borderLeft: "2px solid #e5e7eb",
+  padding: "4px 8px",
 };
 
 /* IZVEDENO IZ KNJIGE — vizualno odvojeno od spremljenog stanja iznad, da se

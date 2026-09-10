@@ -35,6 +35,12 @@
  *    zapisa berbe. Tri zapisa Grasevine od 100 L ne smiju natezati postotak
  *    protiv jednog zapisa Chardonnaya od 3.000 L.
  *
+ * 9-11. KOJE JE VINO BILO U TANKU TADA (faza C): `vinoUTrenucima` preklapa
+ *    knjigu u JavaScriptu, `stanjeTanka` je zbraja u SQL-u — za trenutak
+ *    "sada" moraju dati isti popis, inace mjerenje dobiva drugo vino od
+ *    onoga koje kartica tanka pokazuje. Udjeli se zbrajaju na 100,00, a
+ *    prije prvog retka knjige nijedan tank nema vino.
+ *
  * Negativna stanja u proslim trenucima se MJERE, ne tvrde: unatrag datirani
  * unos moze na kratko gurnuti tank ispod nule i to je svojstvo podataka, ne
  * greska ovog citanja. Ispisuje se kao mjera, kao i "cjelovitost povijesti" u
@@ -48,6 +54,7 @@ import {
   stanjeSvihTankova,
   podrijetloTanka,
   sastavIzPodrijetla,
+  vinoUTrenucima,
 } from "../lib/berba-model";
 import { satKretanja } from "../lib/sat-knjige";
 
@@ -294,6 +301,64 @@ async function main() {
     ponderKriv === 0,
     "sastav je ponderiran po litrama, ne po broju zapisa berbe",
     prviPonder
+  );
+
+  // ------------------------------- faza C: koje je vino bilo u tanku tada
+  //
+  // `vinoUTrenucima` preklapa knjigu u JS-u, `stanjeTanka` je zbraja u SQL-u.
+  // Za trenutak "sada" moraju dati isti popis — inace mjerenje dobiva drugo
+  // vino od onoga koje kartica tanka pokazuje.
+  let vinoNeslaganja = 0;
+  let prvoVinoNeslaganje = "";
+  let vinoZbrojKriv = 0;
+  let vinoPrijePocetka = 0;
+
+  for (const t of tankovi) {
+    const [sada2, prazno] = await vinoUTrenucima(prisma, t.id, [
+      new Date(),
+      prijeSvega,
+    ]);
+
+    if (prazno.stavke.length > 0) vinoPrijePocetka++;
+
+    const izSQL = new Map(
+      (await stanjeTanka(prisma, t.id)).map((s) => [s.berbaId, s.litre])
+    );
+
+    for (const s of sada2.stavke) {
+      const ocekivano = izSQL.get(s.berbaId);
+      if (ocekivano == null || Math.abs(ocekivano - s.litre) > 0.0005) {
+        vinoNeslaganja++;
+        if (!prvoVinoNeslaganje)
+          prvoVinoNeslaganje = `tank ${t.broj} berba ${s.berbaId}: knjiga ${s.litre} L, stanjeTanka ${ocekivano ?? "nema"}`;
+      }
+    }
+    for (const [berbaId, litre] of izSQL) {
+      if (!sada2.stavke.some((s) => s.berbaId === berbaId)) {
+        vinoNeslaganja++;
+        if (!prvoVinoNeslaganje)
+          prvoVinoNeslaganje = `tank ${t.broj} berba ${berbaId}: nedostaje u vinoUTrenucima (${litre} L)`;
+      }
+    }
+
+    if (sada2.stavke.length > 0) {
+      const zbroj = sada2.stavke.reduce((z, s) => z + s.postotak, 0);
+      if (Math.abs(zbroj - 100) > 0.005) vinoZbrojKriv++;
+    }
+  }
+
+  tvrdi(
+    vinoNeslaganja === 0,
+    "vino u trenutku 'sada' isto je kao stanje tanka iz SQL-a, na svim tankovima",
+    prvoVinoNeslaganje
+  );
+  tvrdi(
+    vinoZbrojKriv === 0,
+    "udjeli vina u trenutku zbrajaju se na tocno 100,00"
+  );
+  tvrdi(
+    vinoPrijePocetka === 0,
+    "prije prvog retka knjige nijedan tank nema vino"
   );
 
   // ------------------------------------------------------------- mjere
