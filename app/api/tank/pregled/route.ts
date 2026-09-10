@@ -73,16 +73,38 @@ export async function GET(req: Request) {
 
   const zadnjeMjerenje = spojiZadnjeMjerenje(mjerenjaZaTop);
 
-  const radnje = await prisma.radnja.findMany({
+  // ZADNJE RADNJE — iz `VinoRadnja`, ne iz `Radnja`.
+  //
+  // Pitanje na koje ovaj pregled odgovara je "sto je ovo vino dobilo", a
+  // `Radnja` odgovara na "sto se radilo kraj ovog tanka". To dvoje se razilazi
+  // cim vino jednom pretoci: tank 5 danas nosi pet kvasaca iz cetiri druga
+  // tanka, a nijedna od tih radnji nije izvedena u njemu.
+  //
+  // Oblik se drzi starog (`preparat.naziv`, `jedinica.naziv`, `korisnik.ime`,
+  // `createdAt`) da app/sadrzaj-tanka/page.tsx ostane nedirnut — imena su na
+  // `VinoRadnja` vec prepisana, pa se slazu bez ijednog joina.
+  const vinoRadnje = await prisma.vinoRadnja.findMany({
     where: { tankId },
-    orderBy: { createdAt: "desc" },
+    orderBy: { dogodenoAt: "desc" },
     take: 20,
-    include: {
-      korisnik: true,
-      preparat: true,
-      jedinica: true,
-    },
   });
+
+  const radnje = vinoRadnje.map((v) => ({
+    id: v.id,
+    tankId: v.tankId,
+    vrsta: v.vrsta,
+    opis: v.opis,
+    napomena: v.napomena,
+    kolicina: v.kolicina,
+    createdAt: v.dogodenoAt,
+    korisnik: v.korisnikIme ? { ime: v.korisnikIme } : null,
+    preparat: v.preparatNaziv ? { naziv: v.preparatNaziv } : null,
+    jedinica: v.jedinicaNaziv ? { naziv: v.jedinicaNaziv } : null,
+    // Novo, za ekrane koji to znaju prikazati: gdje je cin izveden i koliki
+    // dio danasnjeg vina nosi.
+    izvorniBrojTanka: v.izvorniBrojTanka,
+    udio: v.udio,
+  }));
 
   const otvoreniZadaci = await prisma.zadatak.findMany({
     where: {

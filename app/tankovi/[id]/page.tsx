@@ -16,6 +16,7 @@ import HladjenjeGraf from "./hladjenje-graf";
 import FermentacijaGumb from "./fermentacija-gumb";
 import { smijeUPodrumu } from "@/lib/auth-role";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
+import { popisKvasaca } from "@/lib/kvasci";
 import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
 import {
   berbaKrozLanac,
@@ -1063,6 +1064,12 @@ export default async function TankPregledPage({
       prisma.radnja.findMany({
         // Radnja se pri arhiviranju NE brise, pa bez granice ovdje vise radnji
         // prethodnog vina. To je bio vidljiv bug na produkciji.
+        //
+        // OSTAJE NA `Radnja`, a ne prelazi na `VinoRadnja`: kronologija je
+        // dnevnik POSUDE — sto se radilo kraj ovog tanka — i njezin `zadatakId`
+        // je jedino cime se radnja izvrsenog zadatka razlikuje od samostalne.
+        // Bez toga bi svaki izvrsen zadatak stajao dvaput. Ono sto je vino
+        // DONIJELO sa sobom cita se nize, iz `VinoRadnja`.
         where: { tankId: id, createdAt: odGranice },
         orderBy: { createdAt: "desc" },
         include: {
@@ -1100,6 +1107,22 @@ export default async function TankPregledPage({
         },
       }),
     ]);
+
+  // RADNJE KOJE JE VINO DONIJELO SA SOBOM.
+  //
+  // Jedan upit, bez granice arhive — i to je bitno. `VinoRadnja` se pri
+  // praznjenju tanka BRISE, pa tudjih redaka nema; granica bi ovdje odrezala
+  // kvasac dodan u tanku 11 u srpnju, koji je stariji od arhiviranja tanka 5 a
+  // opisuje bas ono vino koje je danas u tanku 5.
+  const vinoRadnje = await prisma.vinoRadnja.findMany({
+    where: { tankId: id },
+    orderBy: { dogodenoAt: "desc" },
+  });
+
+  // Kvasci danasnjeg vina — POPIS, ne jedan. Racun je zajednicki s izvjestajem
+  // podruma (lib/kvasci.ts); dva ekrana ne smiju racunati postotke svaki za
+  // sebe.
+  const kvasci = popisKvasaca(vinoRadnje);
 
   // Parametri blenda cekali su svoj red iza svih valova, pa je stranica bila
   // duboka cetiri kruga. Sada se POKRECU ODMAH i teku USPOREDNO s drugim i
@@ -1465,6 +1488,48 @@ export default async function TankPregledPage({
         { label: "Količina", value: `${formatBroj(s.kolicina)} L` },
         { label: "Vrsta prijenosa", value: String(s.zadatak.vrsta) },
         { label: "Izvršeno", value: formatDatum(s.zadatak.izvrsenoAt) },
+      ],
+    });
+  }
+
+  // NASLIJEDJENE RADNJE — ono sto je vino dobilo PRIJE nego je doslo ovamo.
+  //
+  // Samo redci ciji je `izvorniTankId` DRUGI tank: sto se radilo kraj ovog
+  // tanka vec stoji gore, kroz `Radnja`, i ondje se dedupira po `zadatakId`.
+  // Ovime kronologija prvi put pokazuje da je vino u tanku 5 fermentiralo u
+  // tanku 11 — dosad se to nije vidjelo nigdje.
+  for (const v of vinoRadnje) {
+    if (v.izvorniTankId === id) continue;
+
+    dogadaji.push({
+      id: `vino-${v.id}`,
+      vrsta: "RADNJA",
+      vrijeme: v.dogodenoAt.toISOString(),
+      naslov: v.opis || String(v.vrsta),
+      podnaslov: [
+        v.preparatNaziv,
+        v.kolicina != null
+          ? `${formatBroj(v.kolicina)} ${v.jedinicaNaziv ?? ""}`.trim()
+          : null,
+        v.izvorniBrojTanka !== null ? `u tanku ${v.izvorniBrojTanka}` : null,
+      ]
+        .filter(Boolean)
+        .join(" — "),
+      tko: v.korisnikIme ? `Upisao: ${v.korisnikIme}` : "",
+      iznos: `${Math.round(v.udio * 100)} %`,
+      detalji: [
+        { label: "Vrsta", value: String(v.vrsta) },
+        { label: "Preparat", value: v.preparatNaziv || "—" },
+        {
+          label: "Izvedeno u tanku",
+          value:
+            v.izvorniBrojTanka !== null ? String(v.izvorniBrojTanka) : "—",
+        },
+        {
+          label: "Udio današnjeg vina",
+          value: `${Math.round(v.udio * 100)} %`,
+        },
+        { label: "Napomena", value: v.napomena || "—" },
       ],
     });
   }
@@ -2256,6 +2321,66 @@ export default async function TankPregledPage({
         </div>
       </Card>
 
+
+      {/* --- KVASCI: sto je vino fermentiralo, ma gdje se to dogodilo. ---
+
+          Stranica je do sada o kvascu sutjela, jer je kvasac zapisan kao
+          `Radnja` na tanku u kojem je DODAN — a vino je odavno drugdje.
+          Ovdje se cita `VinoRadnja`, koja putuje s vinom, pa uz svaki kvasac
+          stoji i tank u kojem je posao.
+
+          "bez zapisa" se ispisuje UVIJEK kad postoji: zbroj mora davati 100 %,
+          inace popis izgleda kao da je racun negdje pojeo ostatak. */}
+      <Card
+        title="Kvasci ovog vina"
+        broj={kvasci.stavke.length}
+        pod="udio današnjeg volumena koji je fermentirao s tim kvascem"
+      >
+        {kvasci.stavke.length === 0 ? (
+          <div style={mutedTextStyle}>
+            Za vino u ovom tanku nema zapisa o kvascu.
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 6, padding: 10 }}>
+            {kvasci.stavke.map((kv, i) => (
+              <div
+                key={`${kv.naziv}-${i}`}
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "baseline",
+                  flexWrap: "wrap",
+                }}
+              >
+                <strong>{kv.naziv}</strong>
+                {kv.brojTanka !== null && (
+                  <span style={mutedTextStyle}>tank {kv.brojTanka}</span>
+                )}
+                <span style={mutedTextStyle}>{formatDatum(kv.datum)}</span>
+                <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
+                  {kv.postotak} %
+                </span>
+              </div>
+            ))}
+            {kvasci.bezZapisaPostotak > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "baseline",
+                  fontStyle: "italic",
+                  ...mutedTextStyle,
+                }}
+              >
+                <span>bez zapisa</span>
+                <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
+                  {kvasci.bezZapisaPostotak} %
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
 
       <Card
         title="Porijeklo vina / sastavnice blenda"

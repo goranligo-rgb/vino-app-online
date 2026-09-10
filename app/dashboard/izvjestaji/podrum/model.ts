@@ -15,6 +15,7 @@ import {
 } from "./podaci";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
 import { stvarnaZadana, uBroj } from "@/lib/temperatura";
+import { popisKvasaca, type StavkaKvasca } from "@/lib/kvasci";
 
 const DAN_MS = 24 * 3600 * 1000;
 
@@ -86,8 +87,11 @@ export type Kartica = {
 
   /** Broj dana, ili null kad kvasac nije zapisan. */
   danFermentacije: number | null;
-  kvasacNaziv: string | null;
-  kvasacDatum: Date | null;
+  /** Svi kvasci koje danasnje vino nosi, s udjelom i oznakom izvornog tanka. */
+  kvasci: StavkaKvasca[];
+  /** Postotak vina bez zapisa o kvascu; 0 kad ga nema. Prikaz ga MORA pokazati
+   *  kad postoji — inace zbroj ne daje 100 % i izgleda kao greska u racunu. */
+  kvasciBezZapisa: number;
   /** Zamjena za dan fermentacije kad kvasca nema. */
   dolazakDatum: Date | null;
   dolazakVrsta: "PUNJENJE" | "PRETOK" | null;
@@ -147,26 +151,23 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
   const berbePo = poKljucu(p.berbe, (x) => x.tankId);
   const ocitanjePo = new Map(p.ocitanja.map((x) => [x.tankId, x]));
   const dolazakPo = new Map(p.dolasci.map((x) => [x.tankId, x]));
-  const granicaPo = new Map(p.granice.map((x) => [x.tankId, x.arhiviranoAt]));
 
   const odGrafa = sada.getTime() - DANA_GRAF * DAN_MS;
 
   return p.puni.map((t): Kartica => {
     const mj = mjerenjaPo.get(t.id) ?? []; // vec sortirana izmjerenoAt DESC
 
-    // GRANICA ARHIVE — jedna crta za sve sto se cita iz `Radnja`.
+    // GRANICE ARHIVE OVDJE VISE NEMA, i to je namjerno.
     //
-    // Arhiviranje znaci da je u tanku bilo DRUGO vino. `Mjerenje`, punjenja i
-    // izlaze arhiviranje BRISE, pa oni ne mogu biti stariji i ne treba im
-    // filtar. `Radnja` se NE brise — bez ove crte kartica pokazuje radnje
-    // prethodnog vina, i dan fermentacije racuna od tudjeg kvasca.
+    // Dok se citalo iz `Radnja`, crta je bila obavezna: `Radnja` se pri
+    // arhiviranju NE brise, pa je kartica bez nje pokazivala radnje prethodnog
+    // vina (23 od 29 punih tankova s arhivom, 126 zapisa, mjereno 09.09.2026).
     //
-    // Isto pravilo kao `granicaArhive` u `app/tankovi/[id]/page.tsx`; ondje
-    // ide u `where`, ovdje u filtar nad vec dohvacenim redcima, jer je upit
-    // jedan za sve tankove.
-    const granica = granicaPo.get(t.id) ?? null;
-    const sve = radnjePo.get(t.id) ?? []; // vec sortirane createdAt DESC
-    const rad = granica ? sve.filter((r) => r.createdAt >= granica) : sve;
+    // `VinoRadnja` se pri praznjenju tanka BRISE, pa tudjih redaka nema. A
+    // crta bi sada RADILA STETU: kvasac dodan u tanku 11 u srpnju je stariji
+    // od arhiviranja tanka 5, a opisuje bas ono vino koje je danas u tanku 5.
+    // Granica bi ga odrezala i vratila nas na "kvasac nije zapisan".
+    const rad = radnjePo.get(t.id) ?? []; // vec sortirane dogodenoAt DESC
     const udjeli = udjeliPo.get(t.id) ?? []; // vec sortirani postotak DESC
     const blend = blendPo.get(t.id) ?? [];
     const oc = ocitanjePo.get(t.id) ?? null;
@@ -175,18 +176,21 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
     // --- Traka: temperatura i hladjenje ---
     const zadana = stvarnaZadana(oc?.zadanaTemperatura, t.zadanaTemp);
 
-    // --- Dan fermentacije ---
+    // --- Kvasci ---
+    //
+    // POPIS, ne jedan. Vino u tanku obicno nije fermentiralo jednim kvascem;
+    // tank 5 danas nosi pet kvasaca iz cetiri druga tanka. Racun je u
+    // lib/kvasci.ts, zajednicki sa stranicom tanka — dva ekrana ne smiju
+    // racunati postotke svaki za sebe.
     //
     // JEDINA dopustena upotreba `jeKvasac` na ovoj stranici. Popis dodataka
     // nize se NE filtrira njime — mora pokazati sve sto je islo u tank.
     // Model `Fermentacija` se namjerno ne cita: prazan je.
     //
-    // Trazi se u `rad`, dakle IZA granice arhive: kvasac dodan prethodnom
-    // vinu ne pocinje fermentaciju ovoga. Bez toga je tank 33 pokazivao dan
-    // fermentacije racunat od kvasca starijeg od vlastitog arhiviranja.
-    const kvasac = rad.find(
-      (r) => r.vrsta === "DODAVANJE" && r.preparat?.jeKvasac === true
-    );
+    // Dan fermentacije se racuna od NAJNOVIJEG kvasca u popisu — isto pravilo
+    // kao dosad (lista je sortirana silazno, pa je `find` uzimao najnoviji),
+    // samo sto popis sada sadrzi i kvasce iz drugih tankova.
+    const kvasci = popisKvasaca(rad);
     const dolazak = dolazakPo.get(t.id) ?? null;
 
     // --- Desni blok: berba ili sastav ---
@@ -368,12 +372,12 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
       const kol =
         r.kolicina != null
           ? `${formatBrojKratko(r.kolicina)}${
-              r.jedinica?.naziv ? ` ${r.jedinica.naziv}` : ""
+              r.jedinicaNaziv ? ` ${r.jedinicaNaziv}` : ""
             }`
           : null;
       return {
-        datum: r.createdAt,
-        naslov: r.preparat?.naziv ?? r.opis ?? r.vrsta,
+        datum: r.dogodenoAt,
+        naslov: r.preparatNaziv ?? r.opis ?? r.vrsta,
         detalj: kol,
       };
     };
@@ -394,9 +398,11 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
       hladjenjeIskljuceno: jeHladjenjeIskljuceno(zadana),
       ocitanoU: oc?.mjerenoU ?? null,
 
-      danFermentacije: kvasac ? danaOd(kvasac.createdAt, sada) : null,
-      kvasacNaziv: kvasac?.preparat?.naziv ?? kvasac?.opis ?? null,
-      kvasacDatum: kvasac?.createdAt ?? null,
+      danFermentacije: kvasci.najnoviji
+        ? danaOd(kvasci.najnoviji.datum, sada)
+        : null,
+      kvasci: kvasci.stavke,
+      kvasciBezZapisa: kvasci.bezZapisaPostotak,
       dolazakDatum: dolazak?.datum ?? null,
       dolazakVrsta: dolazak?.vrsta ?? null,
 

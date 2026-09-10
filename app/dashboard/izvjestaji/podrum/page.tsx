@@ -278,11 +278,35 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
       <div className="stupci">
         <div className="stupac">
           <div className="stupac-naslov">Kvasac</div>
-          {k.kvasacNaziv ? (
-            <div className="stavka">
-              <span className="stavka-datum">{datum(k.kvasacDatum)}</span>
-              <span className="stavka-naslov">{k.kvasacNaziv}</span>
-            </div>
+          {/*
+            POPIS, ne jedan. Vino u tanku obicno nije fermentiralo jednim
+            kvascem, a kartica je do sada pokazivala samo ono sto je dodano U
+            TOM tanku — cesto nista, jer je vino fermentiralo drugdje.
+
+            "bez zapisa" se ispisuje UVIJEK kad postoji: zbroj mora davati
+            100 %, inace "34 % · 19 % · 9 %" izgleda kao da je racun negdje
+            pojeo ostatak.
+          */}
+          {k.kvasci.length > 0 ? (
+            <>
+              {k.kvasci.map((kv, i) => (
+                <div className="stavka" key={`${kv.naziv}-${i}`}>
+                  <span className="stavka-datum">{datum(kv.datum)}</span>
+                  <span className="stavka-naslov">{kv.naziv}</span>
+                  {kv.brojTanka !== null && (
+                    <span className="kvasac-tank">T{kv.brojTanka}</span>
+                  )}
+                  <span className="stavka-detalj">{kv.postotak} %</span>
+                </div>
+              ))}
+              {k.kvasciBezZapisa > 0 && (
+                <div className="stavka">
+                  <span className="stavka-datum">—</span>
+                  <span className="kvasac-rupa">bez zapisa</span>
+                  <span className="stavka-detalj">{k.kvasciBezZapisa} %</span>
+                </div>
+              )}
+            </>
           ) : (
             <div className="prazno">nije zapisan</div>
           )}
@@ -511,6 +535,11 @@ const CSS = `
 .stavka-datum { color: #8a8a85; margin-right: 1.4mm; font-variant-numeric: tabular-nums; }
 .stavka-naslov { font-weight: 600; }
 .stavka-detalj { color: #52514e; margin-left: 1.4mm; font-variant-numeric: tabular-nums; }
+/* Oznaka izvornog tanka uz kvasac: "LALVIN SENSY T17". Prigusena je jer
+   odgovara na drugo pitanje od naziva — gdje je fermentiralo, ne cime. */
+.kvasac-tank { color: #8a8a85; margin-left: 1.2mm; font-variant-numeric: tabular-nums; }
+/* Vino bez zapisa o kvascu. Kurziv, da se ne cita kao ime preparata. */
+.kvasac-rupa { font-style: italic; color: #6f6e6a; }
 .prazno { font-size: 11px; color: #8a8a85; }
 
 .biljeska { margin-top: auto; }

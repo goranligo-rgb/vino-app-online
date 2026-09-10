@@ -5,7 +5,7 @@
  * tank (val od 4, pa blend sirine 2, pa lanac berbe). Puta 38 punih tankova to
  * je oko 950 upita — neupotrebljivo uz pooler koji drzi malo veza za cijelu
  * aplikaciju. Ovdje je obrnuto: JEDAN `findMany` po modelu za SVE tankove, pa
- * se sve slaze u memoriji. Devet upita ukupno, u tri kruga.
+ * se sve slaze u memoriji. Osam upita ukupno, u tri kruga.
  *
  * NIJEDAN upit ne smije biti po tanku. Kad zatreba novi podatak, prosiri
  * postojeci upit ili dodaj jedan nad svim tankovima — ne petlju.
@@ -41,20 +41,6 @@ type ZadnjeOcitanje = {
   hladjenjeAktivno: boolean;
   status: string;
   mjerenoU: Date;
-};
-
-/**
- * Zadnje arhiviranje tanka — granica ispred koje je u tanku bilo DRUGO vino.
- *
- * Isto pravilo kao `granicaArhive` u `app/tankovi/[id]/page.tsx`. Treba jer se
- * `Radnja` pri arhiviranju NE brise ni ne arhivira: bez ove granice kartica
- * pokazuje radnje prethodnog vina. Izmjereno 09.09.2026: 23 od 29 punih
- * tankova s arhivom imaju takve radnje, ukupno 126 zapisa — npr. tank 2
- * (arhiviran 08.09.) nosio je punjenje boca od 25.06.
- */
-type GranicaArhive = {
-  tankId: string;
-  arhiviranoAt: Date;
 };
 
 type ZadnjiDolazak = {
@@ -96,9 +82,15 @@ export type RedRadnje = {
   vrsta: string;
   opis: string | null;
   kolicina: number | null;
-  createdAt: Date;
-  preparat: { naziv: string; jeKvasac: boolean } | null;
-  jedinica: { naziv: string } | null;
+  /** Kad se cin dogodio — ne kad je izvedeni redak nastao. */
+  dogodenoAt: Date;
+  preparatNaziv: string | null;
+  jedinicaNaziv: string | null;
+  jeKvasac: boolean;
+  /** Koliki dio danasnjeg vina u tanku je taj cin zahvatio, 0..1. */
+  udio: number;
+  /** Tank u kojem je cin izveden — prikaz kaze "(T17)". */
+  izvorniBrojTanka: number | null;
 };
 
 export type RedUdjela = {
@@ -190,7 +182,6 @@ export async function dohvatiPodrum() {
       ocitanja: [] as ZadnjeOcitanje[],
       dolasci: [] as ZadnjiDolazak[],
       berbe: [] as BerbaUTanku[],
-      granice: [] as GranicaArhive[],
       brojUpita,
       trajanjeMs: Date.now() - pocelo,
     };
@@ -210,7 +201,6 @@ export async function dohvatiPodrum() {
     blendovi,
     ocitanja,
     dolasci,
-    granice,
   ] = (await uValovima<unknown>(
     [
       // 1. POVIJEST TEMPERATURE — jedan agregat za sve tankove odjednom.
@@ -259,26 +249,37 @@ export async function dohvatiPodrum() {
           },
         }),
 
-      // 3. RADNJE — bez vremenskog filtra U UPITU: prozori za tri stvari koje
-      // iz njih ispadaju (zadnje 3 radnje, zadnja 3 dodatka, datum kvasca)
-      // nisu isti, a ukupno ih je nekoliko stotina. Granica arhive se
-      // primjenjuje u `model.ts`, nad vec dohvacenim redcima — jedan upit,
-      // jedno pravilo, bez 38 zasebnih `where`-ova.
+      // 3. RADNJE KOJE PUTUJU S VINOM — iz `VinoRadnja`, ne iz `Radnja`.
       //
-      // `jeKvasac` se dohvaca, ali se njime NE FILTRIRA: popis dodataka mora
-      // pokazati sve sto je islo u tank. Sluzi iskljucivo za dan fermentacije.
+      // `Radnja` opisuje POSUDU: kartica tanka 5 je do sada pokazivala samo
+      // ono sto je netko radio stojeci kraj tanka 5, a vino u njemu je
+      // fermentiralo u cetiri druga tanka. `VinoRadnja` opisuje VINO i putuje
+      // s njim.
+      //
+      // GRANICA ARHIVE SE OVDJE VISE NE PRIMJENJUJE, i to je bitno: kvasac
+      // dodan u tanku 11 u srpnju je stariji od arhiviranja tanka 5, a
+      // opisuje bas ono vino koje je danas u tanku 5. Granica bi ga odrezala.
+      // Ne treba je ni biti — `VinoRadnja` se pri praznjenju tanka BRISE
+      // (lib/pretok-arhiviranje.ts, app/api/izlaz-vina/route.ts), pa redaka
+      // prethodnog vina nema.
+      //
+      // `jeKvasac` se dohvaca, ali se njime NE FILTRIRA popis dodataka —
+      // vidi biljesku uz `Preparation.jeKvasac`.
       () =>
-        prisma.radnja.findMany({
+        prisma.vinoRadnja.findMany({
           where: { tankId: { in: ids } },
-          orderBy: { createdAt: "desc" },
+          orderBy: { dogodenoAt: "desc" },
           select: {
             tankId: true,
             vrsta: true,
             opis: true,
             kolicina: true,
-            createdAt: true,
-            preparat: { select: { naziv: true, jeKvasac: true } },
-            jedinica: { select: { naziv: true } },
+            dogodenoAt: true,
+            preparatNaziv: true,
+            jedinicaNaziv: true,
+            jeKvasac: true,
+            udio: true,
+            izvorniBrojTanka: true,
           },
         }),
 
@@ -383,17 +384,6 @@ export async function dohvatiPodrum() {
           ORDER BY "tankId", datum DESC
         `,
 
-      // 9. GRANICA ARHIVE — zadnje arhiviranje po tanku.
-      //
-      // Neovisan o svim ostalim upitima, pa staje u isti val. Sve sto se
-      // njime filtrira (`Radnja`, dan fermentacije) filtrira se u memoriji.
-      () =>
-        prisma.$queryRaw<GranicaArhive[]>`
-          SELECT "tankId", max("arhiviranoAt") AS "arhiviranoAt"
-          FROM "ArhivaVina"
-          WHERE "tankId" = ANY(${ids}::text[])
-          GROUP BY "tankId"
-        `,
     ],
     4
   )) as [
@@ -405,9 +395,8 @@ export async function dohvatiPodrum() {
     RedBlenda[],
     ZadnjeOcitanje[],
     ZadnjiDolazak[],
-    GranicaArhive[],
   ];
-  brojUpita += 9;
+  brojUpita += 8;
 
   return {
     puni,
@@ -420,7 +409,6 @@ export async function dohvatiPodrum() {
     ocitanja,
     dolasci,
     berbe,
-    granice,
     brojUpita,
     trajanjeMs: Date.now() - pocelo,
   };
