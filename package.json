@@ -31,7 +31,8 @@
     "otisak": "tsx scripts/otisak-tankova.ts",
     "vino-radnje:backfill": "tsx scripts/backfill-vino-radnje.ts",
     "vino-radnje:provjeri": "tsx scripts/provjeri-vino-radnje.ts",
-    "test:vino:radnje": "tsx scripts/test-vino-radnje.ts"
+    "test:vino:radnje": "tsx scripts/test-vino-radnje.ts",
+    "kvasac:partija": "tsx scripts/provjeri-kvasac-partija.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

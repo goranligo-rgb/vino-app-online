@@ -40,6 +40,17 @@ export type StavkaKvasca = {
   datum: Date;
   /** Cijeli postotak, vec zaokruzen tako da se popis zbraja u 100. */
   postotak: number;
+  /**
+   * Redak dobiven PRIPISIVANJEM PO PARTIJI, a ne po trenutku pretoka.
+   *
+   * Prikaz ga MORA oznaciti (sitno "po partiji" ili ≈). Dva pravila imaju
+   * razlicit nazivnik — po partiji je cijela berbena sarza, pa su postotci
+   * sustavno nizi — i bez oznake se ne bi smjeli citati kao ista mjera.
+   *
+   * Popis je uvijek CIJEL po jednom pravilu: ili su svi retci po trenutku, ili
+   * su svi po partiji. Mijesanja nema, jer bi zbroj bio besmislen.
+   */
+  poPartiji: boolean;
 };
 
 export type PopisKvasaca = {
@@ -125,6 +136,7 @@ export function popisKvasaca(redci: IzvorKvasca[]): PopisKvasaca {
     brojTanka: r.izvorniBrojTanka,
     datum: r.dogodenoAt,
     postotak: postotci[i],
+    poPartiji: false,
   }));
 
   // Stavke s 0 % nakon zaokruzivanja se izbacuju: "Alchemy II (T10) 0 %" ne
@@ -144,15 +156,82 @@ export function popisKvasaca(redci: IzvorKvasca[]): PopisKvasaca {
   };
 }
 
+/**
+ * DOPUNA PO PARTIJI — koristi se SAMO kad glavno pravilo ne da nijedan kvasac.
+ *
+ * Glavno pravilo (`popisKvasaca` nad `VinoRadnja`) ostaje mjerodavno. Kad ono
+ * nesto vrati, ovo se ni ne gleda: pripisivanje po partiji ima siri nazivnik i
+ * daje nize postotke, pa bi mijesanje ucinilo brojke neusporedivima medju
+ * tankovima. Tank koji danas ima tocan odgovor ne smije se dirati.
+ *
+ * Kad glavno pravilo vrati prazno, popis se gradi odavde i SVI retci nose
+ * `poPartiji: true`. Zaokruzivanje ide istim putem, pa se i ovdje zbraja u
+ * 100 % zajedno s "bez zapisa".
+ *
+ * `vecinski` se NAMJERNO ne popunjava iz ovog puta: iz njega se racuna dan
+ * fermentacije u zaglavlju kartice, a to je brojka bez oznake pravila. Dok
+ * oznake nema, u nju ne ulazi podatak drugog reda.
+ */
+export function popisKvasacaSDopunom(
+  redci: IzvorKvasca[],
+  poPartiji: Array<{
+    naziv: string;
+    brojTanka: number | null;
+    datum: Date;
+    udio: number;
+  }>
+): PopisKvasaca {
+  const glavni = popisKvasaca(redci);
+  if (glavni.stavke.length > 0) return glavni;
+
+  const korisni = poPartiji.filter((x) => x.udio > 0).sort((a, b) => b.udio - a.udio);
+  if (korisni.length === 0) return PRAZAN_POPIS;
+
+  const zbroj = korisni.reduce((z, x) => z + x.udio, 0);
+  const rupa = Math.max(0, 1 - zbroj);
+
+  const postotci =
+    rupa > 0
+      ? stotka([...korisni.map((x) => x.udio), rupa])
+      : korisni.map((x) => Math.round(x.udio * 100));
+
+  const stavke = korisni
+    .map((x, i) => ({
+      naziv: x.naziv,
+      brojTanka: x.brojTanka,
+      datum: x.datum,
+      postotak: postotci[i],
+      poPartiji: true,
+    }))
+    .filter((s) => s.postotak > 0);
+
+  if (stavke.length === 0) return PRAZAN_POPIS;
+
+  return {
+    stavke,
+    bezZapisaPostotak: rupa > 0 ? postotci[postotci.length - 1] : 0,
+    vecinski: null,
+  };
+}
+
 /** Jedan kvasac kao tekst: "Uvaferm FC-E (T11) 33 %". */
 export function opisStavke(s: StavkaKvasca): string {
   const tank = s.brojTanka !== null ? ` (T${s.brojTanka})` : "";
   return `${s.naziv}${tank} ${s.postotak} %`;
 }
 
-/** Cijeli popis kao jedan redak teksta, s "bez zapisa" na kraju. */
+/**
+ * Cijeli popis kao jedan redak teksta, s "bez zapisa" na kraju.
+ *
+ * Kad su retci dobiveni po partiji, popis to KAZE — inace bi se u ispisu
+ * skripte i u zapisniku citao kao ista mjera kao popis po trenutku pretoka.
+ */
 export function opisPopisa(p: PopisKvasaca): string {
   const dijelovi = p.stavke.map(opisStavke);
+
+  if (p.stavke.some((s) => s.poPartiji)) {
+    dijelovi[0] = `(po partiji) ${dijelovi[0]}`;
+  }
 
   if (p.bezZapisaPostotak > 0) {
     dijelovi.push(`bez zapisa ${p.bezZapisaPostotak} %`);
