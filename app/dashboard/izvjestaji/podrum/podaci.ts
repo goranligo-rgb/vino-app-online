@@ -13,6 +13,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { uValovima } from "@/lib/paralelno";
+import { kvasciPoPartiji, type KvasacPartije } from "@/lib/kvasac-partija";
 
 /** Koliko dana unatrag gledaju traka i graf temperature/secera. */
 export const DANA_GRAF = 10;
@@ -185,6 +186,7 @@ export async function dohvatiPodrum() {
       ocitanja: [] as ZadnjeOcitanje[],
       dolasci: [] as ZadnjiDolazak[],
       berbe: [] as BerbaUTanku[],
+      kvasciPartija: new Map<string, KvasacPartije[]>(),
       brojUpita,
       trajanjeMs: Date.now() - pocelo,
     };
@@ -402,6 +404,31 @@ export async function dohvatiPodrum() {
   ];
   brojUpita += 8;
 
+  // --- KRUG 4: dopuna po partiji, samo za tankove koje glavno pravilo ne
+  //     rjesava.
+  //
+  // Ide TEK OVDJE, a ne u val gore: trazi popis tankova BEZ kvasca, a to se
+  // zna tek kad su radnje dohvacene. Tri su upita unutra, svi nad cijelim
+  // skupom (knjiga, kvasci, tankovi) pa ne rastu s brojem tankova — pravilo
+  // "nijedan upit po tanku" iz zaglavlja modula i dalje vrijedi.
+  //
+  // Kad kvasca ne fali nikome, ne salje se nijedan upit.
+  const bezKvasca = puni
+    .filter(
+      (t) =>
+        !radnje.some(
+          (r) => r.tankId === t.id && r.jeKvasac && r.vrsta === "DODAVANJE"
+        )
+    )
+    .map((t) => t.id);
+
+  const kvasciPartija =
+    bezKvasca.length > 0
+      ? await kvasciPoPartiji(prisma, bezKvasca)
+      : new Map<string, KvasacPartije[]>();
+
+  if (bezKvasca.length > 0) brojUpita += 3;
+
   return {
     puni,
     prazni,
@@ -413,6 +440,7 @@ export async function dohvatiPodrum() {
     ocitanja,
     dolasci,
     berbe,
+    kvasciPartija,
     brojUpita,
     trajanjeMs: Date.now() - pocelo,
   };

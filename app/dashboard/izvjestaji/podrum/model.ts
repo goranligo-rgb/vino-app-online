@@ -15,7 +15,7 @@ import {
 } from "./podaci";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
 import { stvarnaZadana, uBroj } from "@/lib/temperatura";
-import { popisKvasaca, type StavkaKvasca } from "@/lib/kvasci";
+import { popisKvasacaSDopunom, type StavkaKvasca } from "@/lib/kvasci";
 
 const DAN_MS = 24 * 3600 * 1000;
 
@@ -177,6 +177,7 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
   const berbePo = poKljucu(p.berbe, (x) => x.tankId);
   const ocitanjePo = new Map(p.ocitanja.map((x) => [x.tankId, x]));
   const dolazakPo = new Map(p.dolasci.map((x) => [x.tankId, x]));
+  const kvasciPartijaPo = p.kvasciPartija;
 
   const odGrafa = sada.getTime() - DANA_GRAF * DAN_MS;
 
@@ -216,7 +217,11 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
     // Dan fermentacije se racuna od VECINSKOG kvasca, ne od najmladjeg — vidi
     // `PopisKvasaca.vecinski`. Tank 7 je s najmladjim pokazivao 4. dan zbog
     // kvasca koji drzi 5 % tanka, umjesto 9. po vecini vina.
-    const kvasci = popisKvasaca(rad);
+    //
+    // DOPUNA PO PARTIJI ulazi samo kad glavno pravilo ne da nista, i tada su
+    // svi retci oznaceni (`poPartiji`). Dan fermentacije iz nje NE nastaje —
+    // `vecinski` ostaje prazan — jer je to brojka bez oznake pravila.
+    const kvasci = popisKvasacaSDopunom(rad, kvasciPartijaPo.get(t.id) ?? []);
     const dolazak = dolazakPo.get(t.id) ?? null;
 
     // --- Desni blok: berba ili sastav ---

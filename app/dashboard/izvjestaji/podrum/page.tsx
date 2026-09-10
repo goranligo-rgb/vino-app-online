@@ -339,6 +339,14 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
           */}
           {k.kvasci.length > 0 ? (
             <>
+              {/* Retci dobiveni PRIPISIVANJEM PO PARTIJI nose ≈ i natpis, jer
+                  im je nazivnik cijela berbena sarza pa su postotci sustavno
+                  nizi od onih po trenutku pretoka. Bez oznake se dva pravila
+                  ne bi smjela citati kao ista mjera. Popis je uvijek cijel po
+                  jednom pravilu, pa natpis ide jednom, iznad. */}
+              {k.kvasci[0].poPartiji && (
+                <div className="kvasac-pravilo">≈ po berbenoj partiji</div>
+              )}
               {k.kvasci.map((kv, i) => (
                 <div className="stavka" key={`${kv.naziv}-${i}`}>
                   <span className="stavka-datum">{datum(kv.datum)}</span>
@@ -346,7 +354,10 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
                   {kv.brojTanka !== null && (
                     <span className="kvasac-tank">T{kv.brojTanka}</span>
                   )}
-                  <span className="stavka-detalj">{kv.postotak} %</span>
+                  <span className="stavka-detalj">
+                    {kv.poPartiji ? "≈ " : ""}
+                    {kv.postotak} %
+                  </span>
                 </div>
               ))}
               {k.kvasciBezZapisa > 0 && (
@@ -624,6 +635,11 @@ const CSS = `
 .kvasac-tank { color: #8a8a85; margin-left: 1.2mm; font-variant-numeric: tabular-nums; }
 /* Vino bez zapisa o kvascu. Kurziv, da se ne cita kao ime preparata. */
 .kvasac-rupa { font-style: italic; color: #6f6e6a; }
+/* Oznaka da popis dolazi od pripisivanja po berbenoj partiji, a ne po
+   trenutku pretoka. Postotci ta dva pravila NISU usporedivi. */
+.kvasac-pravilo {
+  font-size: 8px; color: #7f1d1d; font-style: italic; margin-bottom: .4mm;
+}
 .prazno { font-size: 11px; color: #8a8a85; }
 
 .biljeska { margin-top: auto; }
