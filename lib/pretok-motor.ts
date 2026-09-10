@@ -73,10 +73,12 @@ import {
   preusmjeriNaArhivu,
 } from "@/lib/pretok-arhiviranje";
 import {
+  planPrijenosa,
   zabiljeziIzlaz,
   zabiljeziPrijenos,
   type Nadopuna,
 } from "@/lib/berba-knjiga";
+import { prenesiVinoRadnje, snimiVinoRadnje } from "@/lib/vino-radnja";
 import { stanjeTanka } from "@/lib/berba-model";
 
 /** Sto se radi. Mehanika je za sve tri ISTA — razlikuje se samo identitet vina. */
@@ -497,6 +499,17 @@ export async function izvrsiPretok(
     );
   }
 
+  // 6b) SNIMKA RADNJI KOJE PUTUJU S VINOM.
+  //
+  //     Uzima se PRIJE koraka 7, jer izvor koji padne na nulu se ondje
+  //     arhivira, a arhiviranje mu brise `VinoRadnja`. Ciljevi se obraduju tek
+  //     u koraku 8 — do tada od najcesceg pretoka od svih (tank se isprazni do
+  //     kraja) ne bi ostalo nista za prenijeti.
+  const snimkaIzvora = await snimiVinoRadnje(
+    tx,
+    provjeren.izvori.map((i) => i.tankId)
+  );
+
   // 7) IZVORI — umanji kolicinu i proporcionalno smanji blend.
   //
   //    Izvor koji padne na nulu se arhivira; `arhiveIzvora` pamti koja je
@@ -584,6 +597,23 @@ export async function izvrsiPretok(
     podijeliMl(tezineSorti, c.ml)
   );
 
+  // KOLIKO JE OD KOJEG IZVORA USLO U KOJI CILJ — ista razdioba koju knjiga vec
+  // koristi (`planPrijenosa` u lib/berba-knjiga.ts), namjerno ISTA funkcija a
+  // ne drugi racun: kad bi se razlikovala, udjeli radnji i litre u knjizi
+  // rekli bi dvije razlicite price o istom pretoku.
+  //
+  // Kalo ide kao zadnje odrediste bez tanka, pa se stupci ciljeva poklapaju s
+  // `provjeren.ciljevi` po redoslijedu.
+  const kaloMl = provjeren.izlazMl - provjeren.ulazMl;
+  const odredistaMl = provjeren.ciljevi.map((c) => c.ml);
+
+  if (kaloMl > 0) odredistaMl.push(kaloMl);
+
+  const matricaIzvora = planPrijenosa(
+    provjeren.izvori.map((i) => i.ml),
+    odredistaMl
+  );
+
   const rezultatCiljevi: RezultatPretoka["ciljevi"] = [];
 
   for (let k = 0; k < provjeren.ciljevi.length; k++) {
@@ -622,6 +652,19 @@ export async function izvrsiPretok(
     }
 
     await upisiBlend(tx, t.id, normalizirajBlend(spojeniBlend));
+
+    // RADNJE PUTUJU S VINOM. Svaki izvor daje ovom cilju onoliko koliko kaze
+    // matrica, pa se udjeli mnoze kroz lanac sami od sebe: 50 % vina iz tanka
+    // koji je sam bio 40 % nekog kvasca daje 20 %.
+    await prenesiVinoRadnje(tx, {
+      ciljTankId: t.id,
+      ciljPrijeMl: prijeMl,
+      snimka: snimkaIzvora,
+      dolasci: provjeren.izvori.map((i, s) => ({
+        izvorTankId: i.tankId,
+        ml: matricaIzvora[s][k],
+      })),
+    });
 
     // Sastav po sortama: zatecено u cilju + udio onoga sto dolazi.
     const mapaSastava = sastavUMl(t, prijeMl);

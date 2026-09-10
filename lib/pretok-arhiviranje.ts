@@ -16,6 +16,7 @@
 
 import { Prisma } from "@prisma/client";
 import { citajGranicuArhive, odGranice } from "./granica-arhive";
+import { ocistiVinoRadnje } from "./vino-radnja";
 
 /**
  * Preusmjeri pokazivace s tanka na arhivu.
@@ -384,6 +385,15 @@ export async function arhivirajPotroseniTank(
   await tx.blendIzvor.deleteMany({
     where: { ciljTankId: tank.id },
   });
+
+  // Radnje koje su putovale s vinom — vino je otislo, pa idu i one. Zaostale
+  // bi se zalijepile na sljedece vino koje u ovaj tank udje.
+  //
+  // Ciljevi pretoka su ih vec preuzeli: `pretok-motor` snima retke izvora
+  // PRIJE nego pozove ovu funkciju (korak 6b), pa brisanje ovdje ne moze
+  // odnijeti ono sto tek treba prijeci. Povijest ostaje u `Radnja` i u
+  // `ArhivaVinaRadnja`, koja je popunjena nekoliko redaka iznad.
+  await ocistiVinoRadnje(tx, tank.id);
 
   await tx.tank.update({
     where: { id: tank.id },

@@ -1,4 +1,5 @@
 import type { Prisma, VrstaRadnje } from "@prisma/client";
+import { odigrajLanac } from "@/lib/vino-lanac";
 
 type Tx = Prisma.TransactionClient;
 
@@ -161,6 +162,45 @@ export async function upisiVinoRadnju(tx: Tx, n: NovaVinoRadnja): Promise<void> 
   });
 }
 
+/**
+ * SNIMKA REDAKA IZVORA, uzeta PRIJE nego se izvori diraju.
+ *
+ * Redoslijed u pretoku i filtraciji je: prvo se obrade izvori (onaj koji padne
+ * na nulu se ARHIVIRA, a arhiviranje mu brise `VinoRadnja`), pa tek onda
+ * ciljevi. Kad bi cilj svoje retke citao iz baze u svom koraku, od izvora koji
+ * se ispraznio ne bi zatekao nista — a to je najcesci pretok od svih.
+ *
+ * Zato pozivatelj snimi izvore na pocetku i snimku prosljedi ciljevima.
+ */
+/** Redak snimke: sadrzaj plus udio koji je u tom tanku imao. */
+export type RedakSnimke = Sadrzaj & { udio: number };
+
+export type Snimka = Map<string, RedakSnimke[]>;
+
+export async function snimiVinoRadnje(
+  tx: Tx,
+  tankIds: string[]
+): Promise<Snimka> {
+  const snimka: Snimka = new Map();
+  const jedinstveni = Array.from(new Set(tankIds));
+
+  if (jedinstveni.length === 0) return snimka;
+
+  // Jedan upit za sve izvore. `in` je ovdje jeftiniji od N upita u
+  // transakciji, a izvora zna biti pet (cuvée).
+  const redci = await tx.vinoRadnja.findMany({
+    where: { tankId: { in: jedinstveni } },
+  });
+
+  for (const t of jedinstveni) snimka.set(t, []);
+
+  for (const r of redci) {
+    snimka.get(r.tankId)!.push(r);
+  }
+
+  return snimka;
+}
+
 /** Jedan dolazak vina u tank: iz kojeg tanka i koliko mililitara. */
 export type Dolazak = { izvorTankId: string; ml: number };
 
@@ -170,6 +210,8 @@ export type Ulaz = {
   ciljPrijeMl: number;
   /** Vino koje dolazi iz drugih tankova. */
   dolasci?: Dolazak[];
+  /** Snimka izvora; obavezna cim ima dolazaka. */
+  snimka?: Snimka;
   /** Vino koje dolazi izvan podruma (berba, punjenje) — samo razrjeduje. */
   izvanaMl?: number;
 };
@@ -224,14 +266,10 @@ export async function prenesiVinoRadnje(tx: Tx, u: Ulaz): Promise<void> {
     }
   }
 
-  // 2) Sto dolazi — udio u izvoru, skaliran doslim litrama.
-  //    Redom, ne Promise.all: ovo je unutar transakcije.
+  // 2) Sto dolazi — udio u izvoru, skaliran doslim litrama. Iz snimke, ne iz
+  //    baze: izvor je do ovog trenutka mozda vec arhiviran.
   for (const d of dolasci) {
-    const izIzvora = await tx.vinoRadnja.findMany({
-      where: { tankId: d.izvorTankId },
-    });
-
-    for (const r of izIzvora) {
+    for (const r of u.snimka?.get(d.izvorTankId) ?? []) {
       dodaj(r, (r.udio * d.ml) / poslijeMl);
     }
   }
@@ -273,4 +311,112 @@ export async function prenesiVinoRadnje(tx: Tx, u: Ulaz): Promise<void> {
  */
 export async function ocistiVinoRadnje(tx: Tx, tankId: string): Promise<void> {
   await tx.vinoRadnja.deleteMany({ where: { tankId } });
+}
+
+/**
+ * PONISTAVANJE: preracunaj zadane tankove iz knjige.
+ *
+ * Zasto se ne racuna unatrag. Ulaz spaja dva skupa u jedan
+ * (`udio_novi = udio_cilja * V_prije/V_poslije + udio_izvora * L/V_poslije`) i
+ * iz rezultata se vise ne vidi koji je pribrojnik ciji. Da bi se ponistio,
+ * trebalo bi cuvati snimku izvora uz svaki pretok — jos jedna tablica koja
+ * moze odlutati od knjige, tocno ono cega se `BerbaKretanje` rijesio.
+ *
+ * `VinoRadnja` je IZVEDENA iz `Radnja` i knjige, a ponistavanje je u knjigu
+ * vec upisalo protustavku (PONISTENJE). Zato se odigra povijest iznova i
+ * prepisu samo pogodjeni tankovi. Rezultat je tocan po definiciji i usput
+ * ispravlja svaki raniji drift.
+ *
+ * CIJENA: dva citanja cijele knjige i svih radnji (527 + 279 redaka,
+ * 09.09.2026). To je jeftino i ostat ce jeftino jos godinama — knjiga raste
+ * nekoliko stotina redaka po sezoni. Kad prestane biti jeftino, zamjena je
+ * snimka izvora uz pretok, ne pola-pola.
+ */
+export async function preracunajVinoRadnje(
+  tx: Tx,
+  tankIds: string[]
+): Promise<void> {
+  const jedinstveni = Array.from(new Set(tankIds));
+  if (jedinstveni.length === 0) return;
+
+  const kretanja = await tx.berbaKretanje.findMany({
+    select: {
+      id: true,
+      izTankId: true,
+      uTankId: true,
+      litre: true,
+      vrsta: true,
+      dogodenoAt: true,
+      createdAt: true,
+      pretokId: true,
+      zadatakId: true,
+      izlazVinaId: true,
+      punjenjeId: true,
+    },
+  });
+
+  const radnje = await tx.radnja.findMany({
+    select: {
+      id: true,
+      tankId: true,
+      createdAt: true,
+      vrsta: true,
+      opis: true,
+      napomena: true,
+      kolicina: true,
+      preparatId: true,
+      preparat: { select: { naziv: true, jeKvasac: true } },
+      jedinica: { select: { naziv: true } },
+      korisnik: { select: { ime: true } },
+    },
+  });
+
+  const poRadnji = new Map(radnje.map((r) => [r.id, r]));
+
+  const brojevi = new Map(
+    (
+      await tx.tank.findMany({ select: { id: true, broj: true } })
+    ).map((t) => [t.id, t.broj])
+  );
+
+  const { stanje } = odigrajLanac(
+    kretanja,
+    radnje.map((r) => ({ id: r.id, tankId: r.tankId, createdAt: r.createdAt }))
+  );
+
+  for (const tankId of jedinstveni) {
+    await tx.vinoRadnja.deleteMany({ where: { tankId } });
+
+    const udjeli = stanje.get(tankId)?.udjeli ?? [];
+    if (udjeli.length === 0) continue;
+
+    const data = [];
+
+    for (const u of udjeli) {
+      const r = poRadnji.get(u.radnjaId);
+      if (!r) continue;
+
+      data.push({
+        tankId,
+        izvornaRadnjaId: r.id,
+        izvorniTankId: u.izvorniTankId,
+        izvorniBrojTanka: brojevi.get(u.izvorniTankId) ?? null,
+        preparatId: r.preparatId,
+        preparatNaziv: r.preparat?.naziv ?? null,
+        jedinicaNaziv: r.jedinica?.naziv ?? null,
+        korisnikIme: r.korisnik?.ime ?? null,
+        vrsta: r.vrsta,
+        opis: r.opis,
+        napomena: r.napomena,
+        kolicina: r.kolicina,
+        jeKvasac: r.preparat?.jeKvasac ?? false,
+        udio: u.udio,
+        dogodenoAt: r.createdAt,
+      });
+    }
+
+    if (data.length > 0) {
+      await tx.vinoRadnja.createMany({ data });
+    }
+  }
 }

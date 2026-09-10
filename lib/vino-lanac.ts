@@ -1,4 +1,14 @@
-import { uMl } from "@/lib/filtracija";
+/**
+ * Mililitri, isti racun kao `uMl` u lib/filtracija.ts.
+ *
+ * NAMJERNO PREPISAN, a ne uvezen: `lib/vino-radnja.ts` uvozi ovaj modul, a
+ * `lib/filtracija.ts` uvozi `vino-radnja` — uvoz odavde u filtraciju zatvorio
+ * bi krug. Racun je jedan izraz i nema sto odlutati; da poraste, seli se u
+ * zaseban modul mjera.
+ */
+function uMl(litre: number | null | undefined): number {
+  return Math.round(Number(litre ?? 0) * 1000);
+}
 
 /**
  * LANAC VINA — tko je s vinom putovao i koliki mu je danas udio.
@@ -102,6 +112,12 @@ function satKretanja(k: Kretanje): number {
  *     zapisujes da si natocio), pa izlaz ide POSLIJE radnje.
  *
  * Izvan prozora odlucuje pravo vrijeme.
+ *
+ * POMICE SE SAMO RADNJA, nikad kretanje. Prvi pokusaj je pomicao polovice
+ * cina (ulaz ranije, izlaz kasnije) i to je radilo na produkcijskim podacima,
+ * gdje su cinovi minutama razmaknuti — ali je u testu, gdje se sve dogodi u
+ * istoj sekundi, izokrenuo redoslijed samih pretoka. Kretanja ostaju u
+ * stvarnom poretku; klizi samo ono sto sat ionako ne zna smjestiti.
  */
 const PROZOR_ISTE_TRANSAKCIJE_MS = 5_000;
 
@@ -256,28 +272,53 @@ export function odigrajLanac(
 
   const cini = grupirajUCine(kretanja);
 
+  const ulazniCini = cini.filter((c) => c.kretanja.some((k) => k.uTankId));
+  const izlazniCini = cini.filter((c) => c.kretanja.some((k) => k.izTankId));
+
+  // Trenutak radnje, pomaknut samo unutar prozora iste transakcije. Kretanja
+  // zadrzavaju svoj stvarni trenutak — vidi PROZOR_ISTE_TRANSAKCIJE_MS.
+  const trenutakRadnje = (r: RadnjaULancu): number => {
+    const t = r.createdAt.getTime();
+    let kada = t;
+
+    // Ulaz koji je stigao TIK POSLIJE radnje: vino je bilo tu, samo je knjiga
+    // upisana druga. Radnja klizi iza njega.
+    for (const c of ulazniCini) {
+      if (c.kada > t && c.kada - t <= PROZOR_ISTE_TRANSAKCIJE_MS) {
+        kada = Math.max(kada, c.kada);
+      }
+    }
+
+    // Izlaz koji je otisao TIK PRIJE radnje: vino je bilo tu dok nije izaslo.
+    // Radnja klizi ispred njega — ali samo ako je vec nije pomaknuo ulaz.
+    if (kada === t) {
+      for (const c of izlazniCini) {
+        if (c.kada < t && t - c.kada <= PROZOR_ISTE_TRANSAKCIJE_MS) {
+          kada = Math.min(kada, c.kada);
+        }
+      }
+    }
+
+    return kada;
+  };
+
   const crta: Dogadjaj[] = [
-    ...cini
-      .filter((c) => c.kretanja.some((k) => k.uTankId))
-      .map((cin) => ({
-        kada: cin.kada - PROZOR_ISTE_TRANSAKCIJE_MS,
-        red: 0 as const,
-        ulaz: cin,
-      })),
+    ...ulazniCini.map((cin) => ({ kada: cin.kada, red: 0 as const, ulaz: cin })),
     ...radnje.map((r) => ({
-      kada: r.createdAt.getTime(),
+      kada: trenutakRadnje(r),
       red: 1 as const,
       radnja: r,
     })),
-    ...cini
-      .filter((c) => c.kretanja.some((k) => k.izTankId))
-      .map((cin) => ({
-        kada: cin.kada + PROZOR_ISTE_TRANSAKCIJE_MS,
-        red: 2 as const,
-        izlaz: cin,
-      })),
+    ...izlazniCini.map((cin) => ({
+      kada: cin.kada,
+      red: 2 as const,
+      izlaz: cin,
+    })),
   ];
 
+  // `red` odlucuje kad je trenutak isti: ulaz prije radnje, radnja prije
+  // izlaza. Time cin koji vino i donosi i odnosi (pretok koji tank puni iz
+  // jednog a prazni u drugi) radnju smjesta na sredinu, gdje i pripada.
   crta.sort((a, b) => a.kada - b.kada || a.red - b.red);
 
   for (const d of crta) {

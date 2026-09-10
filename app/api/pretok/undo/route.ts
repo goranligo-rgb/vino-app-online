@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser, smijeUpravljati } from "@/lib/zadatak-auth";
 import { razlogZabranePonistavanja } from "@/lib/pretok-ponistavanje";
 import { zabiljeziPonistenje } from "@/lib/berba-knjiga";
+import { preracunajVinoRadnje } from "@/lib/vino-radnja";
 
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.filter(Boolean))) as string[];
@@ -352,6 +353,18 @@ export async function POST(req: Request) {
       await tx.pretok.delete({
         where: { id: pretok.id },
       });
+
+      // 5) radnje koje putuju s vinom — preračunaj pogođene tankove iz knjige.
+      //
+      //    Ide POSLIJE brisanja pretoka: knjiga je protustavku (PONIŠTENJE)
+      //    upisala gore, pa odigravanje povijesti daje točno stanje prije
+      //    pretoka. Unatrag se ne računa — vidi obrazloženje uz
+      //    `preracunajVinoRadnje`: ulaz spaja dva skupa udjela u jedan i iz
+      //    rezultata se više ne vidi koji je pribrojnik čiji.
+      await preracunajVinoRadnje(
+        tx,
+        pretok.snapshoti.map((s) => s.tankId)
+      );
     }, { timeout: 30_000, maxWait: 5_000 });
 
     return NextResponse.json({

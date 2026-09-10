@@ -28,6 +28,8 @@ import {
   upisiVinoRadnju,
   prenesiVinoRadnje,
   ocistiVinoRadnje,
+  preracunajVinoRadnje,
+  snimiVinoRadnje,
 } from "@/lib/vino-radnja";
 
 // Rjecnik mjerenja je preseljen u lib/mjerenja.ts (inace bi uvoz isao u krug).
@@ -1247,6 +1249,10 @@ export async function izvrsiFiltraciju(
     );
   }
 
+  // 6b) SNIMKA RADNJI KOJE PUTUJU S VINOM — uzeta prije nego se izvor pocne
+  //     prazniti, po istom razlogu kao u lib/pretok-motor.ts.
+  const snimkaIzvora = await snimiVinoRadnje(tx, [izvor.id]);
+
   // 7) Ciljni tankovi.
   const rezultatCiljeva: RezultatIzvrsenja["ciljevi"] = [];
 
@@ -1320,6 +1326,15 @@ export async function izvrsiFiltraciju(
     await upisiSastav(tx, cilj.tank.id, udjeliIzMape(mapa));
     await upisiBlend(tx, cilj.tank.id, blend);
 
+    // RADNJE PUTUJU S VINOM. Filtracija ima tocno jedan izvor, pa je razdioba
+    // trivijalna: sve sto u ovaj cilj ulazi doslo je iz njega.
+    await prenesiVinoRadnje(tx, {
+      ciljTankId: cilj.tank.id,
+      ciljPrijeMl,
+      snimka: snimkaIzvora,
+      dolasci: [{ izvorTankId: izvor.id, ml: cilj.kolicinaMl }],
+    });
+
     // Ponderirano mjerenje ciljnog tanka: zateceno + dolazno, tezine u ml.
     //   prazan cilj -> jedini ulaz je izvor, pa je rezultat doslovna kopija
     //                  njegovih vrijednosti;
@@ -1384,6 +1399,17 @@ export async function izvrsiFiltraciju(
       biloDrugoVino,
       noviNazivVina,
     });
+  }
+
+  // 7b) IZVOR KOJI JE PAO NA NULU gubi svoje radnje — vino je otislo.
+  //
+  //     Ide TEK OVDJE, iza petlje ciljeva, a ne gore u koraku 6 gdje se brise
+  //     ostatak izvorova identiteta: ciljevi svoje retke uzimaju iz snimke, ali
+  //     redoslijed brisanja i pisanja mora ostati citljiv i kad se snimka
+  //     jednom makne. Filtracija izvorni tank NE arhivira ("ceka se kraj
+  //     berbe", vidi korak 6), pa ovo cisti nitko drugi.
+  if (izvorPaoNaNulu) {
+    await ocistiVinoRadnje(tx, izvor.id);
   }
 
   // 8) Otisak stanja POSLIJE — cita se ponovno iz baze, ne racuna se napamet,
@@ -1863,6 +1889,18 @@ export async function ponistiFiltraciju(
   }
 
   await tx.radnja.deleteMany({ where: { zadatakId: zadatak.id } });
+
+  // RADNJE KOJE PUTUJU S VINOM — preracunaj pogodjene tankove iz knjige.
+  //
+  // Ide IZA `radnja.deleteMany`: radnje ovog zadatka vise ne postoje, pa ih
+  // preracun ni ne moze oziviti. Knjiga je protustavku (PONISTENJE) upisala
+  // nekoliko redaka gore, pa odigravanje povijesti daje tocno stanje prije
+  // prijenosa. Vidi obrazlozenje uz `preracunajVinoRadnje` — unatrag se ne
+  // racuna jer se iz spojenih udjela vise ne vidi koji je pribrojnik ciji.
+  await preracunajVinoRadnje(
+    tx,
+    snapshot.prije.map((o) => o.tankId)
+  );
 
   // Izvrsenje je prepisalo kolicine stvarnima; ponistavanje vraca zadatak u
   // stanje plana, onakav kakav je bio zadan. Ako je bio plan bez brojki
