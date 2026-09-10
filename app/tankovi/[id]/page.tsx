@@ -18,6 +18,7 @@ import { smijeUPodrumu } from "@/lib/auth-role";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
 import { popisKvasacaSDopunom } from "@/lib/kvasci";
 import { kvasciPoPartiji } from "@/lib/kvasac-partija";
+import { opisGubitka } from "@/lib/pretok-gubitak";
 import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
 import {
   berbaKrozLanac,
@@ -1608,12 +1609,26 @@ export default async function TankPregledPage({
   }
 
   for (const i of pretociIzlaz) {
+    // KALO ILI TALOG — dosad se nije vidjelo nigdje. `gubitakLitara` se pise od
+    // 23.08.2026., ali ga nijedan ekran nije citao: podrum ga je vidio samo u
+    // dijalogu potvrde prije spremanja i vise nikad.
+    //
+    // Stoji SAMO na izlaznoj strani: gubitak pripada tanku iz kojeg je vino
+    // izaslo, a ne onome u koji je uslo.
+    const gubitak = opisGubitka(i.pretok);
+
     dogadaji.push({
       id: `pi-${i.id}`,
       vrsta: "PRETOK_IZLAZ",
       vrijeme: i.pretok.datum.toISOString(),
       naslov: `Pretok iz ovog tanka u ${opisiCiljeve(i.pretok.ciljevi)}`,
-      podnaslov: `Tip: ${i.pretok.tip}`,
+      podnaslov: gubitak
+        ? `Tip: ${i.pretok.tip} · ${gubitak.naziv} ${formatBroj(gubitak.litre)} L${
+            gubitak.postotak != null
+              ? ` (${formatBroj(gubitak.postotak, 0)} %)`
+              : ""
+          }`
+        : `Tip: ${i.pretok.tip}`,
       iznos: `−${formatBroj(i.kolicina, 0)} L`,
       detalji: [
         ...i.pretok.ciljevi.map((c) => ({
@@ -1622,6 +1637,25 @@ export default async function TankPregledPage({
         })),
         { label: "Količina", value: `${formatBroj(i.kolicina)} L` },
         { label: "Tip pretoka", value: String(i.pretok.tip) },
+        ...(i.pretok.nacin
+          ? [{ label: "Način", value: String(i.pretok.nacin) }]
+          : []),
+        ...(gubitak
+          ? [
+              {
+                // Ime ovisi o nacinu: crijevo i pumpa su "kalo", odbacena
+                // gusca frakcija je "talog". Vidi lib/pretok-gubitak.ts.
+                label: gubitak.naziv.charAt(0).toUpperCase() + gubitak.naziv.slice(1),
+                value:
+                  `${formatBroj(gubitak.litre)} L` +
+                  (gubitak.postotak != null
+                    ? ` (${formatBroj(gubitak.postotak, 1)} %)`
+                    : "") +
+                  ` — ${gubitak.objasnjenje}` +
+                  (gubitak.visok ? " · iznad uobičajenog" : ""),
+              },
+            ]
+          : []),
         { label: "Napomena", value: i.pretok.napomena || "—" },
       ],
     });

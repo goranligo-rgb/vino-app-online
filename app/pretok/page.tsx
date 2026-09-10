@@ -2,6 +2,11 @@
 
 import NatragHome from "@/components/NatragHome";
 import { useEffect, useMemo, useState } from "react";
+import {
+  opisGubitka,
+  PRAG_GUBITKA,
+  type NacinPretoka,
+} from "@/lib/pretok-gubitak";
 
 type Tank = {
   id: string;
@@ -28,20 +33,15 @@ type CiljRed = {
  * KAKO je pretok izveden. Neovisno o vrsti: cuvée se moze raditi kroz filtar i
  * bez njega.
  */
-type Nacin = "BEZ" | "FILTRACIJA" | "FLOTACIJA";
+type Nacin = NacinPretoka;
 
 /**
- * Prag iznad kojeg se kalo zuti — VEZAN UZ NACIN, ne konstanta.
- *
- * Talozenje kod korisnika normalno ima 10–15 % kala, pa bi ga jedan prag od 5 %
- * stalno zutio bez razloga. Ako se nacin ikad prosiri, prag se dodaje ovdje, a
- * ne u uvjet nize.
+ * Prag iznad kojeg se gubitak zuti. PRESELJEN u lib/pretok-gubitak.ts, koji je
+ * od sada jedini izvor istine — isti prag sada koristi i prikaz gotovih
+ * pretoka, pa upozorenje pri unosu i isticanje pri pregledu ne mogu reci
+ * razlicito.
  */
-const PRAG_KALA: Record<Nacin, number> = {
-  BEZ: 5,
-  FILTRACIJA: 5,
-  FLOTACIJA: 15,
-};
+const PRAG_KALA = PRAG_GUBITKA;
 
 const NACINI: Array<{ id: Nacin; naziv: string }> = [
   { id: "BEZ", naziv: "Bez" },
@@ -92,6 +92,12 @@ type ZadnjiPretok = {
       tip?: string | null;
     } | null;
   }>;
+  // Gubitak. API ih je oduvijek vracao, ali ih tip nije deklarirao pa ih
+  // panel nije ni mogao pokazati — zbog toga je podrum kalo vidio samo u
+  // dijalogu potvrde, prije spremanja, i vise nikad.
+  nacin?: string | null;
+  kolicinaIzlaz?: number | null;
+  gubitakLitara?: number | null;
 };
 
 function formatL(value: number) {
@@ -298,6 +304,40 @@ function ZadnjiPretociPanel({
                     <span className="text-stone-500">Ukupno: </span>
                     <strong>{formatL(ukupno)} L</strong>
                   </div>
+
+                  {/* KALO ILI TALOG — ime ovisi o nacinu pretoka.
+                      Vidi lib/pretok-gubitak.ts: crijevo i pumpa su "kalo",
+                      odbacena gusca frakcija je "talog". Bez ovoga se gubitak
+                      vidio samo u dijalogu potvrde, prije spremanja. */}
+                  {(() => {
+                    const g = opisGubitka(p);
+                    if (!g) return null;
+
+                    return (
+                      <div
+                        className={
+                          g.visok
+                            ? "border border-amber-300 bg-amber-50 px-3 py-2"
+                            : ""
+                        }
+                      >
+                        <span className="text-stone-500">
+                          {g.naziv.charAt(0).toUpperCase() + g.naziv.slice(1)}:{" "}
+                        </span>
+                        <strong>{formatL(g.litre)} L</strong>
+                        {g.postotak != null && (
+                          <span className="text-stone-500">
+                            {" "}
+                            ({g.postotak.toFixed(1).replace(".", ",")} %)
+                          </span>
+                        )}
+                        <div className="text-[12px] text-stone-500">
+                          {g.objasnjenje}
+                          {g.visok ? " · iznad uobičajenog" : ""}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div>
                     <span className="text-stone-500">Izvori:</span>
