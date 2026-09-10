@@ -67,9 +67,13 @@ function Param({ oznaka, vrijednost, jedinica }: {
 /**
  * Uski redak sa SVIM sortama tanka, u dnu desnog bloka.
  *
- * Stoji na SVAKOJ kartici — i pod berbom i pod mjesavinom — jer je sastav
- * jedino sto o vinu vrijedi bez obzira koji je blok gore. Postotak dolazi iz
- * `TankSortaUdio`, istog izvora koji cita pravilo >90 %.
+ * SAMO POD "BERBA". Blok "Sastav mjesavine" je i sam popis sorti — s litrama i
+ * postotkom, redak po redak — pa je ovaj uski redak ispod njega ponavljao isti
+ * podatak drugim rijecima. Pod berbom takvog popisa nema, a jednosortni tank
+ * rijetko je stopostotno jednosortan, pa ondje redak nosi jedini podatak o
+ * manjinskim sortama.
+ *
+ * Postotak dolazi iz `TankSortaUdio`, istog izvora koji cita pravilo >90 %.
  */
 function RedakSastava({ sastav }: { sastav: Sastavnica[] }) {
   return (
@@ -221,7 +225,14 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
                 <span className="param-oznaka">Datum berbe</span>
                 <span className="param-vrijednost">{datum(k.berba.datumBerbe)}</span>
               </div>
-              <Param oznaka="Grožđe" vrijednost={k.berba.kolicinaKgGrozdja} jedinica="kg" />
+              {/* ≈ jer je razmjerni izračun PROCJENA: `Berba.kolicinaKgGrozdja`
+                  je vaga cijele partije, a partija ide u više tankova. Bez
+                  oznake bi se čitalo kao izvagano. */}
+              <Param
+                oznaka="Grožđe ≈"
+                vrijednost={k.berba.kolicinaKgGrozdja}
+                jedinica="kg"
+              />
               {/* Stupnjevi Oechsle. Dolaze IZ BERBE i stoje samo ovdje. */}
               <Param oznaka="Šećer" vrijednost={k.berba.secerOe} jedinica="°Oe" />
               <Param oznaka="Kiseline" vrijednost={k.berba.kiseline} jedinica="g/L" />
@@ -254,7 +265,10 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
                 </div>
               ) : null}
             </div>
-            <RedakSastava sastav={k.sastavSvi} />
+            {/* NEMA `RedakSastava`. Blok iznad JE popis sorti, redak po redak s
+                litrama i postotkom; uski redak "Sastav: ..." ispod njega
+                ponavljao je isti podatak drugim rijecima. Stoji samo pod
+                "Berba", gdje ga inace ne bi bilo. */}
           </section>
         )}
       </div>

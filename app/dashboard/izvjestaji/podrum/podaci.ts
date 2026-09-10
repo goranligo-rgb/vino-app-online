@@ -127,7 +127,10 @@ type BerbaUTanku = {
   nazivSorte: string;
   datumBerbe: Date | null;
   godinaBerbe: number | null;
+  /** Kilogrami CIJELE berbene partije, ne onoga sto je u ovom tanku. */
   kolicinaKgGrozdja: number | null;
+  /** Litre CIJELE berbene partije — nazivnik za razmjerni izracun kilograma. */
+  litaraBerbe: number | null;
   /** °Oe — NIKAD se ne mijesa s `Mjerenje.secer`, koji je g/L. */
   secerOe: number | null;
   kiseline: number | null;
@@ -298,6 +301,7 @@ export async function dohvatiPodrum() {
             b."datumBerbe",
             b."godinaBerbe",
             b."kolicinaKgGrozdja"::float8 AS "kolicinaKgGrozdja",
+            b."kolicinaLitara"::float8    AS "litaraBerbe",
             b."secer"::float8             AS "secerOe",
             b."kiseline"::float8          AS kiseline,
             b."ph"::float8                AS ph,

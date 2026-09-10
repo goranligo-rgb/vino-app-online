@@ -28,6 +28,32 @@ function danaOd(datum: Date, sada: Date): number {
   return Math.floor((sada.getTime() - datum.getTime()) / DAN_MS);
 }
 
+/**
+ * Kilogrami grozdja koji otpadaju na litre koje su OD TE PARTIJE u ovom tanku.
+ *
+ * Vraca `null` kad se ne moze izracunati — nema kilograma, nema litara partije,
+ * ili je partija upisana s nula litara. Prazan redak je bolji od broja koji
+ * tvrdi nesto drugo nego sto pise.
+ *
+ * Omjer se REZE NA 1: knjiga zna imati u tanku vise litara nego sto partija
+ * ima upisano (nadopune, zatecene kolicine), a "vise kilograma nego sto je
+ * ubrano" je besmislica.
+ */
+function kgRazmjerno(
+  kgPartije: number | null,
+  litaraUTanku: number,
+  litaraPartije: number | null
+): number | null {
+  if (kgPartije == null || !Number.isFinite(kgPartije)) return null;
+  if (litaraPartije == null || !(litaraPartije > 0)) return null;
+  if (!(litaraUTanku > 0)) return null;
+
+  // CIJELI KILOGRAMI. Ostali parametri kartice idu na dvije decimale i to je
+  // ondje tocno (pH 3,20; kiseline 6,23 g/L), ali "4.176,68 kg" je lazna
+  // preciznost: broj je procjena iz omjera litara, a ne vaga.
+  return Math.round(kgPartije * Math.min(1, litaraUTanku / litaraPartije));
+}
+
 // --- Tipovi kartice --------------------------------------------------------
 
 export type TockaSecera = { t: number; secerGL: number };
@@ -187,9 +213,9 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
     // nize se NE filtrira njime — mora pokazati sve sto je islo u tank.
     // Model `Fermentacija` se namjerno ne cita: prazan je.
     //
-    // Dan fermentacije se racuna od NAJNOVIJEG kvasca u popisu — isto pravilo
-    // kao dosad (lista je sortirana silazno, pa je `find` uzimao najnoviji),
-    // samo sto popis sada sadrzi i kvasce iz drugih tankova.
+    // Dan fermentacije se racuna od VECINSKOG kvasca, ne od najmladjeg — vidi
+    // `PopisKvasaca.vecinski`. Tank 7 je s najmladjim pokazivao 4. dan zbog
+    // kvasca koji drzi 5 % tanka, umjesto 9. po vecini vina.
     const kvasci = popisKvasaca(rad);
     const dolazak = dolazakPo.get(t.id) ?? null;
 
@@ -258,7 +284,27 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
           // jedna berba.
           ukupnoPartija: partije.length,
           datumBerbe: kandidat.datumBerbe,
-          kolicinaKgGrozdja: kandidat.kolicinaKgGrozdja,
+          // GROZDJE RAZMJERNO LITRAMA U TANKU, ne kilogrami cijele partije.
+          //
+          // `Berba.kolicinaKgGrozdja` opisuje BERBENU PARTIJU, a partija ide u
+          // vise tankova i putuje dalje. Neskalirano je isti broj stajao na
+          // vise kartica: 11.503 kg pisalo je na T22, T34 i T40 istovremeno,
+          // sto zbrojeno daje trostruku berbu.
+          //
+          // NAMJERNO DRUKCIJE OD `lib/berba-lanac.ts`, koji kilograme izricito
+          // NE skalira. Ondje je odluka tocna: kartica lanca pokazuje `presloL`
+          // uz `odUkupnoL`, pa citatelj sam vidi omjer i neskalirani kg je
+          // provjerljiva cinjenica. Ovdje tog konteksta nema — stoji samo
+          // "Grožđe 11.503 kg" i cita se kao kilogrami OVOG tanka.
+          //
+          // Rezultat je PROCJENA i tako je i oznacen (≈ na ispisu). Kad se
+          // nazivnik ne zna, kilogrami se ne prikazuju — radije nista nego broj
+          // koji ne znaci ono sto pise.
+          kolicinaKgGrozdja: kgRazmjerno(
+            kandidat.kolicinaKgGrozdja,
+            kandidat.litre,
+            kandidat.litaraBerbe
+          ),
           secerOe: kandidat.secerOe,
           kiseline: kandidat.kiseline,
           ph: kandidat.ph,
@@ -398,8 +444,8 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
       hladjenjeIskljuceno: jeHladjenjeIskljuceno(zadana),
       ocitanoU: oc?.mjerenoU ?? null,
 
-      danFermentacije: kvasci.najnoviji
-        ? danaOd(kvasci.najnoviji.datum, sada)
+      danFermentacije: kvasci.vecinski
+        ? danaOd(kvasci.vecinski.datum, sada)
         : null,
       kvasci: kvasci.stavke,
       kvasciBezZapisa: kvasci.bezZapisaPostotak,

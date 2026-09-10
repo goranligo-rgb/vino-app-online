@@ -46,14 +46,26 @@ export type PopisKvasaca = {
   stavke: StavkaKvasca[];
   /** Cijeli postotak vina bez zapisa; 0 kad ga nema. */
   bezZapisaPostotak: number;
-  /** Najnoviji kvasac — od njega se racuna dan fermentacije. */
-  najnoviji: StavkaKvasca | null;
+  /**
+   * VECINSKI kvasac — onaj s najvecim udjelom. Od njega se racuna dan
+   * fermentacije.
+   *
+   * NIJE najnoviji, i to je ispravak. Dok se citalo iz `Radnja`, tank je imao
+   * samo svoje kvasce pa je "zadnji upisani" bio razuman izbor. Otkad popis
+   * nosi i kvasce koje je vino donijelo, najmladji zna biti sasvim sporedan:
+   * tank 7 je pao s 9. na 4. dan fermentacije zbog kvasca koji drzi 5 % tanka.
+   * Dan fermentacije opisuje vino u tanku, pa ga mora odrediti vecina tog vina.
+   *
+   * Kod jednakog udjela odlucuje STARIJI datum: fermentacija tog vina je tada
+   * i pocela.
+   */
+  vecinski: StavkaKvasca | null;
 };
 
 export const PRAZAN_POPIS: PopisKvasaca = {
   stavke: [],
   bezZapisaPostotak: 0,
-  najnoviji: null,
+  vecinski: null,
 };
 
 /**
@@ -120,14 +132,15 @@ export function popisKvasaca(redci: IzvorKvasca[]): PopisKvasaca {
   // ostalima, pa zbroj i dalje daje 100.
   const vidljive = stavke.filter((s) => s.postotak > 0);
 
-  const najnoviji =
-    [...vidljive].sort((a, b) => b.datum.getTime() - a.datum.getTime())[0] ??
-    null;
+  const vecinski =
+    [...vidljive].sort(
+      (a, b) => b.postotak - a.postotak || a.datum.getTime() - b.datum.getTime()
+    )[0] ?? null;
 
   return {
     stavke: vidljive,
     bezZapisaPostotak: rupa > 0 ? postotci[postotci.length - 1] : 0,
-    najnoviji,
+    vecinski,
   };
 }
 
