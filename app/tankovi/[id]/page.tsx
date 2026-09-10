@@ -2093,6 +2093,60 @@ export default async function TankPregledPage({
         )}
       </Card>
 
+      <Card title="Sastav" broj={udjeliSorti.length} pod="sorti" sklopljena>
+        <div style={{ display: "grid", gap: 12 }}>
+          <div style={sectionToolbarStyle}>
+            <div style={mutedTextStyle}>Trenutni sastav vina u tanku</div>
+
+            <TankRoleSastavModal
+              rola={prijavljeni.role}
+              tankId={tank.id}
+              stavke={udjeliSorti.map((u) => ({
+                id: u.id,
+                nazivSorte: u.nazivSorte,
+                postotak: u.postotak,
+              }))}
+            />
+          </div>
+
+          <div style={infoStripStyle}>
+            <div>Ukupno upisano: {ukupnoPostotakRounded}%</div>
+            <div>
+              {sastavIspravan
+                ? "Sastav je ispravno zbrojen"
+                : "Upozorenje: sastav nije 100%"}
+            </div>
+          </div>
+
+          {udjeliSorti.length === 0 ? (
+            <div style={mutedTextStyle}>Nema podataka o sastavu vina.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {udjeliSorti.map((u) => (
+                <div key={u.id} style={compositionRowStyle}>
+                  <div style={compositionHeaderStyle}>
+                    <strong style={{ fontWeight: 600 }}>{u.nazivSorte}</strong>
+                    <span>{formatBroj(u.postotak)}%</span>
+                  </div>
+
+                  <div style={progressTrackStyle}>
+                    <div
+                      style={{
+                        ...progressFillStyle,
+                        width: `${Math.max(
+                          0,
+                          Math.min(100, Number(u.postotak))
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Card>
+
       <Card title="Otvoreni zadaci" broj={otvoreniZadaci.length}>
         {otvoreniZadaci.length === 0 ? (
           <div style={mutedTextStyle}>Nema otvorenih zadataka.</div>
@@ -2734,60 +2788,6 @@ export default async function TankPregledPage({
             })}
           </div>
         )}
-      </Card>
-
-      <Card title="Sastav" broj={udjeliSorti.length} pod="sorti" sklopljena>
-        <div style={{ display: "grid", gap: 12 }}>
-          <div style={sectionToolbarStyle}>
-            <div style={mutedTextStyle}>Trenutni sastav vina u tanku</div>
-
-            <TankRoleSastavModal
-              rola={prijavljeni.role}
-              tankId={tank.id}
-              stavke={udjeliSorti.map((u) => ({
-                id: u.id,
-                nazivSorte: u.nazivSorte,
-                postotak: u.postotak,
-              }))}
-            />
-          </div>
-
-          <div style={infoStripStyle}>
-            <div>Ukupno upisano: {ukupnoPostotakRounded}%</div>
-            <div>
-              {sastavIspravan
-                ? "Sastav je ispravno zbrojen"
-                : "Upozorenje: sastav nije 100%"}
-            </div>
-          </div>
-
-          {udjeliSorti.length === 0 ? (
-            <div style={mutedTextStyle}>Nema podataka o sastavu vina.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 8 }}>
-              {udjeliSorti.map((u) => (
-                <div key={u.id} style={compositionRowStyle}>
-                  <div style={compositionHeaderStyle}>
-                    <strong style={{ fontWeight: 600 }}>{u.nazivSorte}</strong>
-                    <span>{formatBroj(u.postotak)}%</span>
-                  </div>
-
-                  <div style={progressTrackStyle}>
-                    <div
-                      style={{
-                        ...progressFillStyle,
-                        width: `${Math.max(
-                          0,
-                          Math.min(100, Number(u.postotak))
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </Card>
 
 

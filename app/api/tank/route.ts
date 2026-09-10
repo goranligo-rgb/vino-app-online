@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
+import { jeL12 } from "@/lib/auth-role";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
@@ -115,15 +116,26 @@ export async function POST(req: Request) {
 }
 
 /**
- * PUT - izmjena tanka: broj, kapacitet, tip, sorta.
+ * PUT - izmjena tanka: broj, kapacitet, tip, sorta, nazivVina.
+ *
+ * `nazivVina` je DODAN 10.09.2026. Do tada je ruta pisala `sorta` a `nazivVina`
+ * uopce nije dirala, pa se ta dva polja nisu mogla dovesti u sklad ni kad su se
+ * razisla: tank 26 je stajao sa `sorta` "Zeleni veltlinac" i `nazivVina`
+ * "Chardonnay", dok je po `TankSortaUdio` i po knjizi bio 100 % Chardonnay.
+ * Monitor cita `sorta`, stranica tanka `nazivVina` — isti tank, dva imena, i
+ * nijedan ekran nije mogao popraviti drugo polje.
+ *
+ * Oba polja idu ISTIM pravilom, i to je bitno:
+ *   nije poslano (`undefined`) -> `undefined`, dakle "ne diraj"
+ *   poslano prazno ("", "  ")  -> `null`, dakle "obrisi"
+ * Bez toga bi "obrisi ime" bilo neizvedivo, a izostavljeno polje bi brisalo.
  *
  * KOLICINU VINA NE DIRA. Ovdje su do 26.08.2026. stajala dva kvara:
  *
  *   A) polje koje nije poslano zavrsavalo je kao `0`, ne `undefined`. Susjedna
  *      polja (broj, kapacitet, tip, sorta) sva daju `undefined` — dakle "ne
  *      diraj" — pa je nula bila omaska u pisanju, ne odluka. Posljedica: poziv
- *      `{ id, tip: "inox" }` ispraznio bi tank. Rutu smije zvati svatko tko je
- *      prijavljen, ukljucujuci rolu PREGLED.
+ *      `{ id, tip: "inox" }` ispraznio bi tank.
  *
  *   B) gori, jer se dogadjao sam od sebe: forma na /tankovi UVIJEK salje
  *      kolicinu, i to iz kopije ucitane pri otvaranju stranice (u tablici je
@@ -148,11 +160,25 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
   }
 
+  // UREDJIVANJE TANKA JE L1/L2 — ADMIN i PODRUM. Do sada je rutu smio zvati
+  // svatko tko je prijavljen, ukljucujuci PREGLED, iako je ista provjera vec
+  // stajala na svakom gumbu koji je zove (`jeL12Klijent`). Skrivanje gumba je
+  // uljudnost, ne brava; brava je ovdje.
+  //
+  // ENOLOG je NAMJERNO izostavljen, isto kao u `jeL12`: on odredjuje kad
+  // fermentacija pocinje i zavrsava, ali ne preimenuje vino u tanku.
+  if (!jeL12(user.role)) {
+    return NextResponse.json(
+      { error: "Nemate pravo uređivati tank." },
+      { status: 403 }
+    );
+  }
+
   try {
     const body = await req.json();
 
     // `kolicinaVinaUTanku` se NAMJERNO ne cita iz tijela — vidi nize.
-    const { id, broj, kapacitet, tip, sorta } = body;
+    const { id, broj, kapacitet, tip, sorta, nazivVina } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -179,6 +205,13 @@ export async function PUT(req: Request) {
         tip: tip !== undefined ? (String(tip).trim() || null) : undefined,
         sorta:
           sorta !== undefined ? (String(sorta).trim() || null) : undefined,
+        // Isto pravilo kao `sorta`: nije poslano -> ne diraj, poslano prazno ->
+        // obrisi. Dva polja koja opisuju isto vino moraju se moci mijenjati
+        // zajedno; dok je ovdje bila samo `sorta`, razlika se nije dala zatvoriti.
+        nazivVina:
+          nazivVina !== undefined
+            ? String(nazivVina).trim() || null
+            : undefined,
       },
     });
 
