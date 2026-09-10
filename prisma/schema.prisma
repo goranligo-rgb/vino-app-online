@@ -84,6 +84,7 @@ model Tank {
   pretokSnapshoti      PretokSnapshot[]
   punjenja             PunjenjeTanka[]
   radnje               Radnja[]
+  vinoRadnje           VinoRadnja[]
   currentContent       TankContent?
   udjeliSorti          TankSortaUdio[]
   sourceTransfers      Transfer[]            @relation("SourceTankTransfers")
@@ -2157,4 +2158,64 @@ model Fermentacija {
 enum IzvorPocetkaFermentacije {
   RUCNO
   IZ_ZADATKA
+}
+
+/// RADNJA KOJA PUTUJE S VINOM.
+///
+/// `Radnja.tankId` opisuje POSUDU: gdje je netko stajao kad je nesto dodao.
+/// Cim vino pretoci, taj zapis ostaje iza njega i odrediste o vlastitoj
+/// fermentaciji ne zna nista. Ova tablica opisuje VINO: kopira se u cilj pri
+/// svakom premjestanju, po uzoru na ArhivaVinaRadnja (nazivi se PREPISUJU, ne
+/// citaju kroz relacije — preimenovanje preparata ne smije promijeniti ono sto
+/// na zapisu vec pise).
+///
+/// Radnja OSTAJE netaknuta i dalje je jedini zapis o cinu. Ova je izvedena.
+model VinoRadnja {
+  id     String @id @default(uuid())
+  tankId String
+
+  /// Kljuc deduplikacije. Cuvée od pet izvora moze istu radnju dobiti kroz
+  /// vise njih; duplikat se odbacuje PO OVOME, ne po sadrzaju, a udio se
+  /// zbraja (vidi lib/vino-lanac.ts). Bez FK: radnja se smije obrisati, a
+  /// zapis o tome sto je vino dobilo mora prezivjeti.
+  izvornaRadnjaId String
+
+  /// Tank u kojem je radnja STVARNO izvedena, i njegov broj prepisan u
+  /// trenutku upisa. Broj se drzi ovdje da prikaz "LALVIN SENSY (T17)" ne
+  /// treba join na Tank — isti razlog zbog kojeg ArhivaVina nosi `brojTanka`.
+  izvorniTankId   String
+  izvorniBrojTanka Int?
+
+  preparatId    String?
+  preparatNaziv String?
+  jedinicaNaziv String?
+  korisnikIme   String?
+
+  vrsta    VrstaRadnje
+  opis     String?
+  napomena String?
+  kolicina Float?
+
+  /// PREPISAN iz Preparation u trenutku upisa, ne spaja se naknadno.
+  /// Naknadno spajanje bi znacilo da gasenje oznake u katalogu unatrag mijenja
+  /// povijest fermentacije. Vrijedi ista zabrana kao na Preparation.jeKvasac:
+  /// sluzi za pitanje "je li ovo kvasac", NIKAD za filtriranje popisa dodataka.
+  jeKvasac Boolean @default(false)
+
+  /// Koliki dio DANASNJEG volumena tanka potjece iz ove radnje, 0..1.
+  /// Odrzava se pri svakom ulazu vina; odlazak vina ga ne mijenja.
+  /// Ono sto svim udjelima nedostaje do 1 je vino bez zapisa.
+  udio Float @default(1)
+
+  /// Kad se radnja dogodila (prepisano s Radnja.createdAt) i kad je ovaj
+  /// izvedeni redak nastao. Kopija pri pretoku ima isti `dogodenoAt` kao
+  /// izvornik, a svoj `createdAt`.
+  dogodenoAt DateTime @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  tank Tank @relation(fields: [tankId], references: [id], onDelete: Cascade)
+
+  @@unique([tankId, izvornaRadnjaId])
+  @@index([tankId, dogodenoAt])
+  @@index([izvornaRadnjaId])
 }
