@@ -16,7 +16,8 @@ import HladjenjeGraf from "./hladjenje-graf";
 import FermentacijaGumb from "./fermentacija-gumb";
 import { smijeUPodrumu } from "@/lib/auth-role";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
-import { popisKvasaca } from "@/lib/kvasci";
+import { popisKvasacaSDopunom } from "@/lib/kvasci";
+import { kvasciPoPartiji } from "@/lib/kvasac-partija";
 import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
 import {
   berbaKrozLanac,
@@ -1122,7 +1123,18 @@ export default async function TankPregledPage({
   // Kvasci danasnjeg vina — POPIS, ne jedan. Racun je zajednicki s izvjestajem
   // podruma (lib/kvasci.ts); dva ekrana ne smiju racunati postotke svaki za
   // sebe.
-  const kvasci = popisKvasaca(vinoRadnje);
+  //
+  // DOPUNA PO PARTIJI ide samo kad glavno pravilo ne da nista, i tada su svi
+  // retci oznaceni. Upit se salje SAMO u tom slucaju — tank koji ima kvasac ne
+  // placa nista.
+  const imaKvasac = vinoRadnje.some(
+    (v) => v.jeKvasac && v.vrsta === "DODAVANJE"
+  );
+
+  const kvasci = popisKvasacaSDopunom(
+    vinoRadnje,
+    imaKvasac ? [] : (await kvasciPoPartiji(prisma, [id])).get(id) ?? []
+  );
 
   // Parametri blenda cekali su svoj red iza svih valova, pa je stranica bila
   // duboka cetiri kruga. Sada se POKRECU ODMAH i teku USPOREDNO s drugim i
@@ -2334,7 +2346,11 @@ export default async function TankPregledPage({
       <Card
         title="Kvasci ovog vina"
         broj={kvasci.stavke.length}
-        pod="udio današnjeg volumena koji je fermentirao s tim kvascem"
+        pod={
+          kvasci.stavke[0]?.poPartiji
+            ? "≈ pripisano po berbenoj partiji, ne po trenutku pretoka"
+            : "udio današnjeg volumena koji je fermentirao s tim kvascem"
+        }
       >
         {kvasci.stavke.length === 0 ? (
           <div style={mutedTextStyle}>
@@ -2342,6 +2358,18 @@ export default async function TankPregledPage({
           </div>
         ) : (
           <div style={{ display: "grid", gap: 6, padding: 10 }}>
+            {/* PRIPISANO PO PARTIJI — obavezna oznaka. Nazivnik je cijela
+                berbena šarža, pa su postotci sustavno niži od onih po trenutku
+                pretoka i ta se dva pravila ne smiju čitati kao ista mjera.
+                Popis je uvijek cijel po jednom pravilu, pa natpis ide jednom. */}
+            {kvasci.stavke[0]?.poPartiji && (
+              <div style={{ ...mutedTextStyle, fontStyle: "italic" }}>
+                ≈ pripisano po berbenoj partiji — vino je iz tanka izašlo prije
+                nego što je kvasac dodan, pa je to ista šarža koja je s njim
+                fermentirala. Postotci nisu usporedivi s tankovima gdje kvasac
+                stoji uz sam pretok.
+              </div>
+            )}
             {kvasci.stavke.map((kv, i) => (
               <div
                 key={`${kv.naziv}-${i}`}
@@ -2358,6 +2386,7 @@ export default async function TankPregledPage({
                 )}
                 <span style={mutedTextStyle}>{formatDatum(kv.datum)}</span>
                 <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
+                  {kv.poPartiji ? "≈ " : ""}
                   {kv.postotak} %
                 </span>
               </div>
