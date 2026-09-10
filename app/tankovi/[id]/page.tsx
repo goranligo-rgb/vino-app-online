@@ -2016,6 +2016,83 @@ export default async function TankPregledPage({
         </div>
       </Card>
 
+      {/* --- KVASCI: sto je vino fermentiralo, ma gdje se to dogodilo. ---
+
+          Stranica je do sada o kvascu sutjela, jer je kvasac zapisan kao
+          `Radnja` na tanku u kojem je DODAN — a vino je odavno drugdje.
+          Ovdje se cita `VinoRadnja`, koja putuje s vinom, pa uz svaki kvasac
+          stoji i tank u kojem je posao.
+
+          "bez zapisa" se ispisuje UVIJEK kad postoji: zbroj mora davati 100 %,
+          inace popis izgleda kao da je racun negdje pojeo ostatak. */}
+      <Card
+        title="Kvasci ovog vina"
+        broj={kvasci.stavke.length}
+        pod={
+          kvasci.stavke[0]?.poPartiji
+            ? "≈ pripisano po berbenoj partiji, ne po trenutku pretoka"
+            : "udio današnjeg volumena koji je fermentirao s tim kvascem"
+        }
+      >
+        {kvasci.stavke.length === 0 ? (
+          <div style={mutedTextStyle}>
+            Za vino u ovom tanku nema zapisa o kvascu.
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 6, padding: 10 }}>
+            {/* PRIPISANO PO PARTIJI — obavezna oznaka. Nazivnik je cijela
+                berbena šarža, pa su postotci sustavno niži od onih po trenutku
+                pretoka i ta se dva pravila ne smiju čitati kao ista mjera.
+                Popis je uvijek cijel po jednom pravilu, pa natpis ide jednom. */}
+            {kvasci.stavke[0]?.poPartiji && (
+              <div style={{ ...mutedTextStyle, fontStyle: "italic" }}>
+                ≈ pripisano po berbenoj partiji — vino je iz tanka izašlo prije
+                nego što je kvasac dodan, pa je to ista šarža koja je s njim
+                fermentirala. Postotci nisu usporedivi s tankovima gdje kvasac
+                stoji uz sam pretok.
+              </div>
+            )}
+            {kvasci.stavke.map((kv, i) => (
+              <div
+                key={`${kv.naziv}-${i}`}
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "baseline",
+                  flexWrap: "wrap",
+                }}
+              >
+                <strong>{kv.naziv}</strong>
+                {kv.brojTanka !== null && (
+                  <span style={mutedTextStyle}>tank {kv.brojTanka}</span>
+                )}
+                <span style={mutedTextStyle}>{formatDatum(kv.datum)}</span>
+                <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
+                  {kv.poPartiji ? "≈ " : ""}
+                  {kv.postotak} %
+                </span>
+              </div>
+            ))}
+            {kvasci.bezZapisaPostotak > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "baseline",
+                  fontStyle: "italic",
+                  ...mutedTextStyle,
+                }}
+              >
+                <span>bez zapisa</span>
+                <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
+                  {kvasci.bezZapisaPostotak} %
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
       <Card title="Otvoreni zadaci" broj={otvoreniZadaci.length}>
         {otvoreniZadaci.length === 0 ? (
           <div style={mutedTextStyle}>Nema otvorenih zadataka.</div>
@@ -2480,83 +2557,6 @@ export default async function TankPregledPage({
         </div>
       </Card>
 
-
-      {/* --- KVASCI: sto je vino fermentiralo, ma gdje se to dogodilo. ---
-
-          Stranica je do sada o kvascu sutjela, jer je kvasac zapisan kao
-          `Radnja` na tanku u kojem je DODAN — a vino je odavno drugdje.
-          Ovdje se cita `VinoRadnja`, koja putuje s vinom, pa uz svaki kvasac
-          stoji i tank u kojem je posao.
-
-          "bez zapisa" se ispisuje UVIJEK kad postoji: zbroj mora davati 100 %,
-          inace popis izgleda kao da je racun negdje pojeo ostatak. */}
-      <Card
-        title="Kvasci ovog vina"
-        broj={kvasci.stavke.length}
-        pod={
-          kvasci.stavke[0]?.poPartiji
-            ? "≈ pripisano po berbenoj partiji, ne po trenutku pretoka"
-            : "udio današnjeg volumena koji je fermentirao s tim kvascem"
-        }
-      >
-        {kvasci.stavke.length === 0 ? (
-          <div style={mutedTextStyle}>
-            Za vino u ovom tanku nema zapisa o kvascu.
-          </div>
-        ) : (
-          <div style={{ display: "grid", gap: 6, padding: 10 }}>
-            {/* PRIPISANO PO PARTIJI — obavezna oznaka. Nazivnik je cijela
-                berbena šarža, pa su postotci sustavno niži od onih po trenutku
-                pretoka i ta se dva pravila ne smiju čitati kao ista mjera.
-                Popis je uvijek cijel po jednom pravilu, pa natpis ide jednom. */}
-            {kvasci.stavke[0]?.poPartiji && (
-              <div style={{ ...mutedTextStyle, fontStyle: "italic" }}>
-                ≈ pripisano po berbenoj partiji — vino je iz tanka izašlo prije
-                nego što je kvasac dodan, pa je to ista šarža koja je s njim
-                fermentirala. Postotci nisu usporedivi s tankovima gdje kvasac
-                stoji uz sam pretok.
-              </div>
-            )}
-            {kvasci.stavke.map((kv, i) => (
-              <div
-                key={`${kv.naziv}-${i}`}
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "baseline",
-                  flexWrap: "wrap",
-                }}
-              >
-                <strong>{kv.naziv}</strong>
-                {kv.brojTanka !== null && (
-                  <span style={mutedTextStyle}>tank {kv.brojTanka}</span>
-                )}
-                <span style={mutedTextStyle}>{formatDatum(kv.datum)}</span>
-                <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
-                  {kv.poPartiji ? "≈ " : ""}
-                  {kv.postotak} %
-                </span>
-              </div>
-            ))}
-            {kvasci.bezZapisaPostotak > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "baseline",
-                  fontStyle: "italic",
-                  ...mutedTextStyle,
-                }}
-              >
-                <span>bez zapisa</span>
-                <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
-                  {kvasci.bezZapisaPostotak} %
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
 
       <Card
         title="Porijeklo vina / sastavnice blenda"
