@@ -30,6 +30,11 @@
  * 5. MONOTONOST BROJA REDAKA. Kasniji trenutak ne smije vidjeti manje kretanja
  *    od ranijeg — trivijalno, ali hvata obrnut smjer usporedbe.
  *
+ * 6-8. SASTAV IZVEDEN IZ KNJIGE (faza B): udjeli se zbrajaju na tocno 100,00 —
+ *    i u cijelom tanku i u poznatom dijelu — a ponder je LITRA, ne broj
+ *    zapisa berbe. Tri zapisa Grasevine od 100 L ne smiju natezati postotak
+ *    protiv jednog zapisa Chardonnaya od 3.000 L.
+ *
  * Negativna stanja u proslim trenucima se MJERE, ne tvrde: unatrag datirani
  * unos moze na kratko gurnuti tank ispod nule i to je svojstvo podataka, ne
  * greska ovog citanja. Ispisuje se kao mjera, kao i "cjelovitost povijesti" u
@@ -38,7 +43,12 @@
 
 import "dotenv/config";
 import { prisma } from "../lib/prisma";
-import { stanjeTanka, stanjeSvihTankova } from "../lib/berba-model";
+import {
+  stanjeTanka,
+  stanjeSvihTankova,
+  podrijetloTanka,
+  sastavIzPodrijetla,
+} from "../lib/berba-model";
 import { satKretanja } from "../lib/sat-knjige";
 
 let proslo = 0;
@@ -235,6 +245,56 @@ async function main() {
   }
 
   tvrdi(monotono, "kasniji trenutak nikad ne vidi manje kretanja od ranijeg");
+
+  // ------------------------------------- faza B: sastav izveden iz knjige
+  //
+  // Cista funkcija nad vec procitanim podrijetlom, pa se provjerava nad svim
+  // tankovima bez ijednog dodatnog upita po tanku osim samog podrijetla.
+  let zbrojKriv = 0;
+  let poznatiKriv = 0;
+  let ponderKriv = 0;
+  let prviPonder = "";
+
+  for (const t of tankovi) {
+    const p = await podrijetloTanka(prisma, t.id);
+    const s = sastavIzPodrijetla(p);
+    if (s.length === 0) continue;
+
+    const ukupno = s.reduce((z, x) => z + x.postotak, 0);
+    if (Math.abs(ukupno - 100) > 0.005) zbrojKriv++;
+
+    const poznati = s.filter((x) => !x.nepoznata);
+    if (poznati.length > 0) {
+      const zbrojPoznatih = poznati.reduce(
+        (z, x) => z + (x.postotakOdPoznatog ?? 0),
+        0
+      );
+      if (Math.abs(zbrojPoznatih - 100) > 0.005) poznatiKriv++;
+    }
+
+    // PONDER PO LITRAMA, ne po broju berbi. Redak s vise litara mora imati
+    // veci postotak od retka s manje, bez obzira koliko je zapisa u njemu.
+    for (const a of s) {
+      for (const b of s) {
+        if (a.litre > b.litre && a.postotak < b.postotak) {
+          ponderKriv++;
+          if (!prviPonder)
+            prviPonder = `tank ${t.broj}: ${a.nazivSorte} ${a.litre} L -> ${a.postotak} %, ${b.nazivSorte} ${b.litre} L -> ${b.postotak} %`;
+        }
+      }
+    }
+  }
+
+  tvrdi(zbrojKriv === 0, "izvedeni sastav zbraja se na tocno 100,00 na svakom tanku");
+  tvrdi(
+    poznatiKriv === 0,
+    "udjeli poznatog dijela zbrajaju se na tocno 100,00 na svakom tanku"
+  );
+  tvrdi(
+    ponderKriv === 0,
+    "sastav je ponderiran po litrama, ne po broju zapisa berbe",
+    prviPonder
+  );
 
   // ------------------------------------------------------------- mjere
   console.log("\nMjere (nisu invarijante):");

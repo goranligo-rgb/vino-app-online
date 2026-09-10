@@ -18,6 +18,12 @@ import { smijeUPodrumu } from "@/lib/auth-role";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
 import { popisKvasacaSDopunom } from "@/lib/kvasci";
 import { kvasciPoPartiji } from "@/lib/kvasac-partija";
+import {
+  podrijetloTanka,
+  sastavIzPodrijetla,
+  nepoznatiDio,
+  razlikaSastava,
+} from "@/lib/berba-model";
 import { opisGubitka } from "@/lib/pretok-gubitak";
 import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
 import {
@@ -1186,6 +1192,25 @@ export default async function TankPregledPage({
       ? await berbaKrozLanac(prisma, id, { dubina: 2, sirina: 2 })
       : PRAZAN_LANAC;
 
+  // FAZA B — ISTI ODGOVOR, IZVEDEN IZ KNJIGE.
+  //
+  // `TankSortaUdio` i `BlendIzvor` su SPREMLJENA stanja: netko ih je upisao ili
+  // ih je pretok izracunao i ostavio, i od tada mogu odlutati a nista ih ne
+  // vraca natrag (tank 43: blend tvrdi 585 L, u tanku 565). Knjiga isti podatak
+  // IZVODI iz redaka koji se samo dopisuju, pa ne moze biti u neskladu sama sa
+  // sobom.
+  //
+  // Ne zamjenjuje nista — prikazuju se OBA broja i razlika medju njima, da se
+  // vidi gdje spremljeno stanje vise ne odgovara knjizi.
+  //
+  // TEK OVDJE, ne usporedno: isti razlog kao `berbaKrozLanac` odmah iznad —
+  // vrsak istovremenih veza vec je 6, a pooler drzi 15 za cijelu aplikaciju.
+  // Tri upita u nizu (stanje, tank, berbe) placaju jedan krug latencije.
+  const podrijetloKnjige = await podrijetloTanka(prisma, id);
+  const sastavKnjige = sastavIzPodrijetla(podrijetloKnjige);
+  const nepoznatoUKnjizi = nepoznatiDio(sastavKnjige);
+  const razlikeSastava = razlikaSastava(udjeliSorti, sastavKnjige);
+
   // Spoj sastavnice iz `parametriBlenda` na redak u popisu izvora. Ovdje je
   // sortirano po kolicini, ondje po vremenu upisa — pa ide po id-u.
   // Sumnjiv izvor koji NEMA nijedno polje ne ulazi u prosjek, pa nema o cemu
@@ -2157,6 +2182,86 @@ export default async function TankPregledPage({
               ))}
             </div>
           )}
+
+          {/* IZ KNJIGE — isti sastav, izveden umjesto zapamcen.
+              Gornji popis je `TankSortaUdio`: netko ga je upisao ili ga je
+              pretok izracunao i ostavio. Ovaj se racuna iz knjige kretanja pri
+              svakom prikazu, ponderirano po LITRAMA (ne po broju berbi: tri
+              berbe od 100 L i jedna od 3.000 L nisu 75:25 nego 9:91).
+              Prikazuju se oba, jer se spremljeno stanje ne ispravlja
+              prikazom — vidi se samo gdje se razislo. */}
+          <div style={izKnjigeOkvirStyle}>
+            <div style={izKnjigeNaslovStyle}>
+              Iz knjige kretanja (izvedeno, ponderirano po litrama)
+            </div>
+
+            {sastavKnjige.length === 0 ? (
+              <div style={mutedTextStyle}>
+                Knjiga za ovaj tank ne zna nijednu berbu — vino je u njega ušlo
+                prije nego je knjiga počela ili je tank prazan.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "grid", gap: 4 }}>
+                  {sastavKnjige.map((s) => (
+                    <div key={s.nazivSorte} style={izKnjigeRedStyle}>
+                      <span style={s.nepoznata ? { color: "#6b7280" } : undefined}>
+                        {s.nazivSorte}
+                        {s.berbi > 1 ? ` · ${s.berbi} zapisa` : ""}
+                      </span>
+                      <span style={{ color: "#6b7280", marginLeft: "auto" }}>
+                        {formatBroj(s.litre, 0)} L
+                      </span>
+                      <strong style={{ fontVariantNumeric: "tabular-nums" }}>
+                        {formatBroj(s.postotak)}%
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+
+                {/* NEPOZNATO NIJE NESLAGANJE. Litre kojima knjiga ne zna sortu
+                    su rupa u znanju, ne tvrdnja da je upisani sastav kriv —
+                    zato se imenuju posebno, a usporedba ide samo nad poznatim
+                    dijelom. */}
+                {nepoznatoUKnjizi.litre > 0 ? (
+                  <div style={mutedTextStyle}>
+                    Za {formatBroj(nepoznatoUKnjizi.litre, 0)} L (
+                    {formatBroj(nepoznatoUKnjizi.postotak, 0)}%) knjiga ne zna
+                    sortu — to je vino zatečeno u podrumu prije nego je knjiga
+                    počela. Usporedba ispod gleda samo ostatak.
+                  </div>
+                ) : null}
+
+                {razlikeSastava.length === 0 ? (
+                  <div style={mutedTextStyle}>
+                    Upisani sastav slaže se s knjigom
+                    {nepoznatoUKnjizi.litre > 0 ? " u poznatom dijelu" : ""}.
+                  </div>
+                ) : (
+                  <div style={blendUpozorenjeStyle}>
+                    Upisani sastav i knjiga se razilaze
+                    {nepoznatoUKnjizi.litre > 0 ? " (u poznatom dijelu)" : ""}:{" "}
+                    {razlikeSastava
+                      .map(
+                        (r) =>
+                          `${r.nazivSorte} ${
+                            r.spremljeno == null
+                              ? "nije upisan"
+                              : `${formatBroj(r.spremljeno)}%`
+                          } → knjiga ${
+                            r.izKnjige == null
+                              ? "ne poznaje"
+                              : `${formatBroj(r.izKnjige)}%`
+                          }`
+                      )
+                      .join("; ")}
+                    . Ništa se ne ispravlja samo od sebe — knjiga se dopisuje,
+                    upisani sastav se mijenja rukom.
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </Card>
 
@@ -2730,6 +2835,58 @@ export default async function TankPregledPage({
           </div>
         ) : null}
 
+        {/* IZ KNJIGE — porijeklo koje se ne pamti nego izvodi.
+            Popis ispod su `BlendIzvor` retci: pokazivaci na POSUDE (tank ili
+            arhiva), upisani u trenutku pretoka i od tada nepromijenjeni. Knjiga
+            na isto pitanje odgovara BERBAMA — sto je ubrano, kad i gdje — i
+            racuna se pri svakom prikazu. Dva razlicita rjecnika za isto vino,
+            pa stoje jedan uz drugi, a ne umjesto. */}
+        <div style={izKnjigeOkvirStyle}>
+          <div style={izKnjigeNaslovStyle}>
+            Iz knjige kretanja — po berbama (izvedeno)
+          </div>
+
+          {podrijetloKnjige.stavke.length === 0 ? (
+            <div style={mutedTextStyle}>
+              Knjiga za ovaj tank ne zna nijednu berbu.
+            </div>
+          ) : (
+            <>
+              <div style={{ display: "grid", gap: 4 }}>
+                {podrijetloKnjige.stavke.map((s) => (
+                  <div key={s.berbaId} style={izKnjigeRedStyle}>
+                    <span>
+                      {s.nazivSorte}
+                      {s.oznakaBerbe ? ` · ${s.oznakaBerbe}` : ""}
+                      {s.vrstaUnosa === "ZATECENO" ? " · zatečeno" : ""}
+                    </span>
+                    <span style={{ color: "#6b7280", marginLeft: "auto" }}>
+                      {formatBroj(s.uTankuL, 0)} L
+                    </span>
+                    <strong style={{ fontVariantNumeric: "tabular-nums" }}>
+                      {formatBroj(s.postotak)}%
+                    </strong>
+                  </div>
+                ))}
+              </div>
+
+              <div style={mutedTextStyle}>
+                Knjiga objašnjava{" "}
+                <strong>{formatBroj(podrijetloKnjige.ukupnoL, 0)} L</strong>
+                {Math.abs(podrijetloKnjige.razlikaOdTankaL) > 0.5 ? (
+                  <>
+                    {" "}
+                    od {formatBroj(tank.kolicinaVinaUTanku, 0)} L u tanku —
+                    razlika {formatBroj(podrijetloKnjige.razlikaOdTankaL, 0)} L.
+                  </>
+                ) : (
+                  <>, točno koliko tank i ima.</>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
         {tank.blendIzvori.length === 0 ? (
           <div style={mutedTextStyle}>Nema zapisanih izvora za ovo vino.</div>
         ) : (
@@ -3272,6 +3429,30 @@ const blendUpozorenjeStyle: React.CSSProperties = {
   background: "#fff7ed",
   border: "1px solid #fed7aa",
   padding: "8px 10px",
+};
+
+/* IZVEDENO IZ KNJIGE — vizualno odvojeno od spremljenog stanja iznad, da se
+   dva odgovora na isto pitanje ne citaju kao jedan popis. */
+const izKnjigeOkvirStyle: React.CSSProperties = {
+  borderTop: "1px solid #ececec",
+  paddingTop: 10,
+  display: "grid",
+  gap: 6,
+};
+
+const izKnjigeNaslovStyle: React.CSSProperties = {
+  fontSize: 11,
+  letterSpacing: 0.4,
+  textTransform: "uppercase",
+  color: "#6b7280",
+};
+
+const izKnjigeRedStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  fontSize: 13,
+  color: "#2f2f2f",
 };
 
 const obavijestPrazanStyle: React.CSSProperties = {

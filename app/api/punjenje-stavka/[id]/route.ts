@@ -14,7 +14,11 @@ import {
   zabiljeziIzlaz,
   zabiljeziUlaz,
 } from "@/lib/berba-knjiga";
-import { gdjeJeBerba, ulazniTankoviBerbe } from "@/lib/berba-model";
+import {
+  SORTA_NEPOZNATA,
+  gdjeJeBerba,
+  ulazniTankoviBerbe,
+} from "@/lib/berba-model";
 
 /** Kolicina u tanku, u cijelim mililitrima — kako knjiga i racuna. */
 async function kolicinaTankaMl(tx: Tx, tankId: string): Promise<number> {
@@ -691,7 +695,7 @@ export async function DELETE(_req: Request, { params }: Params) {
           tankId,
           litre: uLitre(-razlikaMl),
           vrstaUnosa: "ZATECENO",
-          nazivSorte: "Nepoznato podrijetlo",
+          nazivSorte: SORTA_NEPOZNATA,
           napomena:
             "Vino vraceno u tank pri brisanju punjenja, iz stanja zapamcenog prije tog punjenja.",
           korisnikId: user.id,

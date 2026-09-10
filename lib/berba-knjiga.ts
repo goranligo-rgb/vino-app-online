@@ -48,7 +48,7 @@
 
 import type { Prisma } from "@prisma/client";
 import { podijeliMl, uLitre, uMl } from "@/lib/filtracija";
-import { stanjeTanka } from "@/lib/berba-model";
+import { SORTA_NEPOZNATA, stanjeTanka } from "@/lib/berba-model";
 
 export type Tx = Prisma.TransactionClient;
 
@@ -678,7 +678,7 @@ async function izTanka(
       tankId,
       litre: uLitre(manjakMl),
       vrstaUnosa: "ZATECENO",
-      nazivSorte: "Nepoznato podrijetlo",
+      nazivSorte: SORTA_NEPOZNATA,
       napomena: z.opisManjka,
       veza: z.veza,
       dogodenoAt: z.dogodenoAt,

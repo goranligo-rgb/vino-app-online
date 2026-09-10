@@ -472,3 +472,188 @@ export async function podrijetloTanka(
     naTrenutak,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Sastav izveden iz knjige (faza B)
+// ---------------------------------------------------------------------------
+
+/**
+ * SASTAV KOJI SE NE PAMTI NEGO RACUNA.
+ *
+ * `TankSortaUdio` je SPREMLJENO stanje: postotci koje je netko upisao ili koje
+ * je pretok izracunao i ostavio. Cim se upise, moze odlutati od stvarnosti i
+ * nista ga ne vraca natrag — isto vrijedi za `BlendIzvor`, koji na tanku 43
+ * tvrdi 585 L dok je u tanku 565.
+ *
+ * Isti podatak knjiga zna izvesti: svaka berba u tanku nosi svoj `nazivSorte`,
+ * a koliko je koje berbe u tanku racuna se iz redaka. Zbroj redaka ne moze
+ * biti u neskladu s tim redcima.
+ *
+ * PONDERIRA SE PO LITRAMA, nikad obicnim prosjekom po broju berbi. Tri berbe
+ * Grasevine od 100 L i jedna Chardonnaya od 3.000 L nisu 75 % naprama 25 %,
+ * nego 9 % naprama 91 %. Zato se zbrajaju MILILITRI pa se tek onda dijeli.
+ *
+ * Postotci idu kroz `postotciIzMl` (metoda najveceg ostatka), pa im je zbroj
+ * tocno 100,00 — isti racun koji vec slaze blend i sastav pri pretoku.
+ */
+/**
+ * Ime pod kojim knjiga vodi litre kojima sortu ne zna.
+ *
+ * Nastaje na dva mjesta: `zabiljeziIzlaz` kad tank ima vise vina nego knjiga
+ * (`ZATECENO` nadopuna) i backfill knjige za pocetno stanje podruma. Danas je
+ * tako zavedeno 17 zapisa i 55.800 L.
+ *
+ * NIJE SORTA i ne smije se citati kao neslaganje sa spremljenim sastavom:
+ * "Grasevina 91,9 % naprama knjizi 70,6 %" ne znaci da je jedno od toga krivo,
+ * nego da knjiga za 21 % litara ne zna sto su. Zato se usporedjuje samo POZNATI
+ * dio, a nepoznati se imenuje posebno.
+ */
+export const SORTA_NEPOZNATA = "Nepoznato podrijetlo";
+
+export type StavkaSastava = {
+  nazivSorte: string;
+  litre: number;
+  /** Udio u CIJELOM tanku. */
+  postotak: number;
+  /**
+   * Udio u dijelu kojemu knjiga zna sortu. `null` na samom nepoznatom retku i
+   * kad poznatog dijela uopce nema.
+   *
+   * Postoji zbog usporedbe sa spremljenim sastavom: `TankSortaUdio` opisuje
+   * poznato vino i zbraja se na 100, pa se s `postotak` (koji ukljucuje i
+   * nepoznato) ne smije usporedjivati izravno.
+   */
+  postotakOdPoznatog: number | null;
+  /** Je li ovo redak litara bez poznate sorte. */
+  nepoznata: boolean;
+  /** Koliko je razlicitih zapisa berbe slozeno u ovaj redak. */
+  berbi: number;
+};
+
+/**
+ * Sastav po sortama iz vec procitanog podrijetla — CISTA funkcija, bez upita.
+ *
+ * Racuna se iz `Podrijetlo`, a ne vlastitim citanjem, iz dva razloga: stranica
+ * tanka podrijetlo ionako cita, pa ovo ne dodaje nijedan upit; i sastav i
+ * podrijetlo tada ne mogu ispasti iz dva razlicita stanja.
+ */
+export function sastavIzPodrijetla(p: Podrijetlo): StavkaSastava[] {
+  const poSorti = new Map<string, { ml: number; berbi: number }>();
+
+  for (const s of p.stavke) {
+    const naziv = s.nazivSorte?.trim() || "Nepoznata sorta";
+    const prije = poSorti.get(naziv) ?? { ml: 0, berbi: 0 };
+
+    // Natrag u mililitre: `uTankuL` je vec zaokruzen iz njih, pa je pretvorba
+    // tocna, a zbrajanje cijelih brojeva ne ostavlja repove.
+    poSorti.set(naziv, {
+      ml: prije.ml + Math.round(s.uTankuL * 1000),
+      berbi: prije.berbi + 1,
+    });
+  }
+
+  const redci = [...poSorti.entries()].sort(
+    (a, b) => b[1].ml - a[1].ml || a[0].localeCompare(b[0], "hr")
+  );
+
+  if (redci.length === 0) return [];
+
+  const jeNepoznata = (naziv: string) => naziv === SORTA_NEPOZNATA;
+
+  const postotci = postotciIzMl(redci.map(([, v]) => v.ml));
+
+  // Drugi racun, samo nad poznatim dijelom — opet metodom najveceg ostatka, pa
+  // se i taj niz zbraja na tocno 100,00. Racuna se odvojeno, a ne skaliranjem
+  // prvoga: skaliranje bi zaokruzivanje primijenilo dvaput.
+  const poznati = redci.filter(([naziv]) => !jeNepoznata(naziv));
+  const postotciPoznatih = postotciIzMl(poznati.map(([, v]) => v.ml));
+  const poznatiPoNazivu = new Map(
+    poznati.map(([naziv], i) => [naziv, postotciPoznatih[i]])
+  );
+
+  return redci.map(([nazivSorte, v], i) => ({
+    nazivSorte,
+    litre: uLitre(v.ml),
+    postotak: postotci[i],
+    postotakOdPoznatog: poznatiPoNazivu.get(nazivSorte) ?? null,
+    nepoznata: jeNepoznata(nazivSorte),
+    berbi: v.berbi,
+  }));
+}
+
+/** Litre kojima knjiga ne zna sortu, i njihov udio u tanku. */
+export function nepoznatiDio(stavke: StavkaSastava[]): {
+  litre: number;
+  postotak: number;
+} {
+  const redak = stavke.find((s) => s.nepoznata);
+  return { litre: redak?.litre ?? 0, postotak: redak?.postotak ?? 0 };
+}
+
+/** Jedna sorta, kako je stoji u spremljenom i kako je racuna knjiga. */
+export type RazlikaSastava = {
+  nazivSorte: string;
+  /** `null` = te sorte u spremljenom sastavu uopce nema. */
+  spremljeno: number | null;
+  /** `null` = knjiga tu sortu ne poznaje. */
+  izKnjige: number | null;
+  /** Knjiga minus spremljeno, u postotnim bodovima. */
+  razlika: number;
+};
+
+/**
+ * Usporedi spremljeni sastav s izvedenim — SAMO nad poznatim dijelom.
+ *
+ * Nepoznati redak (`SORTA_NEPOZNATA`) se izostavlja i uzimaju se
+ * `postotakOdPoznatog` vrijednosti: `TankSortaUdio` opisuje vino kojemu je
+ * sorta poznata i zbraja se na 100, pa bi usporedba s udjelom u cijelom tanku
+ * svaku nepoznanicu prikazala kao neslaganje. Koliko je nepoznatog, kaze
+ * `nepoznatiDio` — zasebno, jer je to druga tvrdnja.
+ *
+ * PRAG je 0,5 postotnog boda i nije proizvoljan: oba niza zaokruzuju na dvije
+ * decimale metodom najveceg ostatka, pa se na istim podacima smiju razici za
+ * najvise jedan bod u zadnjem retku. Sve ispod praga je zaokruzivanje, sve
+ * iznad je stvarna razlika.
+ *
+ * Ne ispravlja nista i ne odlucuje tko je u pravu — samo pokazuje oba broja.
+ */
+export function razlikaSastava(
+  spremljeno: Array<{ nazivSorte: string; postotak: number }>,
+  izKnjige: StavkaSastava[],
+  prag = 0.5
+): RazlikaSastava[] {
+  const kljuc = (s: string) => s.trim().toLocaleLowerCase("hr");
+
+  const a = new Map(spremljeno.map((s) => [kljuc(s.nazivSorte), s]));
+  const b = new Map(
+    izKnjige
+      .filter((s) => !s.nepoznata && s.postotakOdPoznatog != null)
+      .map((s) => [
+        kljuc(s.nazivSorte),
+        { nazivSorte: s.nazivSorte, postotak: s.postotakOdPoznatog as number },
+      ])
+  );
+
+  const sviKljucevi = [...new Set([...a.keys(), ...b.keys()])];
+  const razlike: RazlikaSastava[] = [];
+
+  for (const k of sviKljucevi) {
+    const x = a.get(k);
+    const y = b.get(k);
+
+    const spremljenoP = x ? Number(x.postotak) : null;
+    const knjigaP = y ? Number(y.postotak) : null;
+    const razlika = Number(((knjigaP ?? 0) - (spremljenoP ?? 0)).toFixed(2));
+
+    if (Math.abs(razlika) < prag) continue;
+
+    razlike.push({
+      nazivSorte: y?.nazivSorte ?? x?.nazivSorte ?? k,
+      spremljeno: spremljenoP,
+      izKnjige: knjigaP,
+      razlika,
+    });
+  }
+
+  return razlike.sort((p, q) => Math.abs(q.razlika) - Math.abs(p.razlika));
+}
