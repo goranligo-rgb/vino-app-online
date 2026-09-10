@@ -37,6 +37,7 @@ import {
   zadnjiBentotest,
   mjerenjaTrenutnogVina,
   type RedakMjerenja,
+  DANA_ZA_STARU_PROCJENU,
 } from "@/lib/mjerenja";
 import ParametriPoPolju, { type ParametarPrikaz } from "./parametri-po-polju";
 import {
@@ -1272,9 +1273,21 @@ export default async function TankPregledPage({
         ? {
             vrijednost: b.vrijednost,
             postotak: b.postotak,
+            // Udio VINA U TANKU, uz udio blenda — dva pitanja, dva broja.
+            postotakOdTanka: b.postotakOdTanka,
             pokrivenoL: b.pokrivenoL,
             ukupnoL: b.ukupnoL,
-            doprinosi: b.doprinosi,
+            kolicinaUTankuL: blend?.kolicinaUTankuL ?? null,
+            // Datum najnovijeg mjerenja medju sastavnicama koje su dale ovu
+            // vrijednost — po njemu prikaz istice staru procjenu.
+            mjerenoAt: b.najnovijeMjerenoAt?.toISOString() ?? null,
+            pragDana: DANA_ZA_STARU_PROCJENU,
+            doprinosi: b.doprinosi.map((d) => ({
+              naziv: d.naziv,
+              kolicina: d.kolicina,
+              vrijednost: d.vrijednost,
+              izmjerenoAt: d.izmjerenoAt?.toISOString() ?? null,
+            })),
           }
         : null,
     };

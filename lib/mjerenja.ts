@@ -318,7 +318,24 @@ export type DoprinosPolju = {
   naziv: string;
   kolicina: number;
   vrijednost: number;
+  /** Kad je BAS TA vrijednost izmjerena na toj sastavnici. */
+  izmjerenoAt: Date | null;
 };
+
+/**
+ * Koliko je stara procjena prije nego je prikaz istakne.
+ *
+ * 14 DANA, i broj nije okrugao slucajno. Izmjereno 10.09.2026. nad svim
+ * poljima koja se danas prikazuju kao procjena: zaostatci idu
+ * 2, 4, 4, 4, 4, 6, 6, 6, 6, 7, 7 pa skok na 21, 21, 69, 69, 84, 84, 84.
+ * Izmedju 7 i 21 je prazno — s jedne strane su procjene iz sastavnice
+ * izmjerene par dana prije pretoka, sto je obican ritam podruma, s druge one
+ * koje su prezivjele cijelu fazu vina. Prag lezi u tom procjepu.
+ *
+ * NE ODBACUJE SE, samo se istice: podatak star 84 dana nosi vise informacije
+ * nego prazno polje, a enolog sam prosudi vrijedi li jos.
+ */
+export const DANA_ZA_STARU_PROCJENU = 14;
 
 /** Jedno polje blenda: vrijednost + koliko je blenda uopce doprinijelo. */
 export type PokrivenostPolja = {
@@ -327,8 +344,27 @@ export type PokrivenostPolja = {
   pokrivenoL: number;
   /** Ukupne litre svih sastavnica. */
   ukupnoL: number;
-  /** pokrivenoL / ukupnoL * 100 */
+  /** pokrivenoL / ukupnoL * 100 — udio BLENDA, ne vina u tanku. */
   postotak: number;
+  /**
+   * Udio VINA U TANKU koje ova procjena pokriva.
+   *
+   * RAZLIKUJE SE od `postotak` cim je blend manji od tanka — a smije biti:
+   * punjenje grozdjem dodaje vino bez izvornog tanka i namjerno mu se ne
+   * dopisuje redak porijekla. T28 tako drzi 3.650 L uz blend od 800 L, pa je
+   * `postotak` 100 % a ovo 22 %. Bez oba broja "100 %" tvrdi da je pokriveno
+   * cijelo vino, a pokriven je cijeli BLEND.
+   *
+   * `null` kad se kolicina u tanku ne zna.
+   */
+  postotakOdTanka: number | null;
+  /**
+   * Najnovije mjerenje medju sastavnicama koje su dale OVU vrijednost.
+   *
+   * Prikaz time moze reci "mjereno 21.08." umjesto da procjena stoji gola uz
+   * svjeza vlastita mjerenja. Vidi `DANA_ZA_STARU_PROCJENU`.
+   */
+  najnovijeMjerenoAt: Date | null;
   /**
    * Tko je ulazio u prosjek BAS ZA OVO polje. Prikaz time moze pokazati sam
    * racun umjesto da broj stoji gol: 300 L x 11,8 + 200 L x 11,4 -> 11,63.
@@ -367,11 +403,19 @@ export type ParametriBlenda = {
   sastavnice: SastavnicaBlenda[];
   /** Sastavnice bez ijednog mjerenja — one koje ruse pokrivenost. */
   bezPodataka: SastavnicaBlenda[];
+  /** Zbroj litara SASTAVNICA. */
   ukupnoL: number;
+  /**
+   * Litre koje su STVARNO u tanku. Nije isto sto i `ukupnoL` — vidi
+   * `PokrivenostPolja.postotakOdTanka`. `null` kad se ne zna.
+   */
+  kolicinaUTankuL: number | null;
 };
 
+// `tank` je dodan uz `blendIzvor` i `arhivaVinaMjerenje`: pokrivenost se mjeri
+// i prema kolicini u tanku, a ne samo prema zbroju sastavnica.
 type CitacBlenda = Citac &
-  Pick<Prisma.TransactionClient, "blendIzvor" | "arhivaVinaMjerenje">;
+  Pick<Prisma.TransactionClient, "blendIzvor" | "arhivaVinaMjerenje" | "tank">;
 
 /** Ista logika po polju, ali nad arhiviranim mjerenjima. */
 export async function vrijednostiArhivePoPolju(
@@ -524,6 +568,19 @@ export async function parametriBlenda(
   );
 
   const ukupnoL = ulazi.reduce((s, u) => s + u.kolicina, 0);
+
+  // Kolicina u tanku — jedan upit, izvan petlje po poljima. Treba jer
+  // `ukupnoL` mjeri BLEND, a pitanje "koliko je vina pokriveno" mjeri TANK.
+  const ciljniTank = await db.tank.findUnique({
+    where: { id: tankId },
+    select: { kolicinaVinaUTanku: true },
+  });
+
+  const kolicinaUTankuL =
+    ciljniTank?.kolicinaVinaUTanku != null
+      ? Number(ciljniTank.kolicinaVinaUTanku)
+      : null;
+
   const poPolju = {} as Record<
     (typeof POLJA_MJERENJA)[number],
     PokrivenostPolja
@@ -535,12 +592,22 @@ export async function parametriBlenda(
     );
     const pokrivenoL = doprinose.reduce((s, u) => s + u.kolicina, 0);
 
+    // NAJNOVIJE mjerenje medju doprinosima, ne najstarije: procjena je stara
+    // koliko i njezin najsvjeziji sastojak. Kad bi se uzeo najstariji, jedna
+    // zaboravljena sastavnica ucinila bi svaku procjenu starom.
+    const datumi = doprinose
+      .map((u) => u.opis.izvorPolja[polje]?.izmjerenoAt ?? null)
+      .filter((x): x is Date => x != null)
+      .sort((a, b) => b.getTime() - a.getTime());
+
     poPolju[polje] = {
       doprinosi: doprinose.map((u) => ({
         naziv: u.opis.naziv,
         kolicina: u.kolicina,
         vrijednost: Number(u.vrijednosti[polje]),
+        izmjerenoAt: u.opis.izvorPolja[polje]?.izmjerenoAt ?? null,
       })),
+      najnovijeMjerenoAt: datumi[0] ?? null,
       vrijednost:
         pokrivenoL > 0
           ? Number(
@@ -555,6 +622,10 @@ export async function parametriBlenda(
       pokrivenoL,
       ukupnoL,
       postotak: ukupnoL > 0 ? Number(((pokrivenoL / ukupnoL) * 100).toFixed(2)) : 0,
+      postotakOdTanka:
+        kolicinaUTankuL && kolicinaUTankuL > 0
+          ? Number(((pokrivenoL / kolicinaUTankuL) * 100).toFixed(2))
+          : null,
     };
   }
 
@@ -563,6 +634,7 @@ export async function parametriBlenda(
     sastavnice: ulazi.map((u) => u.opis),
     bezPodataka: ulazi.filter((u) => u.opis.polja.length === 0).map((u) => u.opis),
     ukupnoL,
+    kolicinaUTankuL,
   };
 }
 

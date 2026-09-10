@@ -36,6 +36,8 @@ export type DoprinosPrikaz = {
   naziv: string;
   kolicina: number;
   vrijednost: number;
+  /** ISO datum kad je BAS TA vrijednost izmjerena na toj sastavnici. */
+  izmjerenoAt: string | null;
 };
 
 export type ParametarPrikaz = {
@@ -51,12 +53,39 @@ export type ParametarPrikaz = {
   /** Sto blend kaze za ovo polje — i kad se prikazuje vlastito mjerenje. */
   blend: {
     vrijednost: number | null;
+    /** Udio BLENDA koji je dao podatak. */
     postotak: number;
+    /** Udio VINA U TANKU. Razlikuje se cim je blend manji od tanka. */
+    postotakOdTanka: number | null;
     pokrivenoL: number;
     ukupnoL: number;
+    /** Litre u tanku; `null` kad se ne zna. */
+    kolicinaUTankuL: number | null;
+    /** ISO datum najnovijeg mjerenja medju sastavnicama koje su dale ovu
+     *  vrijednost. Prikaz po njemu istice staru procjenu. */
+    mjerenoAt: string | null;
+    /** Koliko dana stara smije biti prije nego se istakne. */
+    pragDana: number;
     doprinosi: DoprinosPrikaz[];
   } | null;
 };
+
+/** Koliko je dana stara procjena, ili `null` kad se datum ne zna. */
+function danaStaro(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.floor((Date.now() - t) / 86400000);
+}
+
+function fDatum(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("hr-HR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
 
 const BOJA_RACUN = "#9a3412"; // izracunato — odvojeno od vinske crvene naslova
 const BOJA_MJERENO = "#2f2f2f";
@@ -235,6 +264,9 @@ function RacunBlenda({ p }: { p: ParametarPrikaz }) {
     );
   }
 
+  const dana = danaStaro(b.mjerenoAt);
+  const staro = dana != null && dana > b.pragDana;
+
   return (
     <div>
       <div style={racunNaslov}>
@@ -243,10 +275,27 @@ function RacunBlenda({ p }: { p: ParametarPrikaz }) {
         na samom tanku.
       </div>
 
+      {/* STAROST PROCJENE. Procjena je stara koliko i njezin NAJSVJEZIJI
+          sastojak. Ne odbacuje se ni kad je stara: podatak star 84 dana nosi
+          vise informacije nego prazno polje, a enolog sam prosudi vrijedi li
+          jos. Ali ne smije stajati gol uz svjeza vlastita mjerenja. */}
+      {b.mjerenoAt ? (
+        <div style={staro ? racunUpozorenje : tihoStil}>
+          {staro ? "⚠ " : ""}Iz sastavnice, mjereno {fDatum(b.mjerenoAt)}
+          {dana != null ? ` — prije ${dana} ${dana === 1 ? "dan" : "dana"}` : ""}
+          {staro ? `, starije od ${b.pragDana} dana` : ""}.
+        </div>
+      ) : null}
+
       <div style={racunTablica}>
         {b.doprinosi.map((d, i) => (
           <div key={i} style={racunRed}>
-            <span>{d.naziv}</span>
+            <span>
+              {d.naziv}
+              {d.izmjerenoAt ? (
+                <span style={racunSivo}> · {fDatum(d.izmjerenoAt)}</span>
+              ) : null}
+            </span>
             <span style={racunSivo}>{fBroj(d.kolicina, 0)} L</span>
             <span style={racunBrojStil}>
               {fBroj(d.vrijednost)}
@@ -277,9 +326,26 @@ function RacunBlenda({ p }: { p: ParametarPrikaz }) {
 
       {b.postotak < 99.5 ? (
         <div style={racunUpozorenje}>
-          {fBroj(100 - b.postotak, 0)}% količine ({fBroj(b.ukupnoL - b.pokrivenoL, 0)}{" "}
-          L) nema izmjeren ovaj parametar i nije ušlo u prosjek. Broj vrijedi za
-          dio blenda, ne za cijeli tank.
+          {fBroj(100 - b.postotak, 0)}% blenda ({fBroj(b.ukupnoL - b.pokrivenoL, 0)}{" "}
+          L) nema izmjeren ovaj parametar i nije ušlo u prosjek.
+        </div>
+      ) : null}
+
+      {/* DVA POSTOTKA, jer odgovaraju na dva pitanja. `postotak` je udio
+          BLENDA, `postotakOdTanka` udio VINA U TANKU. Dok su isti, dovoljan je
+          jedan. Cim se razidju — a razidju se kad je blend manji od tanka, jer
+          punjenje grozdjem dodaje vino bez izvornog tanka — "100 %" tvrdi da
+          je pokriveno cijelo vino, a pokriven je cijeli blend. T28: blend
+          800 L na 3.650 L u tanku, dakle 100 % blenda je 22 % vina. */}
+      {b.postotakOdTanka != null &&
+      b.kolicinaUTankuL != null &&
+      Math.abs(b.postotakOdTanka - b.postotak) > 0.5 ? (
+        <div style={racunUpozorenje}>
+          Prosjek pokriva {fBroj(b.pokrivenoL, 0)} L od{" "}
+          {fBroj(b.kolicinaUTankuL, 0)} L u tanku —{" "}
+          <strong>{fBroj(b.postotakOdTanka, 0)}% vina</strong>, iako{" "}
+          {fBroj(b.postotak, 0)}% blenda. Ostatak je ušao punjenjem i nema
+          izvorni tank, pa mu se parametri nemaju odakle pročitati.
         </div>
       ) : null}
     </div>
