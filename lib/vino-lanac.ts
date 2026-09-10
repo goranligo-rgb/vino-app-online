@@ -51,13 +51,59 @@ export type Kretanje = {
   izTankId: string | null;
   uTankId: string | null;
   litre: number;
+  /** ULAZ, PRETOK, FILTRACIJA, IZLAZ, ISPRAVAK, PONISTENJE. */
+  vrsta: string;
   dogodenoAt: Date;
+  createdAt: Date;
   /** Cin na koji je kretanje vezano — sva kretanja istog cina su istovremena. */
   pretokId: string | null;
   zadatakId: string | null;
   izlazVinaId: string | null;
   punjenjeId: string | null;
 };
+
+/**
+ * SAT LANCA — koji trenutak vrijedi za jedno kretanje.
+ *
+ * `dogodenoAt` NIJE jedinstven sat. Za pretok je to prava vremenska oznaka
+ * (upisuje ga motor), ali za punjenje i izlaz je datum IZ FORME: punjenje
+ * upisano u 16:48 zna nositi `dogodenoAt` 18:46, jer je covjek tako datirao.
+ * Citano samo po `dogodenoAt`, ULAZ tada pada IZA radnje koja je nastala u
+ * istoj transakciji, pa lanac zakljuci da je tank u trenutku punjenja bio
+ * prazan — i cijelo punjenje proglasi nepripisivim.
+ *
+ * `createdAt` sam po sebi je jednako los: backfill knjige (26.08.2026) upisao
+ * je 174 povijesna retka u istoj minuti, pa bi kronologija cijele sezone
+ * propala.
+ *
+ * Uzima se ono STO JE RANIJE — najraniji trenutak za koji se zna da je
+ * kretanje postojalo. Za zivi upis to je vrijeme upisa (tocno), za unatrag
+ * datiran unos isto (tocno), za backfillan redak `dogodenoAt` (tocno).
+ *
+ * Ista logika kao izbor `createdAt` u lib/granica-arhive.ts, samo sto ondje
+ * pitanje ima jedan izvor, a ovdje dva.
+ */
+function satKretanja(k: Kretanje): number {
+  return Math.min(k.dogodenoAt.getTime(), k.createdAt.getTime());
+}
+
+/**
+ * DOPUSTENJE ZA ISTU TRANSAKCIJU.
+ *
+ * Punjenje pise `Radnja` i knjizi ULAZ u jednoj transakciji, u razmaku od
+ * nekoliko desetaka milisekundi — i pise ih TIM redoslijedom, radnju prvu.
+ * Redoslijed dvaju upisa unutar jedne transakcije ne govori nista o tome sto
+ * je bilo prije u tanku.
+ *
+ * Zato se unutar ovog prozora primjenjuje ZNACENJE, ne vremenska oznaka:
+ *   - ono sto je UŠLO bilo je u tanku kad se radnja dogodila (punis pa
+ *     sumporis), pa ulaz ide PRIJE radnje;
+ *   - ono sto je IZAŠLO bilo je u tanku do trenutka izlaska (tocis pa
+ *     zapisujes da si natocio), pa izlaz ide POSLIJE radnje.
+ *
+ * Izvan prozora odlucuje pravo vrijeme.
+ */
+const PROZOR_ISTE_TRANSAKCIJE_MS = 5_000;
 
 /** Radnja onako kako je lancu treba: gdje se dogodila i kada. */
 export type RadnjaULancu = {
@@ -83,15 +129,48 @@ export type StanjeTanka = {
 };
 
 /**
+ * Sto je knjiga znala o tanku u trenutku radnje.
+ *
+ * Radnja izvedena nad tankom za koji knjiga tada nije znala nijednu litru
+ * NIJE PRIPISIVA: nema vina kojem bi se pripisala, pa ne moze ni putovati.
+ * Takva radnja ostaje vidljiva na svom tanku, ali bez veze na lanac — i mora
+ * se POPISATI, jer je to rupa u zapisima, a ne racun.
+ */
+export type BiljeskaRadnje = {
+  radnjaId: string;
+  tankId: string;
+  /** Litre koje je knjiga tada znala u tom tanku. */
+  litreUTanku: number;
+  pripisiva: boolean;
+};
+
+export type RezultatLanca = {
+  stanje: Map<string, StanjeTanka>;
+  biljeske: BiljeskaRadnje[];
+};
+
+/**
  * Cin je skup kretanja koja su se dogodila ISTOVREMENO. Pretok iz tri izvora
  * u dva cilja je jedan cin: kad bi se njegova kretanja primjenjivala jedno po
  * jedno, drugi bi cilj racunao razrjedenje nad vec promijenjenim izvorom i
  * rezultat bi ovisio o redoslijedu redaka u tablici.
  */
 function kljucCina(k: Kretanje): string {
-  return (
-    k.pretokId ?? k.zadatakId ?? k.izlazVinaId ?? k.punjenjeId ?? `sam:${k.id}`
-  );
+  const veza =
+    k.pretokId ?? k.zadatakId ?? k.izlazVinaId ?? k.punjenjeId ?? `sam:${k.id}`;
+
+  // VRSTA JE DIO KLJUCA, i to nije kozmetika.
+  //
+  // Ispravak i ponistenje nose ISTU vezu kao ono sto ispravljaju: brisanje
+  // pogresne stavke punjenja upisuje ISPRAVAK s `punjenjeId` izvornog
+  // punjenja, ponistenje pretoka upisuje PONISTENJE s `pretokId` izvornog
+  // pretoka. Bez vrste u kljucu oni se spajaju s originalom u jedan cin, pa
+  // vino "izlazi" u istom trenutku u kojem je uslo — i tank cijelo vrijeme
+  // izgleda prazan. Tocno to je tanku 7 progutalo dva punjenja od 28.08.2026.
+  //
+  // Ispravak je zaseban cin koji se dogodio KASNIJE. Da je i ostao spojen,
+  // racun bi bio isti tek na kraju, ali sve izmedju bi bilo krivo.
+  return `${veza}:${k.vrsta}`;
 }
 
 type Cin = { kljuc: string; kada: number; kretanja: Kretanje[] };
@@ -101,13 +180,13 @@ function grupirajUCine(kretanja: Kretanje[]): Cin[] {
 
   for (const k of kretanja) {
     const kljuc = kljucCina(k);
-    const kada = k.dogodenoAt.getTime();
+    const kada = satKretanja(k);
     const postojeci = mapa.get(kljuc);
 
     if (postojeci) {
       postojeci.kretanja.push(k);
       // Cin se dogodio kad je POCEO. Redci jednog pretoka nastaju u istoj
-      // transakciji, ali `dogodenoAt` im se zna razlikovati za milisekundu.
+      // transakciji, ali sat im se zna razlikovati za milisekundu.
       if (kada < postojeci.kada) postojeci.kada = kada;
     } else {
       mapa.set(kljuc, { kljuc, kada, kretanja: [k] });
@@ -135,9 +214,18 @@ function dodaj(
   cilj.set(radnjaId, { radnjaId, izvorniTankId, udio });
 }
 
+/**
+ * Cin se u vremensku crtu razlaze na DVIJE polovice — ulaznu i izlaznu.
+ *
+ * To je sigurno: izlaz iz tanka NE MIJENJA udjele u njemu (odlazi presjek
+ * cijelog sadrzaja), pa cilj koji cita izvor dobiva iste udjele bez obzira je
+ * li izvor vec umanjen. Mijenja se samo redoslijed prema radnjama, a to je
+ * upravo ono sto se ovime i zeljelo.
+ */
 type Dogadjaj =
-  | { kada: number; red: 0; cin: Cin }
-  | { kada: number; red: 1; radnja: RadnjaULancu };
+  | { kada: number; red: 0; ulaz: Cin }
+  | { kada: number; red: 1; radnja: RadnjaULancu }
+  | { kada: number; red: 2; izlaz: Cin };
 
 /**
  * Odigraj cijelu povijest i vrati stanje svakog tanka na kraju.
@@ -152,9 +240,10 @@ type Dogadjaj =
 export function odigrajLanac(
   kretanja: Kretanje[],
   radnje: RadnjaULancu[]
-): Map<string, StanjeTanka> {
+): RezultatLanca {
   const litreMl = new Map<string, number>();
   const udjeli = new Map<string, Map<string, UdioRadnje>>();
+  const biljeske: BiljeskaRadnje[] = [];
 
   const uzmi = (tankId: string) => {
     let m = udjeli.get(tankId);
@@ -168,49 +257,89 @@ export function odigrajLanac(
   const cini = grupirajUCine(kretanja);
 
   const crta: Dogadjaj[] = [
-    ...cini.map((cin) => ({ kada: cin.kada, red: 0 as const, cin })),
+    ...cini
+      .filter((c) => c.kretanja.some((k) => k.uTankId))
+      .map((cin) => ({
+        kada: cin.kada - PROZOR_ISTE_TRANSAKCIJE_MS,
+        red: 0 as const,
+        ulaz: cin,
+      })),
     ...radnje.map((r) => ({
       kada: r.createdAt.getTime(),
       red: 1 as const,
       radnja: r,
     })),
+    ...cini
+      .filter((c) => c.kretanja.some((k) => k.izTankId))
+      .map((cin) => ({
+        kada: cin.kada + PROZOR_ISTE_TRANSAKCIJE_MS,
+        red: 2 as const,
+        izlaz: cin,
+      })),
   ];
 
-  // Kretanje ide PRIJE radnje iste vremenske oznake (`red` 0 prije 1). Razlog:
-  // radnja upisana u istoj transakciji s pretokom (izvrsenje zadatka koje vino
-  // i premjesta i tretira) opisuje vino KAKVO JE NAKON premjestanja. Obrnut
-  // redoslijed pripisao bi je izvoru, iz kojeg je vino vec otislo.
   crta.sort((a, b) => a.kada - b.kada || a.red - b.red);
 
   for (const d of crta) {
     if (d.red === 1) {
+      const uTankuMl = litreMl.get(d.radnja.tankId) ?? 0;
+
+      biljeske.push({
+        radnjaId: d.radnja.id,
+        tankId: d.radnja.tankId,
+        litreUTanku: uTankuMl / 1000,
+        pripisiva: uTankuMl > 0,
+      });
+
       // Radnja vrijedi za sve vino koje je u tom trenutku u tanku.
       dodaj(uzmi(d.radnja.tankId), d.radnja.id, d.radnja.tankId, 1);
       continue;
     }
 
-    const { cin } = d;
+    // IZLAZNA POLOVICA: iz tankova se samo oduzima. Udjeli se NE MIJENJAJU —
+    // iz tanka odlazi presjek cijelog sadrzaja.
+    if (d.red === 2) {
+      const izlazi = new Map<string, number>();
+
+      for (const k of d.izlaz.kretanja) {
+        const ml = uMl(k.litre);
+        if (ml <= 0 || !k.izTankId) continue;
+        izlazi.set(k.izTankId, (izlazi.get(k.izTankId) ?? 0) + ml);
+      }
+
+      for (const [izvorId, ml] of izlazi) {
+        const ostatak = (litreMl.get(izvorId) ?? 0) - ml;
+
+        // Tank ispraznjen do kraja gubi svoje udjele: vino koje je nosilo te
+        // radnje je otislo. Ostavljeni bi se zalijepili na sljedece vino koje
+        // u taj tank udje. Isti razlog zbog kojeg postoji granica arhive.
+        if (ostatak <= 0) {
+          litreMl.set(izvorId, 0);
+          udjeli.delete(izvorId);
+        } else {
+          litreMl.set(izvorId, ostatak);
+        }
+      }
+
+      continue;
+    }
+
+    // ULAZNA POLOVICA.
+    const cin = d.ulaz;
 
     // 1) Sto u koji tank ULAZI, i odakle.
     const ulazi = new Map<
       string,
       Array<{ izTankId: string | null; ml: number }>
     >();
-    const izlazi = new Map<string, number>();
 
     for (const k of cin.kretanja) {
       const ml = uMl(k.litre);
-      if (ml <= 0) continue;
+      if (ml <= 0 || !k.uTankId) continue;
 
-      if (k.uTankId) {
-        const p = ulazi.get(k.uTankId) ?? [];
-        p.push({ izTankId: k.izTankId, ml });
-        ulazi.set(k.uTankId, p);
-      }
-
-      if (k.izTankId) {
-        izlazi.set(k.izTankId, (izlazi.get(k.izTankId) ?? 0) + ml);
-      }
+      const p = ulazi.get(k.uTankId) ?? [];
+      p.push({ izTankId: k.izTankId, ml });
+      ulazi.set(k.uTankId, p);
     }
 
     // 2) Udjeli ciljeva se racunaju nad stanjem PRIJE cina — za sve ciljeve
@@ -264,20 +393,6 @@ export function odigrajLanac(
       litreMl.set(ciljId, (litreMl.get(ciljId) ?? 0) + usloMl);
     }
 
-    for (const [izvorId, ml] of izlazi) {
-      const ostatak = (litreMl.get(izvorId) ?? 0) - ml;
-
-      // Tank ispraznjen do kraja gubi svoje udjele: vino koje je nosilo te
-      // radnje je otislo. Ostavljeni bi se zalijepili na sljedece vino koje u
-      // taj tank udje. Isti razlog zbog kojeg postoji granica arhive.
-      if (ostatak <= 0) {
-        litreMl.set(izvorId, 0);
-        udjeli.delete(izvorId);
-      } else {
-        litreMl.set(izvorId, ostatak);
-      }
-    }
-
     for (const [ciljId, nova] of noviUdjeli) {
       udjeli.set(ciljId, nova);
     }
@@ -310,7 +425,7 @@ export function odigrajLanac(
     });
   }
 
-  return stanje;
+  return { stanje, biljeske };
 }
 
 /**

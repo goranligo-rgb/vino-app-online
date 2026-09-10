@@ -61,7 +61,9 @@ async function main() {
         izTankId: true,
         uTankId: true,
         litre: true,
+        vrsta: true,
         dogodenoAt: true,
+        createdAt: true,
         pretokId: true,
         zadatakId: true,
         izlazVinaId: true,
@@ -94,7 +96,7 @@ async function main() {
   const poRadnji = new Map(radnjeRedci.map((r) => [r.id, r]));
   const poTankId = new Map(tankovi.map((t) => [t.id, t]));
 
-  const stanje = odigrajLanac(kretanja, radnje);
+  const { stanje } = odigrajLanac(kretanja, radnje);
 
   const puni = tankovi.filter((t) => (t.kolicinaVinaUTanku ?? 0) > 0);
 

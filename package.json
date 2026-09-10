@@ -28,7 +28,9 @@
     "fermentacija:ispis": "tsx scripts/provjeri-fermentacija-ispis.ts",
     "test:punjenje:podjela": "tsx scripts/test-punjenje-podjela.ts",
     "kvasac:lanac": "tsx scripts/kvasac-lanac.ts",
-    "otisak": "tsx scripts/otisak-tankova.ts"
+    "otisak": "tsx scripts/otisak-tankova.ts",
+    "vino-radnje:backfill": "tsx scripts/backfill-vino-radnje.ts",
+    "vino-radnje:provjeri": "tsx scripts/provjeri-vino-radnje.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
