@@ -2450,6 +2450,51 @@ export default async function TankPregledPage({
         broj={tank.blendIzvori.length}
         sklopljena
       >
+        {/* POKRIVENOST: koliko od vina u tanku blend uopce objasnjava.
+
+            Blend SMIJE biti manji od tanka i to nije greska. Punjenje grozdjem
+            dodaje vino koje nema izvorni tank; dopisati mu redak znacilo bi
+            izmisliti porijeklo, pa se ne dopisuje. Ali dok kartica to nije
+            govorila, T28 je tiho tvrdio da mu je porijeklo poznato, a blend mu
+            je pokrivao 800 od 3.650 L.
+
+            Veci blend od tanka je DRUGA prica — to je zaostatak, i od sada ga
+            ne bi smjelo biti: izlaz vina blend skalira zajedno s tankom. */}
+        {(() => {
+          const blendL = tank.blendIzvori.reduce(
+            (z, b) => z + Number(b.kolicina ?? 0),
+            0
+          );
+          const uTanku = Number(tank.kolicinaVinaUTanku ?? 0);
+
+          if (tank.blendIzvori.length === 0 || uTanku <= 0) return null;
+
+          const razlika = uTanku - blendL;
+          if (Math.abs(razlika) <= 0.5) return null;
+
+          const postotak = Math.round((blendL / uTanku) * 100);
+
+          return (
+            <div style={blendUpozorenjeStyle}>
+              {razlika > 0 ? (
+                <>
+                  Porijeklo je poznato za <strong>{formatBroj(blendL, 0)}</strong>{" "}
+                  od <strong>{formatBroj(uTanku, 0)} L</strong> ({postotak} %).
+                  Preostalih {formatBroj(razlika, 0)} L ušlo je punjenjem —
+                  grožđe nema izvorni tank, pa mu se redak porijekla ne izmišlja.
+                </>
+              ) : (
+                <>
+                  ⚠ Blend tvrdi <strong>{formatBroj(blendL, 0)} L</strong>, a u
+                  tanku je <strong>{formatBroj(uTanku, 0)} L</strong> — zaostatak
+                  od {formatBroj(-razlika, 0)} L iz vremena kad izlaz vina nije
+                  smanjivao blend.
+                </>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Same VRIJEDNOSTI iz blenda stoje gore u mrezi parametara, oznacene
             s ≈. Ovdje je objasnjenje odakle dolaze i tko rusi pokrivenost. */}
         {blend ? (

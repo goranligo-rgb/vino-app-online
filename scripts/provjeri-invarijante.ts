@@ -34,16 +34,28 @@ async function main() {
   console.log("Provjera invarijanti (samo citanje).\n");
 
   // -------------------------------------------------------------------------
-  // 1) Blend svakog tanka mora zbrajati tocno onoliko koliko je u tanku.
+  // 1) Blend NE SMIJE BITI VECI od kolicine u tanku.
   //
-  //    Tank bez blend zapisa je u redu — znaci da vino nije nastalo mijesanjem.
-  //    Tank S blendom koji se ne poklapa s kolicinom znaci da je negdje izgubljen
-  //    ili izmisljen litar; upravo to je faza 1 nasla na tankovima 15, 32 i 43.
-  const blendovi = await prisma.$queryRaw<Array<{ broj: number; u_tanku: number; blend: number; redaka: number }>>`
+  //    Bio je to "mora zbrajati tocno onoliko koliko je u tanku", i to je bilo
+  //    prestrogo. Blend SMIJE biti manji: punjenje grozdjem dodaje vino koje
+  //    nema izvorni tank, pa mu se redak porijekla NE dopisuje — dopisati ga
+  //    znacilo bi izmisliti odakle je doslo. T28 tako drzi 3.650 L uz blend od
+  //    800 L, i to je tocan opis: porijeklo je poznato za 800 L.
+  //
+  //    VECI blend od tanka je i dalje greska — to znaci da su litre nestale iz
+  //    tanka a iz blenda nisu. Do 10.09.2026. proizvodio ju je izlaz vina, koji
+  //    je umanjivao tank a blend ostavljao; od tada ga skalira zajedno s tankom
+  //    (app/api/izlaz-vina/route.ts), a zatecena razlika je maknuta skriptom
+  //    `npm run blend:popravi`.
+  //
+  //    Pokrivenost se ispisuje kao podatak, ne kao pad — inace bi provjera
+  //    trajno vikala na stanje koje je namjerno.
+  const blendovi = await prisma.$queryRaw<Array<{ broj: number; u_tanku: number; blend: number; redaka: number; punjenja: number }>>`
     SELECT t.broj,
            COALESCE(t."kolicinaVinaUTanku", 0)::float8 AS u_tanku,
            COALESCE(SUM(bi.kolicina), 0)::float8       AS blend,
-           COUNT(bi.id)::int                           AS redaka
+           COUNT(bi.id)::int                           AS redaka,
+           (SELECT COUNT(*)::int FROM "PunjenjeTanka" p WHERE p."tankId" = t.id) AS punjenja
     FROM "Tank" t
     LEFT JOIN "BlendIzvor" bi ON bi."ciljTankId" = t.id
     GROUP BY t.id, t.broj, t."kolicinaVinaUTanku"
@@ -51,15 +63,31 @@ async function main() {
     ORDER BY t.broj
   `;
 
-  const loseBlend = blendovi.filter((b) => Math.abs(b.blend - b.u_tanku) > PRAG_L);
+  const blendVeci = blendovi.filter((b) => b.blend - b.u_tanku > PRAG_L);
+  const blendManji = blendovi.filter((b) => b.u_tanku - b.blend > PRAG_L);
 
   ok(
-    loseBlend.length === 0,
-    `blend svakog tanka odgovara kolicini (provjereno ${blendovi.length} tankova s blendom)`,
-    loseBlend
+    blendVeci.length === 0,
+    `blend nigdje nije veci od kolicine u tanku (provjereno ${blendovi.length} tankova s blendom)`,
+    blendVeci
       .map((b) => `T${b.broj}: u tanku ${b.u_tanku} L, blend ${b.blend.toFixed(3)} L u ${b.redaka} redaka`)
       .join("\n        ")
   );
+
+  if (blendManji.length > 0) {
+    console.log(
+      `  ~     nepotpuna pokrivenost na ${blendManji.length} tanku/tankova — ` +
+        "vino uslo punjenjem nema izvorni tank, pa mu blend ne pripisuje porijeklo:"
+    );
+
+    for (const b of blendManji) {
+      const postotak = b.u_tanku > 0 ? (b.blend / b.u_tanku) * 100 : 0;
+      console.log(
+        `        T${b.broj}: porijeklo poznato za ${b.blend.toFixed(0)} od ${b.u_tanku.toFixed(0)} L ` +
+          `(${postotak.toFixed(0)} %), ${b.punjenja} punjenja`
+      );
+    }
+  }
 
   // -------------------------------------------------------------------------
   // 2) Postotci blenda moraju zbrajati 100,00.

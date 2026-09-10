@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { citajSesiju } from "@/lib/auth-sesija";
 import { citajGranicuArhive, odGranice } from "@/lib/granica-arhive";
-import { uLitre } from "@/lib/filtracija";
+import { uLitre, uMl, podijeliMl } from "@/lib/filtracija";
 import { zabiljeziIzlaz } from "@/lib/berba-knjiga";
 import { stanjeTanka } from "@/lib/berba-model";
 import { upisiVinoRadnju, ocistiVinoRadnje } from "@/lib/vino-radnja";
@@ -508,6 +508,60 @@ export async function POST(req: Request) {
           kolicinaVinaUTanku: novoStanje,
         },
       });
+
+      // BLEND SE SMANJUJE ZAJEDNO S TANKOM.
+      //
+      // Do sada ga izlaz nije dirao, pa je `BlendIzvor` ostajao na staroj
+      // kolicini dok je tank padao. Tank 43 je tako dosao do 1.120 L u blendu
+      // na 605 L u tanku — 16 prodaja rinfuze koje blend nije vidio. Pokazivac
+      // porijekla je time tvrdio gotovo dvostruko vino od stvarnog.
+      //
+      // PROPORCIONALNO, i to je jedini tocan racun: prodaja i punjenje u boce
+      // uzimaju PRESJEK cijelog tanka, ne jednu sastavnicu, pa se omjeri
+      // porijekla ne mijenjaju — mijenja se samo mjerilo.
+      //
+      // SKALIRA SE OMJEROM, NE NA KOLICINU U TANKU. Razlika je bitna:
+      // blend SMIJE biti manji od tanka. Punjenje grozdjem dodaje vino koje
+      // nema izvorni tank i namjerno ne dopisuje redak u blend (izmisljalo bi
+      // porijeklo), pa T28 danas ima 3.650 L u tanku i 800 L u blendu — i to
+      // je tocno. Skaliranje NA `novoStanje` naduvalo bi taj blend na punu
+      // kolicinu tanka i time ustvrdilo da je i grozdje doslo iz starih
+      // tankova. Omjer cuva i pokrivenost i postotke.
+      //
+      // Razdioba ide `podijeliMl`-om nad cijelim mililitrima, pa je zbroj
+      // ostatka tocno ciljani iznos, bez drifta na zaokruzivanju.
+      //
+      // Kad tank padne na nulu, ovo se preskace: `arhivirajPrazanTank` nize
+      // ionako brise sve retke blenda.
+      if (novoStanje > PRAZNO_PRAG && trenutnoLitara > 0) {
+        const blendIzvori = await tx.blendIzvor.findMany({
+          where: { ciljTankId: tankId },
+          orderBy: { id: "asc" },
+        });
+
+        if (blendIzvori.length > 0) {
+          const blendPrijeMl = blendIzvori.reduce(
+            (z, b) => z + uMl(b.kolicina),
+            0
+          );
+
+          const ciljMl = Math.round(
+            (blendPrijeMl * novoStanje) / trenutnoLitara
+          );
+
+          const dijelovi = podijeliMl(
+            blendIzvori.map((b) => uMl(b.kolicina)),
+            ciljMl
+          );
+
+          for (let i = 0; i < blendIzvori.length; i++) {
+            await tx.blendIzvor.update({
+              where: { id: blendIzvori[i].id },
+              data: { kolicina: uLitre(dijelovi[i]) },
+            });
+          }
+        }
+      }
 
       const radnjaIzlaza = await tx.radnja.create({
         data: {
