@@ -24,6 +24,11 @@ import {
   zabiljeziPrijenos,
 } from "@/lib/berba-knjiga";
 import { stanjeTanka } from "@/lib/berba-model";
+import {
+  upisiVinoRadnju,
+  prenesiVinoRadnje,
+  ocistiVinoRadnje,
+} from "@/lib/vino-radnja";
 
 // Rjecnik mjerenja je preseljen u lib/mjerenja.ts (inace bi uvoz isao u krug).
 // Re-izvozi se odavde da zateceni uvozi iz ovog modula rade nepromijenjeno.
@@ -1448,7 +1453,7 @@ export async function izvrsiFiltraciju(
     },
   });
 
-  await tx.radnja.create({
+  const radnjaPrijenosa = await tx.radnja.create({
     data: {
       tankId: izvor.id,
       korisnikId: args.izvrsioKorisnikId,
@@ -1472,6 +1477,67 @@ export async function izvrsiFiltraciju(
       kolicina: uLitre(unos.kolicinaIzlazMl),
     },
   });
+
+  // 8a) ZAPIS KOJI PUTUJE S VINOM.
+  //
+  //     Radnja se pise na IZVORNI tank, a filtrirano vino je u tom trenutku
+  //     vec u ciljevima (korak 7 gore). Kad bi se `VinoRadnja` napisala samo
+  //     na izvor, filtracija bi nestala zajedno s vinom koje opisuje — a to je
+  //     tocno bolest zbog koje ova tablica postoji.
+  //
+  //     Zato ide na oba mjesta:
+  //       - na izvor, ako je u njemu jos vina (ostatak je filtriran jednako),
+  //       - na svaki cilj, s udjelom onoga sto je u njega uslo.
+  //
+  //     `izvorniTankId` svugdje ostaje izvorni tank, pa prikaz i u cilju kaze
+  //     gdje je cin izveden. Kopiranje ZATECENIH redaka izvora u ciljeve ne
+  //     radi se ovdje nego u koraku 7 — ovo je samo radnja koja tada jos nije
+  //     postojala.
+  // Ime se dohvaca JEDNOM, ne po cilju: svaki bi cilj inace platio isti upit
+  // unutar transakcije.
+  const izvrsio = await tx.user.findUnique({
+    where: { id: args.izvrsioKorisnikId },
+    select: { ime: true },
+  });
+
+  const imenaPrijenosa = {
+    brojTanka: izvor.broj,
+    korisnikIme: izvrsio?.ime ?? null,
+  };
+
+  if (izvorOstatakMl > 0) {
+    await upisiVinoRadnju(tx, {
+      radnjaId: radnjaPrijenosa.id,
+      tankId: izvor.id,
+      vrsta: radnjaPrijenosa.vrsta,
+      opis: radnjaPrijenosa.opis,
+      napomena: radnjaPrijenosa.napomena,
+      kolicina: radnjaPrijenosa.kolicina,
+      dogodenoAt: radnjaPrijenosa.createdAt,
+      korisnikId: args.izvrsioKorisnikId,
+      imena: imenaPrijenosa,
+    });
+  }
+
+  for (const cilj of ciljevi) {
+    const ciljPoslijeMl = uMl(cilj.tank.kolicinaVinaUTanku) + cilj.kolicinaMl;
+
+    if (ciljPoslijeMl <= 0) continue;
+
+    await upisiVinoRadnju(tx, {
+      radnjaId: radnjaPrijenosa.id,
+      tankId: cilj.tank.id,
+      izvorniTankId: izvor.id,
+      udio: cilj.kolicinaMl / ciljPoslijeMl,
+      vrsta: radnjaPrijenosa.vrsta,
+      opis: radnjaPrijenosa.opis,
+      napomena: radnjaPrijenosa.napomena,
+      kolicina: radnjaPrijenosa.kolicina,
+      dogodenoAt: radnjaPrijenosa.createdAt,
+      korisnikId: args.izvrsioKorisnikId,
+      imena: imenaPrijenosa,
+    });
+  }
 
   // 8b) KNJIGA BERBE — isti prijenos, knjizen po BERBAMA umjesto po tankovima.
   //

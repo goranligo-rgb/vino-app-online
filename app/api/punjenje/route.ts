@@ -7,6 +7,7 @@ import { citajSesiju } from "@/lib/auth-sesija";
 import { uMl } from "@/lib/filtracija";
 import { pocetnoMjerenjeIzStavki } from "@/lib/berba-polja";
 import { BerbaGreska, zabiljeziUlazUVise } from "@/lib/berba-knjiga";
+import { upisiVinoRadnju, prenesiVinoRadnje } from "@/lib/vino-radnja";
 
 // Tko smije UPISATI punjenje. Isti popis koji proxy.ts pusta na stranicu
 // /punjenje — proxy stiti samo stranice, pa svaka ruta mora sama provjeriti
@@ -772,7 +773,7 @@ export async function POST(req: Request) {
           //
           // Po jedna radnja PO TANKU: radnja je vezana na tank, pa jedna
           // zajednicka ne bi postojala ni na jednom drugom tanku osim prvog.
-          await tx.radnja.create({
+          const radnjaPunjenja = await tx.radnja.create({
             data: {
               tankId: tid,
               korisnikId,
@@ -784,6 +785,30 @@ export async function POST(req: Request) {
               // Trag bez litara je slab trag; zapisnik radova (faza 1) ovo cita.
               kolicina: ukupnoLitara,
             },
+          });
+
+          // Vino koje ULAZI izvana razrjeduje sve sto je u tanku vec bilo.
+          // Punjenje nije upisiBlend pozivatelj (grozdje ne dolazi iz drugog
+          // tanka), ali na udio djeluje jednako: nadopuna od 1.000 L u tank s
+          // 3.000 L spusta svaki zatecen udio na tri cetvrtine. Bez ovoga bi
+          // zbroj kvasaca u nadopunjenom tanku ostao na 100 % i sakrio da
+          // cetvrtina vina nema zapisa.
+          await prenesiVinoRadnje(tx, {
+            ciljTankId: tid,
+            ciljPrijeMl: uMl(trenutnoUTanku),
+            izvanaMl: uMl(ukupnoLitara),
+          });
+
+          await upisiVinoRadnju(tx, {
+            radnjaId: radnjaPunjenja.id,
+            tankId: tid,
+            vrsta: radnjaPunjenja.vrsta,
+            opis: radnjaPunjenja.opis,
+            napomena: radnjaPunjenja.napomena,
+            kolicina: radnjaPunjenja.kolicina,
+            dogodenoAt: radnjaPunjenja.createdAt,
+            korisnikId,
+            imena: { brojTanka: created.tank.broj },
           });
 
           stvorena.push(created);

@@ -21,6 +21,7 @@ import {
   porukaVlastitiEkran,
   PORUKE_VLASTITI_EKRAN,
 } from "@/lib/vrste-prijenosa";
+import { upisiVinoRadnju } from "@/lib/vino-radnja";
 
 async function getAuthUser(): Promise<AuthUser | null> {
   return citajSesiju();
@@ -356,6 +357,26 @@ export async function PUT(req: Request) {
               },
             });
 
+            // Zapis koji putuje s vinom. Udio 1: tretman je dobilo sve vino
+            // koje je u tom trenutku u tanku.
+            await upisiVinoRadnju(tx, {
+              radnjaId: radnja.id,
+              tankId: zadatak.tankId,
+              vrsta: radnja.vrsta,
+              opis: radnja.opis,
+              napomena: radnja.napomena,
+              kolicina: radnja.kolicina,
+              dogodenoAt: radnja.createdAt,
+              preparatId: stavka.preparatId ?? null,
+              jedinicaId: radnja.jedinicaId,
+              korisnikId: String(stvarniIzvrsioKorisnikId),
+              imena: {
+                brojTanka: zadatak.tank?.broj ?? null,
+                preparatNaziv: stavka.preparat?.naziv ?? null,
+                jeKvasac: stavka.preparat?.jeKvasac ?? false,
+              },
+            });
+
             const izlaz = uzmiIzlaz(stavka.preparatId);
 
             if (izlaz && stavka.preparatId) {
@@ -390,6 +411,25 @@ export async function PUT(req: Request) {
               kolicina: zadatak.izracunataKolicina ?? null,
               jedinicaId:
                 zadatak.izlaznaJedinicaId ?? zadatak.jedinicaId ?? null,
+            },
+          });
+
+          // Zapis koji putuje s vinom — ista stvar kao u grani sa stavkama.
+          await upisiVinoRadnju(tx, {
+            radnjaId: radnja.id,
+            tankId: zadatak.tankId,
+            vrsta: radnja.vrsta,
+            opis: radnja.opis,
+            napomena: radnja.napomena,
+            kolicina: radnja.kolicina,
+            dogodenoAt: radnja.createdAt,
+            preparatId: zadatak.preparatId ?? null,
+            jedinicaId: radnja.jedinicaId,
+            korisnikId: String(stvarniIzvrsioKorisnikId),
+            imena: {
+              brojTanka: zadatak.tank?.broj ?? null,
+              preparatNaziv: zadatak.preparat?.naziv ?? null,
+              jeKvasac: zadatak.preparat?.jeKvasac ?? false,
             },
           });
 

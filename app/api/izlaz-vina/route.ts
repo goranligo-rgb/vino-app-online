@@ -7,6 +7,7 @@ import { citajGranicuArhive, odGranice } from "@/lib/granica-arhive";
 import { uLitre } from "@/lib/filtracija";
 import { zabiljeziIzlaz } from "@/lib/berba-knjiga";
 import { stanjeTanka } from "@/lib/berba-model";
+import { upisiVinoRadnju, ocistiVinoRadnje } from "@/lib/vino-radnja";
 
 type AuthUser = {
   id: string;
@@ -340,6 +341,12 @@ export async function arhivirajPrazanTank(
   await tx.blendIzvor.deleteMany({ where: { ciljTankId: tankId } });
   await tx.tankContent.deleteMany({ where: { tankId } });
 
+  // Vino koje je nosilo ove radnje je otislo. Zaostali redci bi se zalijepili
+  // na sljedece vino koje u tank udje — isti razlog zbog kojeg postoji granica
+  // arhive. Povijest nije izgubljena: `Radnja` ostaje, i vec je prepisana u
+  // `ArhivaVinaRadnja` nekoliko redaka iznad.
+  await ocistiVinoRadnje(tx, tankId);
+
   await tx.punjenjeStavka.deleteMany({
     where: {
       punjenje: {
@@ -502,7 +509,7 @@ export async function POST(req: Request) {
         },
       });
 
-      await tx.radnja.create({
+      const radnjaIzlaza = await tx.radnja.create({
         data: {
           tankId,
           korisnikId: user.id,
@@ -511,6 +518,20 @@ export async function POST(req: Request) {
           napomena: `${izlazNapomena} • ostalo u tanku ${formatBrojTekst(novoStanje)} L`,
           kolicina: kolicinaLitara,
         },
+      });
+
+      // Zapis koji putuje s vinom. Izlaz vino ODNOSI, pa se udjeli onoga sto
+      // ostaje ne mijenjaju — iz tanka odlazi presjek cijelog sadrzaja.
+      await upisiVinoRadnju(tx, {
+        radnjaId: radnjaIzlaza.id,
+        tankId,
+        vrsta: radnjaIzlaza.vrsta,
+        opis: radnjaIzlaza.opis,
+        napomena: radnjaIzlaza.napomena,
+        kolicina: radnjaIzlaza.kolicina,
+        dogodenoAt: radnjaIzlaza.createdAt,
+        korisnikId: user.id,
+        imena: { brojTanka: tank.broj, korisnikIme: user.ime ?? null },
       });
 
       // ---------------------------------------------------------------------
