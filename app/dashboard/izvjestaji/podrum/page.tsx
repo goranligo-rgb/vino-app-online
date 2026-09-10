@@ -395,6 +395,32 @@ export default async function IzvjestajPodrumaPage() {
 }
 
 const CSS = `
+/* MARGINA OSTAJE 10mm. Smanjivanje NE vraca dvije kartice po stranici —
+ * izmjereno 10.09.2026, headless Chrome, svih 38 kartica:
+ *
+ *   margina | stranica | najmanja kartica | dvije traze | stranica s 2 kartice
+ *   --------|----------|------------------|-------------|---------------------
+ *     10mm  |  277mm   |     139,2mm      |   280,4mm   |   0  (38 stranica)
+ *      8mm  |  281mm   |     140,0mm      |   282,0mm   |   0  (38 stranica)
+ *      6mm  |  285mm   |     140,8mm      |   283,6mm   |   0  (38 stranica)
+ *      5mm  |  287mm   |     141,2mm      |   284,4mm   |   1  (37 stranica)
+ *
+ * ZASTO SMANJIVANJE NE POMAZE: uza margina znaci siru karticu, a grafovi su
+ * SVG-ovi sa "width: 100%; height: auto" — sira kartica ima VISE grafove, pa
+ * kartica poraste zajedno sa stranicom. Dobitak od 2mm stranice pojede ~0,8mm
+ * kartice, dvaput.
+ *
+ * A i kad racun prodje (6mm), stvarnih parova nema: kartice nisu poredane po
+ * visini, pa se para susjedni par, a vecina ih je 140-167mm. Na 5mm — sto je
+ * vec u nepisivom rubu vecine uredskih pisaca — dobije se JEDNA stranica manje
+ * od 38.
+ *
+ * Jedina prava poluga je VISINA KARTICE: da se pouzdano paraju, moraju pasti
+ * na ~137mm. To je oduzimanje sadrzaja, ne margine.
+ *
+ * Nista se pritom NE PREREZE ni na jednoj margini: najvisa kartica je 167,4mm,
+ * daleko ispod visine stranice, a pravilo break-inside: avoid nize karticu
+ * premjesta CIJELU. */
 @page { size: A4 portrait; margin: 10mm; }
 
 .izvjestaj {
