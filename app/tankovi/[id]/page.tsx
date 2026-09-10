@@ -476,12 +476,20 @@ function BerbaStavkaKartica({
   podnaslov,
   podrijetlo,
   rub,
+  izvorneLitre,
 }: {
   s: StavkaBerbe;
   podnaslov: React.ReactNode;
   /** Put kojim je stavka dosla — stoji uz stavku, ne iznad grupe. */
   podrijetlo?: React.ReactNode;
   rub?: string;
+  /**
+   * Stavka je NASLIJEDJENA: litre i kilogrami su onakvi kakvi su zapisani pri
+   * punjenju IZVORNOG tanka, a ne koliko ih je doslo ovamo. Bez te oznake se
+   * zbroj stavki cita kao da bi morao dati kolicinu u ovom tanku — a redovito
+   * je veci (T10: zapisi 5.100 L, u tank uslo 4.400 L).
+   */
+  izvorneLitre?: boolean;
 }) {
   return (
     <div
@@ -492,6 +500,11 @@ function BerbaStavkaKartica({
         {s.kolicinaKgGrozdja != null
           ? ` · ${formatBroj(s.kolicinaKgGrozdja, 0)} kg`
           : ""}
+        {izvorneLitre ? (
+          <span style={{ ...mutedTextStyle, fontWeight: 400, marginLeft: 6 }}>
+            zapisano pri punjenju izvornog tanka
+          </span>
+        ) : null}
       </div>
       {podrijetlo}
       <div style={mutedTextStyle}>{podnaslov}</div>
@@ -589,6 +602,8 @@ function NaslijedenaStavka({ x }: { x: StavkaULancu }) {
     <BerbaStavkaKartica
       s={x.stavka}
       rub="#9ca3af"
+      // Litre su izvorne — vidi `izvorneLitre` u BerbaStavkaKartica.
+      izvorneLitre
       podrijetlo={<PutLanca put={x.put} sumnjiv={x.sumnjiv} />}
       podnaslov={
         <>
@@ -1086,7 +1101,14 @@ export default async function TankPregledPage({
         // ciljeva. Dok ih ima tocno jedan, oba upita vracaju isti skup.
         where: { ciljevi: { some: { tankId: id } }, datum: odGranice },
         orderBy: { datum: "desc" },
-        include: { izvori: { include: { tank: { select: { broj: true } } } } },
+        include: {
+          izvori: { include: { tank: { select: { broj: true } } } },
+          // CILJEVI SU OBAVEZNI, ne ukras: bez njih se ne zna koliko je u OVAJ
+          // tank uslo, pa je zaglavlje pokazivalo zbroj izvora — dakle koliko
+          // je iz izvora IZASLO, ukljucujuci ono sto je otislo u druge ciljeve
+          // i ono sto je ostalo kao kalo.
+          ciljevi: { include: { tank: { select: { broj: true } } } },
+        },
       }),
       prisma.pretokIzvor.findMany({
         where: { tankId: id, pretok: { datum: odGranice } },
@@ -1514,22 +1536,44 @@ export default async function TankPregledPage({
   for (const v of vinoRadnje) {
     if (v.izvorniTankId === id) continue;
 
+    // "Naslijeđeno iz tanka 11 · Punjenje tanka", a ne "... — tanka 11" na
+    // kraju: `opis` cesto vec zavrsava rijecju "tanka" ("Punjenje tanka"), pa
+    // je dodatak na kraj davao "punjenje tanka — tanka 11". Izvor ide naprijed,
+    // gdje i pripada — prvo se cita ODAKLE, pa STO.
+    const izvor =
+      v.izvorniBrojTanka !== null
+        ? `iz tanka ${v.izvorniBrojTanka}`
+        : "iz drugog tanka";
+
+    const postotak = Math.round(v.udio * 100);
+
     dogadaji.push({
       id: `vino-${v.id}`,
-      vrsta: "RADNJA",
+      // VLASTITA VRSTA, ne "RADNJA". Dobiva svoj gumb filtra i svoju boju, pa
+      // se ne cita kao nesto sto je izvedeno u OVOM tanku. Prije je stajala kao
+      // obicna radnja pod naslovom "Punjenje tanka" — na tanku 10 je to
+      // izgledalo kao da je punjen tank 10, a rijec je o punjenju tanka 11
+      // cije je vino kasnije doslo ovamo.
+      vrsta: "NASLIJEDENO",
       vrijeme: v.dogodenoAt.toISOString(),
-      naslov: v.opis || String(v.vrsta),
+      naslov: `Naslijeđeno ${izvor} · ${v.opis || String(v.vrsta)}`,
       podnaslov: [
         v.preparatNaziv,
         v.kolicina != null
           ? `${formatBroj(v.kolicina)} ${v.jedinicaNaziv ?? ""}`.trim()
           : null,
-        v.izvorniBrojTanka !== null ? `u tanku ${v.izvorniBrojTanka}` : null,
+        "nije izvedeno u ovom tanku",
       ]
         .filter(Boolean)
-        .join(" — "),
+        .join(" · "),
       tko: v.korisnikIme ? `Upisao: ${v.korisnikIme}` : "",
-      iznos: `${Math.round(v.udio * 100)} %`,
+      // POSTOTAK JE UDIO VOLUMENA IZ TOG IZVORA, ne udio radnje. Bez oznake se
+      // cita kao "koliki dio ove radnje", pa dvije radnje iz istog tanka s
+      // istim brojem izgledaju kao greska u zbrajanju.
+      iznos:
+        v.izvorniBrojTanka !== null
+          ? `iz T${v.izvorniBrojTanka} · ${postotak} % volumena`
+          : `${postotak} % volumena`,
       detalji: [
         { label: "Vrsta", value: String(v.vrsta) },
         { label: "Preparat", value: v.preparatNaziv || "—" },
@@ -1539,8 +1583,17 @@ export default async function TankPregledPage({
             v.izvorniBrojTanka !== null ? String(v.izvorniBrojTanka) : "—",
         },
         {
-          label: "Udio današnjeg vina",
-          value: `${Math.round(v.udio * 100)} %`,
+          label: "Udio volumena iz tog tanka",
+          value: `${postotak} % današnje količine u ovom tanku`,
+        },
+        {
+          // Objasnjenje stoji UZ SVAKI redak, ne jednom iznad popisa: retci su
+          // kronoloski izmijesani s ostalima, pa zajednicka napomena ne bi bila
+          // uz onaj koji se cita.
+          label: "Zašto isti postotak na više redaka",
+          value:
+            "postotak se veže uz IZVORNI TANK, ne uz pojedinu radnju — sve što je " +
+            "došlo iz istog tanka nosi isti udio",
         },
         { label: "Napomena", value: v.napomena || "—" },
       ],
@@ -1584,7 +1637,21 @@ export default async function TankPregledPage({
   }
 
   for (const p of pretociUlaz) {
-    const ukupno = p.izvori.reduce((zbroj, i) => zbroj + Number(i.kolicina ?? 0), 0);
+    // KOLIKO JE U **OVAJ** TANK USLO. Prije je ovdje stajao zbroj izvora, pa
+    // je zaglavlje pokazivalo koliko je iz izvora IZASLO — a to je drugi broj
+    // cim pretok ima vise ciljeva ili kalo. T10 je tako dobio "+1.600 L" za
+    // pretok u kojem je u njega uslo 1.000 L (ostatak: T12 200, T2 400), pa
+    // zbroj prikazanih dolazaka nije davao kolicinu u tanku.
+    const uOvajTank = p.ciljevi
+      .filter((c) => c.tankId === id)
+      .reduce((zbroj, c) => zbroj + Number(c.kolicina ?? 0), 0);
+
+    const izasloIzIzvora = p.izvori.reduce(
+      (zbroj, i) => zbroj + Number(i.kolicina ?? 0),
+      0
+    );
+
+    const drugiCiljevi = p.ciljevi.filter((c) => c.tankId !== id);
 
     dogadaji.push({
       id: `pu-${p.id}`,
@@ -1593,16 +1660,54 @@ export default async function TankPregledPage({
       naslov: `Pretok u ovaj tank (${p.tip})`,
       podnaslov:
         p.izvori
-          .map((i) => `tank ${i.tank.broj}: ${formatBroj(i.kolicina)} L`)
+          .map((i) => `iz tanka ${i.tank.broj}: ${formatBroj(i.kolicina)} L`)
           .join(" · ") || null,
       // Pretok nema polje korisnika — vidi fazu 3b.
-      iznos: `+${formatBroj(ukupno, 0)} L`,
+      iznos: `+${formatBroj(uOvajTank, 0)} L`,
       detalji: [
         { label: "Tip pretoka", value: String(p.tip) },
+        { label: "Ušlo u ovaj tank", value: `${formatBroj(uOvajTank)} L` },
         ...p.izvori.map((i) => ({
-          label: `iz tanka ${i.tank.broj}`,
+          label: `Izašlo iz tanka ${i.tank.broj}`,
           value: `${formatBroj(i.kolicina)} L`,
         })),
+        // Razlika se IMENUJE, a ne prepusta citatelju da je oduzima. Bez ovoga
+        // "izaslo 1.600, uslo 1.000" izgleda kao da je 600 L nestalo.
+        ...(drugiCiljevi.length > 0
+          ? [
+              {
+                label: "Istim pretokom u druge tankove",
+                value: drugiCiljevi
+                  .map((c) => `T${c.tank.broj} ${formatBroj(c.kolicina)} L`)
+                  .join(" · "),
+              },
+            ]
+          : []),
+        ...(() => {
+          const g = opisGubitka(p);
+          if (!g) return [];
+          return [
+            {
+              label: g.naziv.charAt(0).toUpperCase() + g.naziv.slice(1),
+              value:
+                `${formatBroj(g.litre)} L` +
+                (g.postotak != null
+                  ? ` (${formatBroj(g.postotak, 1)} %)`
+                  : "") +
+                ` — ${g.objasnjenje}`,
+            },
+          ];
+        })(),
+        ...(izasloIzIzvora !== uOvajTank
+          ? [
+              {
+                label: "Zašto brojke nisu iste",
+                value:
+                  `iz izvora je izašlo ${formatBroj(izasloIzIzvora)} L, ` +
+                  `u ovaj tank ušlo ${formatBroj(uOvajTank)} L — ostatak je otišao drugdje`,
+              },
+            ]
+          : []),
         { label: "Napomena", value: p.napomena || "—" },
       ],
     });
@@ -2288,7 +2393,12 @@ export default async function TankPregledPage({
                     "izvora",
                     "izvora"
                   )}{" "}
-                  · ukupno prešlo{" "}
+                  {/* "u ovaj tank ušlo", a NE "ukupno prešlo". Zapisi ispod
+                      nose IZVORNE litre — koliko je te berbe bilo u izvornom
+                      tanku — pa im je zbroj redovito veći od ovoga i izgledao
+                      je kao da se naslov ne slaže. Dvije različite mjere, obje
+                      točne; naslov sada kaže koja je koja. */}
+                  · u ovaj tank ušlo{" "}
                   <strong>
                     {formatBroj(berbaLanca.sazetak.presloUkupnoL, 0)} L
                   </strong>
@@ -2307,8 +2417,11 @@ export default async function TankPregledPage({
                 <div style={mutedTextStyle}>
                   Berba se upisuje na tank u koji je grožđe ušlo. Ovo je berba
                   izvora ovog vina, poredana po datumu berbe. Litre i kilogrami
-                  su onakvi kakvi su ondje zapisani — iz svakog izvora prešao je
-                  samo dio, pa se <strong>kilogrami ne zbrajaju</strong>.
+                  su onakvi kakvi su <strong>ondje</strong> zapisani — iz svakog
+                  izvora prešao je samo dio, pa se{" "}
+                  <strong>ni litre ni kilogrami ne zbrajaju</strong> u količinu
+                  ovog tanka. Koliko je stvarno ušlo piše u retku iznad; omjer
+                  po izvoru stoji uz svaki zapis, u obliku prešlo … od ….
                 </div>
 
                 {berbaLanca.stavke.slice(0, NASLIJEDENO_ODMAH).map((x) => (

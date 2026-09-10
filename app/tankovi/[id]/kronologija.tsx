@@ -23,6 +23,7 @@ export type VrstaDogadaja =
   | "PUNJENJE"
   | "ZADATAK"
   | "RADNJA"
+  | "NASLIJEDENO"
   | "PRIJENOS_ULAZ"
   | "PRIJENOS_IZLAZ"
   | "PRETOK_ULAZ"
@@ -46,6 +47,11 @@ const OZNAKE: Record<VrstaDogadaja, { kratko: string; boja: string; pozadina: st
   PUNJENJE:       { kratko: "Punjenje",  boja: "#7f1d1d", pozadina: "#fff5f5" },
   ZADATAK:        { kratko: "Zadatak",   boja: "#166534", pozadina: "#f0fdf4" },
   RADNJA:         { kratko: "Radnja",    boja: "#44403c", pozadina: "#f4f4f5" },
+  // Radnja koju je vino DONIJELO iz drugog tanka. Vlastita vrsta, ne "Radnja":
+  // dobiva svoj gumb filtra i svoju boju, pa se na prvi pogled razlikuje od
+  // onoga sto je izvedeno u OVOM tanku. Prigusena boja jer je podatak drugog
+  // reda — istinit, ali se nije dogodio ovdje.
+  NASLIJEDENO:    { kratko: "Naslijeđeno", boja: "#78716c", pozadina: "#fafaf9" },
   PRIJENOS_ULAZ:  { kratko: "Prijenos ↓", boja: "#166534", pozadina: "#f0fdf4" },
   PRIJENOS_IZLAZ: { kratko: "Prijenos ↑", boja: "#9f1239", pozadina: "#fff5f5" },
   PRETOK_ULAZ:    { kratko: "Pretok ↓",  boja: "#166534", pozadina: "#f0fdf4" },
@@ -59,6 +65,7 @@ const REDOSLIJED: VrstaDogadaja[] = [
   "PUNJENJE",
   "ZADATAK",
   "RADNJA",
+  "NASLIJEDENO",
   "PRIJENOS_ULAZ",
   "PRIJENOS_IZLAZ",
   "PRETOK_ULAZ",
