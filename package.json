@@ -32,6 +32,7 @@
     "vino-radnje:backfill": "tsx scripts/backfill-vino-radnje.ts",
     "vino-radnje:provjeri": "tsx scripts/provjeri-vino-radnje.ts",
     "test:vino:radnje": "tsx scripts/test-vino-radnje.ts",
+    "test:knjiga:vrijeme": "tsx scripts/test-knjiga-vrijeme.ts",
     "kvasac:partija": "tsx scripts/provjeri-kvasac-partija.ts",
     "blend:popravi": "tsx scripts/popravi-blend-izlazima.ts"
   },

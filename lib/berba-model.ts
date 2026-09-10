@@ -42,6 +42,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { postotciIzMl, uLitre } from "@/lib/filtracija";
 import { usporediPoBerbi } from "@/lib/berba-lanac";
+import { doTrenutkaSQL } from "@/lib/sat-knjige";
 
 export type CitacBerbe = Prisma.TransactionClient | PrismaClient;
 
@@ -75,6 +76,20 @@ export type Opcije = {
    * VIDJETI, a ne tiho nestati iz zbroja.
    */
   svi?: boolean;
+
+  /**
+   * STANJE U PROSLOM TRENUTKU — u obzir ulaze samo kretanja koja su se do
+   * tada dogodila. Bez njega vrijedi "sada" i upit je znak za znak jednak
+   * onome prije faze A.
+   *
+   * Sat je `lib/sat-knjige.ts`, ne goli `dogodenoAt`: 202 od 577 kretanja
+   * datirano je unatrag, pa bi citanje po jednom stupcu razmjestilo povijest.
+   *
+   * CEMU SLUZI: mjerenje je stanje SMJESE u trenutku, a ne svojstvo berbe.
+   * Adresu (tank + vrijeme) zadrzava, a odgovor na "koje je vino tada bilo u
+   * tanku" daje knjiga — vidi `vinoUTrenucima`.
+   */
+  doTrenutka?: Date | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -106,7 +121,8 @@ export async function stanjeTanka(
            )::float8 AS ml
     FROM "BerbaKretanje" k
     JOIN "Berba" b ON b.id = k."berbaId"
-    WHERE k."uTankId" = ${tankId} OR k."izTankId" = ${tankId}
+    WHERE (k."uTankId" = ${tankId} OR k."izTankId" = ${tankId})
+      ${doTrenutkaSQL(opts?.doTrenutka)}
     GROUP BY k."berbaId", b.obrisano
     ORDER BY ml DESC, k."berbaId" ASC
   `;
@@ -122,8 +138,12 @@ export async function stanjeTanka(
 }
 
 /** Zbroj svih berbi u tanku, u litrama. Ono s cime se usporedjuje `Tank.kolicinaVinaUTanku`. */
-export async function litreUTanku(db: CitacBerbe, tankId: string): Promise<number> {
-  const stanje = await stanjeTanka(db, tankId);
+export async function litreUTanku(
+  db: CitacBerbe,
+  tankId: string,
+  opts?: Opcije
+): Promise<number> {
+  const stanje = await stanjeTanka(db, tankId, opts);
   return uLitre(stanje.reduce((z, s) => z + s.ml, 0));
 }
 
@@ -148,13 +168,13 @@ export async function stanjeSvihTankova(
              ROUND(k.litre::numeric * 1000) AS ml
       FROM "BerbaKretanje" k
       JOIN "Berba" b ON b.id = k."berbaId"
-      WHERE k."uTankId" IS NOT NULL
+      WHERE k."uTankId" IS NOT NULL ${doTrenutkaSQL(opts?.doTrenutka)}
       UNION ALL
       SELECT k."izTankId" AS "tankId", k."berbaId", b.obrisano,
              -ROUND(k.litre::numeric * 1000) AS ml
       FROM "BerbaKretanje" k
       JOIN "Berba" b ON b.id = k."berbaId"
-      WHERE k."izTankId" IS NOT NULL
+      WHERE k."izTankId" IS NOT NULL ${doTrenutkaSQL(opts?.doTrenutka)}
     ) s
     GROUP BY s."tankId", s."berbaId", s.obrisano
     ORDER BY s."tankId" ASC, ml DESC, s."berbaId" ASC
@@ -231,10 +251,12 @@ export async function gdjeJeBerba(
       SELECT k."uTankId" AS "tankId",  ROUND(k.litre::numeric * 1000) AS ml
       FROM "BerbaKretanje" k
       WHERE k."berbaId" = ${berbaId} AND k."uTankId" IS NOT NULL
+        ${doTrenutkaSQL(opts?.doTrenutka)}
       UNION ALL
       SELECT k."izTankId" AS "tankId", -ROUND(k.litre::numeric * 1000) AS ml
       FROM "BerbaKretanje" k
       WHERE k."berbaId" = ${berbaId} AND k."izTankId" IS NOT NULL
+        ${doTrenutkaSQL(opts?.doTrenutka)}
     ) s
     GROUP BY s."tankId"
     ORDER BY ml DESC, s."tankId" ASC
@@ -265,10 +287,12 @@ export async function gdjeJeSveBerbe(
     SELECT s."berbaId", s."tankId", SUM(s.ml)::float8 AS ml
     FROM (
       SELECT k."berbaId", k."uTankId" AS "tankId",  ROUND(k.litre::numeric * 1000) AS ml
-      FROM "BerbaKretanje" k WHERE k."uTankId" IS NOT NULL
+      FROM "BerbaKretanje" k
+      WHERE k."uTankId" IS NOT NULL ${doTrenutkaSQL(opts?.doTrenutka)}
       UNION ALL
       SELECT k."berbaId", k."izTankId" AS "tankId", -ROUND(k.litre::numeric * 1000) AS ml
-      FROM "BerbaKretanje" k WHERE k."izTankId" IS NOT NULL
+      FROM "BerbaKretanje" k
+      WHERE k."izTankId" IS NOT NULL ${doTrenutkaSQL(opts?.doTrenutka)}
     ) s
     GROUP BY s."berbaId", s."tankId"
     ORDER BY s."berbaId" ASC, ml DESC, s."tankId" ASC
@@ -336,8 +360,14 @@ export type Podrijetlo = {
    * Koliko litara tank ima, a knjiga ih ne zna objasniti (negativno = obrnuto).
    * Nula je uredno stanje. Prikaz ovo smije reci naglas — sutnja bi
    * neobjasnjene litre pretvorila u nevidljive.
+   *
+   * UVIJEK 0 kad se cita prosli trenutak (`Opcije.doTrenutka`): `Tank`
+   * pamti samo danasnju kolicinu, pa usporedba s njom o proslom trenutku ne
+   * govori nista. Bolje nula nego izmisljena razlika.
    */
   razlikaOdTankaL: number;
+  /** Trenutak na koji stanje vrijedi; `null` znaci "sada". */
+  naTrenutak: Date | null;
 };
 
 /**
@@ -352,21 +382,31 @@ export type Podrijetlo = {
  */
 export async function podrijetloTanka(
   db: CitacBerbe,
-  tankId: string
+  tankId: string,
+  opts?: Opcije
 ): Promise<Podrijetlo> {
-  const stanje = await stanjeTanka(db, tankId);
+  const naTrenutak = opts?.doTrenutka ?? null;
+  const stanje = await stanjeTanka(db, tankId, opts);
 
-  const tank = await db.tank.findUnique({
-    where: { id: tankId },
-    select: { kolicinaVinaUTanku: true },
-  });
+  // `Tank` se za prosli trenutak NE cita: stupac zna samo danasnju kolicinu.
+  const tank = naTrenutak
+    ? null
+    : await db.tank.findUnique({
+        where: { id: tankId },
+        select: { kolicinaVinaUTanku: true },
+      });
 
   const uTankuMl = stanje.reduce((z, s) => z + s.ml, 0);
   const uTankuL = uLitre(uTankuMl);
   const uTanku = Number(tank?.kolicinaVinaUTanku ?? 0);
 
   if (stanje.length === 0) {
-    return { stavke: [], ukupnoL: 0, razlikaOdTankaL: Number(uTanku.toFixed(3)) };
+    return {
+      stavke: [],
+      ukupnoL: 0,
+      razlikaOdTankaL: naTrenutak ? 0 : Number(uTanku.toFixed(3)),
+      naTrenutak,
+    };
   }
 
   const berbe = await db.berba.findMany({
@@ -428,6 +468,7 @@ export async function podrijetloTanka(
   return {
     stavke,
     ukupnoL: uTankuL,
-    razlikaOdTankaL: Number((uTanku - uTankuL).toFixed(3)),
+    razlikaOdTankaL: naTrenutak ? 0 : Number((uTanku - uTankuL).toFixed(3)),
+    naTrenutak,
   };
 }

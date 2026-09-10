@@ -1,3 +1,5 @@
+import { satKretanja } from "./sat-knjige";
+
 /**
  * Mililitri, isti racun kao `uMl` u lib/filtracija.ts.
  *
@@ -75,27 +77,11 @@ export type Kretanje = {
 /**
  * SAT LANCA — koji trenutak vrijedi za jedno kretanje.
  *
- * `dogodenoAt` NIJE jedinstven sat. Za pretok je to prava vremenska oznaka
- * (upisuje ga motor), ali za punjenje i izlaz je datum IZ FORME: punjenje
- * upisano u 16:48 zna nositi `dogodenoAt` 18:46, jer je covjek tako datirao.
- * Citano samo po `dogodenoAt`, ULAZ tada pada IZA radnje koja je nastala u
- * istoj transakciji, pa lanac zakljuci da je tank u trenutku punjenja bio
- * prazan — i cijelo punjenje proglasi nepripisivim.
- *
- * `createdAt` sam po sebi je jednako los: backfill knjige (26.08.2026) upisao
- * je 174 povijesna retka u istoj minuti, pa bi kronologija cijele sezone
- * propala.
- *
- * Uzima se ono STO JE RANIJE — najraniji trenutak za koji se zna da je
- * kretanje postojalo. Za zivi upis to je vrijeme upisa (tocno), za unatrag
- * datiran unos isto (tocno), za backfillan redak `dogodenoAt` (tocno).
- *
- * Ista logika kao izbor `createdAt` u lib/granica-arhive.ts, samo sto ondje
- * pitanje ima jedan izvor, a ovdje dva.
+ * PRESELJEN u lib/sat-knjige.ts i odande se uvozi. Pravilo je isto (ono sto je
+ * ranije od `dogodenoAt` i `createdAt`) i obrazlozenje stoji ondje; ovdje se
+ * vise ne prepisuje jer isti sat od faze A koristi i knjiga pri citanju
+ * proslog trenutka, a dvije kopije razisle bi se prvom izmjenom.
  */
-function satKretanja(k: Kretanje): number {
-  return Math.min(k.dogodenoAt.getTime(), k.createdAt.getTime());
-}
 
 /**
  * DOPUSTENJE ZA ISTU TRANSAKCIJU.
