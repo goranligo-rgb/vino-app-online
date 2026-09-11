@@ -81,7 +81,7 @@ function Param({ oznaka, vrijednost, jedinica }: {
  * Stoji SAMO na karticama s berbom. Mjesavine imaju svoj SASTAV MJESAVINE i
  * dvaput im ne treba — vidi biljesku uz taj blok.
  *
- * Postotak dolazi iz `TankSortaUdio`, istog izvora koji cita pravilo >90 %.
+ * Postotak dolazi IZ KNJIGE (faza E), istog izvora koji cita pravilo >90 %.
  */
 function BlokSastava({ sastav }: { sastav: Sastavnica[] }) {
   return (

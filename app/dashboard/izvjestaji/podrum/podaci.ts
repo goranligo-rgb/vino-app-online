@@ -14,6 +14,7 @@
 import { prisma } from "@/lib/prisma";
 import { uValovima } from "@/lib/paralelno";
 import { kvasciPoPartiji, type KvasacPartije } from "@/lib/kvasac-partija";
+import { sastavSvihTankova } from "@/lib/berba-model";
 
 /** Koliko dana unatrag gledaju traka i graf temperature/secera. */
 export const DANA_GRAF = 10;
@@ -326,12 +327,35 @@ export async function dohvatiPodrum() {
         `,
 
       // 5. + 6. Sastav: udjeli sorti i sastavnice blenda.
-      () =>
-        prisma.tankSortaUdio.findMany({
-          where: { tankId: { in: ids } },
-          orderBy: { postotak: "desc" },
-          select: { tankId: true, nazivSorte: true, postotak: true },
-        }),
+      //
+      // SASTAV DOLAZI IZ KNJIGE (faza E), ne iz `TankSortaUdio`. Oblik je isti
+      // — `{ tankId, nazivSorte, postotak }` — pa `model.ts` ostaje netaknut,
+      // ali su brojevi izvedeni iz zapisa koji se samo dopisuju umjesto iz
+      // spremljenog stanja koje moze odlutati.
+      //
+      // `sastavSvihTankova` je DVA upita za cijeli podrum; po tanku bi ih bilo
+      // dva puta 48. Cita malo vise nego sto ovaj izvjestaj treba (i prazne
+      // tankove), pa se ovdje suzava na `ids`.
+      async () => {
+        const poTanku = await sastavSvihTankova(prisma);
+        const izlaz: Array<{
+          tankId: string;
+          nazivSorte: string;
+          postotak: number;
+        }> = [];
+
+        for (const tankId of ids) {
+          for (const s of poTanku.get(tankId) ?? []) {
+            izlaz.push({
+              tankId,
+              nazivSorte: s.nazivSorte,
+              postotak: s.postotak,
+            });
+          }
+        }
+
+        return izlaz;
+      },
       () =>
         prisma.$queryRaw<RedBlenda[]>`
           SELECT

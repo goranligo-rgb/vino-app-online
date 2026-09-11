@@ -138,7 +138,7 @@ export type Kartica = {
    * SVE sorte tanka s postotkom, za uski redak "Sastav: ..." u dnu desnog
    * bloka — ispisuje se na SVAKOJ kartici, i pod berbom i pod mjesavinom.
    *
-   * Postotak dolazi iz `TankSortaUdio`, istog izvora koji cita pravilo >90 %,
+   * Postotak dolazi IZ KNJIGE (faza E), istog izvora koji cita pravilo >90 %,
    * pa redak i pravilo ne mogu reci razlicito. Zamjenjuje raniji redak
    * "+ 4,5 % Muskat zuti", koji je pokazivao samo manjinske sorte i samo na
    * karticama s berbom.
@@ -229,13 +229,12 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
 
     // LITRE PO SORTI IZ KNJIGE.
     //
-    // `TankSortaUdio` nosi samo postotak, pa bi litre inace bile izvedene iz
-    // njega (kolicina x postotak) i nosile njegovu zaokruzenu gresku. Knjiga
-    // ih zna tocno: za T9 daje 2.689,437 + 660,563 = 3.350,000 L, sto je do
-    // decimale `kolicinaVinaUTanku`.
+    // Knjiga zna litre tocno: za T9 daje 2.689,437 + 660,563 = 3.350,000 L,
+    // sto je do decimale `kolicinaVinaUTanku`. Izvedene iz postotka
+    // (kolicina x postotak) nosile bi gresku zaokruzivanja.
     //
-    // Postotak se NE racuna odavde nego ostaje iz `TankSortaUdio` — to je isti
-    // izvor koji cita pravilo >90 %, pa se prikaz i pravilo ne mogu razici.
+    // Od faze E i POSTOTAK dolazi iz knjige, pa su litre i postotak konacno
+    // iz istog izvora — i imena sorti se po definiciji poklapaju.
     const litrePoSorti = new Map<string, number>();
     for (const b of partije) {
       const k = norm(b.nazivSorte);
@@ -245,11 +244,14 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
 
     // KNJIGA SE KORISTI SVE-ILI-NISTA, PO TANKU.
     //
-    // Knjiga imenuje sorte vlastitim nazivima ("Veltlinac zeleni") koji se ne
-    // moraju poklopiti s onima u `TankSortaUdio` ("Zeleni veltlinac"), a zna
-    // drzati i sorte kojih u udjelima uopce nema. Kad se to dogodi, dio litara
-    // ispadne iz zbroja i kartica pokaze retke koji se zbrajaju na 100 %, ali
-    // im litre ne daju kolicinu u tanku — na T6 je manjkalo 7.550 od 10.500 L.
+    // Zatecena zastita iz vremena kad su postotak i litre dolazili iz dva
+    // izvora s razlicitim imenima sorti ("Veltlinac zeleni" naspram "Zeleni
+    // veltlinac"); tada je dio litara ispadao iz zbroja i kartica je pokazivala
+    // retke koji se zbrajaju na 100 % ali im litre ne daju kolicinu u tanku —
+    // na T6 je manjkalo 7.550 od 10.500 L.
+    //
+    // Od faze E su oba iz knjige pa se imena ne mogu razici. Provjera ostaje:
+    // ne kosta nista, a hvata svaki buduci put koji bi opet spojio dva izvora.
     //
     // Zato se knjizne litre uzimaju samo ako pokrivaju CIJELI tank (do 1 L).
     // Inace se za sve retke izvode iz postotka, pa je kartica bar sama sa
@@ -320,7 +322,10 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
       // Berba nije dohvatljiva -> pada na "Sastav mjesavine" nize.
     }
 
-    // SASTAV SE PUNI IZ `TankSortaUdio`; `BlendIzvor` samo kad udjela nema.
+    // SASTAV SE PUNI IZ KNJIGE (faza E); `BlendIzvor` samo kad knjiga suti.
+    //
+    // Do faze E je izvor bio `TankSortaUdio` — spremljeno stanje. Sada dolazi
+    // izveden iz knjige kretanja (`sastavSvihTankova`), u istom obliku.
     //
     // Prije je bilo obrnuto i to je bila greska u imenu bloka koliko i u
     // podatku: u ovom repozitoriju "Sastav" znaci udjele sorti

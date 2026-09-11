@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { nazivVrste } from "@/lib/vrste-prijenosa";
+import { podrijetloTanka, sastavIzPodrijetla } from "@/lib/berba-model";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -428,18 +429,20 @@ export default async function TankIzvjestajPage({
     take: 100,
   });
 
-  const udjeliSorti = tank.udjeliSorti ?? [];
-  const ukupnoPostotak = udjeliSorti.reduce(
-    (sum, u) => sum + Number(u.postotak ?? 0),
-    0
-  );
-  const ukupnoPostotakRounded = Number(ukupnoPostotak.toFixed(2));
+  // SASTAV IZ KNJIGE (faza E). `TankSortaUdio` se vise ne cita ovdje — sastav
+  // se izvodi iz knjige kretanja, ponderiran po litrama, i zbraja se na tocno
+  // 100 po definiciji. Tri upita u nizu, kao i na monitoru.
+  const podrijetloKnjige = await podrijetloTanka(prisma, id);
+  const sastavKnjige = sastavIzPodrijetla(podrijetloKnjige);
 
+  const poznateSorte = sastavKnjige.filter((x) => !x.nepoznata);
   const oznakaSastava =
-    udjeliSorti.length === 0
-      ? "Nije upisano"
-      : udjeliSorti.length === 1
-      ? udjeliSorti[0].nazivSorte
+    sastavKnjige.length === 0
+      ? "Nije poznat"
+      : poznateSorte.length === 1 && sastavKnjige.length === 1
+      ? poznateSorte[0].nazivSorte
+      : poznateSorte.length === 0
+      ? "Zatečeno vino"
       : "Cuvée / blend";
 
   const zadnje = sloziZadnjeMjerenjePoPoljima(mjerenja);
@@ -521,20 +524,31 @@ export default async function TankIzvjestajPage({
         </Section>
 
         <Section title="2. Sastav vina">
-          {udjeliSorti.length === 0 ? (
-            <div style={mutedStyle}>Nema upisanog sastava vina.</div>
+          {sastavKnjige.length === 0 ? (
+            <div style={mutedStyle}>
+              Knjiga za ovaj tank ne zna nijednu berbu.
+            </div>
           ) : (
             <div style={{ display: "grid", gap: 8 }}>
-              {udjeliSorti.map((u) => (
-                <div key={u.id} style={boxStyle}>
+              {sastavKnjige.map((s) => (
+                <div key={s.nazivSorte} style={boxStyle}>
                   <div style={boxTopStyle}>
-                    <strong>{u.nazivSorte}</strong>
-                    <span>{formatBroj(u.postotak)}%</span>
+                    <strong>{s.nazivSorte}</strong>
+                    <span>
+                      {formatBroj(s.litre, 0)} L · {formatBroj(s.postotak)}%
+                    </span>
                   </div>
                 </div>
               ))}
               <div style={totalsStyle}>
-                Ukupno sastav: {ukupnoPostotakRounded}%
+                Iz knjige kretanja · ukupno{" "}
+                {formatBroj(podrijetloKnjige.ukupnoL, 0)} L
+                {Math.abs(podrijetloKnjige.razlikaOdTankaL) > 0.5
+                  ? ` · razlika od tanka ${formatBroj(
+                      podrijetloKnjige.razlikaOdTankaL,
+                      0
+                    )} L`
+                  : ""}
               </div>
             </div>
           )}
