@@ -128,6 +128,15 @@ export type UlazPretoka = {
     sorta: string;
     godiste?: number | null;
   } | null;
+  /**
+   * KAD SE CIN DOGODIO. Koristi se samo za godiste cuvéea (vidi `godinaCina`).
+   *
+   * Pozivatelj salje `Pretok.datum` zapisa koji je stvorio prije motora, pa je
+   * godina cuvéea ista ona koja stoji na samom pretoku. Bez njega se uzima
+   * `new Date()` — sto je za sve zive pozivatelje isto, jer forma pretoka nema
+   * polje datuma, ali onda su to dva odvojena citanja sata.
+   */
+  dogodenoAt?: Date | null;
 };
 
 export type RezultatPretoka = {
@@ -291,6 +300,8 @@ function istiIdentitetVina(a: Identitet, b: Identitet): boolean {
  * ISTA_SORTA  — sorte se moraju poklapati; naziv ostaje.
  * CUVEE       — nastaje JEDAN novi identitet i primjenjuje se na SVE ciljeve.
  *               Dva razlicita nova vina su dva pretoka, ne jedan.
+ *
+ * GODISTE PRI CUVEEU je godina CINA, ne godina sastavnica — vidi `godinaCina`.
  */
 function identitetCilja(args: {
   vrsta: VrstaPretoka;
@@ -298,8 +309,10 @@ function identitetCilja(args: {
   ciljPrijeMl: number;
   identitetIzvora: Identitet;
   noviIdentitet: UlazPretoka["noviIdentitet"];
+  godinaCina: number;
 }): { identitet: Identitet; biloDrugoVino: boolean } {
-  const { vrsta, cilj, ciljPrijeMl, identitetIzvora, noviIdentitet } = args;
+  const { vrsta, cilj, ciljPrijeMl, identitetIzvora, noviIdentitet, godinaCina } =
+    args;
   const prazan = ciljPrijeMl <= 0;
   const ciljIdent = otisakIdentiteta(cilj);
   const isto = !prazan && istiIdentitetVina(ciljIdent, identitetIzvora);
@@ -310,7 +323,18 @@ function identitetCilja(args: {
       identitet: {
         nazivVina: norm(noviIdentitet?.nazivVina),
         sorta: norm(noviIdentitet?.sorta),
-        godiste: noviIdentitet?.godiste ?? identitetIzvora.godiste,
+        // CUVEE NOSI GODINU U KOJOJ JE NAPRAVLJEN, bez obzira na godista
+        // sastavnica: cuvée slozen 2026. je 2026. i kad sadrzi vino iz 2025.
+        //
+        // Prije je ovdje stajalo `identitetIzvora.godiste` — godiste PRVOG
+        // izvora onim redom kojim ga je operater upisao u formu. Isti pretok
+        // s obrnutim redoslijedom izvora davao bi drugu godinu, a nijedna od
+        // njih ne opisuje cuvée nego jednu njegovu sastavnicu.
+        //
+        // `noviIdentitet.godiste` ostaje kao izricito nadjacavanje (ispravak);
+        // forma ga ne salje i ne treba mu polje — godina je cinjenica, ne
+        // odluka, a godiste se uz to pise i u sam naziv ("Cuvee bijeli 2026").
+        godiste: noviIdentitet?.godiste ?? godinaCina,
       },
       biloDrugoVino,
     };
@@ -451,8 +475,12 @@ export async function izvrsiPretok(
   const blendIzvoraSpojen = normalizirajBlend(blendKojiIzlazi);
 
   // Identitet koji "dolazi" — kod jednog izvora je to njegov identitet, kod
-  // vise njih uzima se prvi. Kod cuvéea se ionako ne koristi, a kod obicnog
-  // pretoka vise izvora s razlicitim vinima ne prolazi guard nize.
+  // vise njih uzima se prvi. Kod obicnog pretoka vise izvora s razlicitim
+  // vinima ne prolazi guard nize.
+  //
+  // KOD CUVEEA SE NE KORISTI. (Do 11.09.2026. je koristio: cuvée je odavde
+  // uzimao godiste, pa je isti pretok s obrnutim redoslijedom izvora davao
+  // drugu godinu. Sada cuvée nosi godinu cina — vidi `godinaCina`.)
   const prviIzvor = izvorniTankovi.get(provjeren.izvori[0].tankId)!;
   const identitetIzvora = otisakIdentiteta(prviIzvor);
 
@@ -484,6 +512,16 @@ export async function izvrsiPretok(
     { identitet: Identitet; biloDrugoVino: boolean }
   >();
 
+  // GODINA CINA — racuna se JEDNOM po pretoku, ne po cilju.
+  //
+  // Cuvée u tri tanka koji prijedje ponoc inace bi dobio dva razlicita godista
+  // iz jednog jedinog cina. Isto vino u tri posude ne smije imati dvije
+  // godine.
+  //
+  // Uzima se `Pretok.datum` koji pozivatelj salje (zapis je stvoren prije
+  // motora), pa je godina cuvéea tocno ona koja stoji na samom pretoku.
+  const godinaCina = (ulaz.dogodenoAt ?? new Date()).getFullYear();
+
   for (const c of provjeren.ciljevi) {
     const t = ciljniTankovi.get(c.tankId)!;
 
@@ -495,6 +533,7 @@ export async function izvrsiPretok(
         ciljPrijeMl: uMl(t.kolicinaVinaUTanku),
         identitetIzvora,
         noviIdentitet: ulaz.noviIdentitet,
+        godinaCina,
       })
     );
   }

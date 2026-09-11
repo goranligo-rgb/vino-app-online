@@ -667,6 +667,10 @@ export async function POST(req: Request) {
         // istoj transakciji, pa retci knjige imaju cin na koji se vjesaju i
         // `POST /api/pretok/undo` ih poslije zna naci i ponistiti.
         pretokId: pretok.id,
+        // KAD SE CIN DOGODIO — odavde motor uzima godinu cuvéea. Salje se
+        // `Pretok.datum` istog zapisa, a ne novi `new Date()`, da godiste
+        // vina i datum pretoka ne mogu pokazati dvije razlicite godine.
+        dogodenoAt: pretok.datum,
         noviIdentitet: trebaNovoVino
           ? {
               nazivVina: nazivNovogVina,

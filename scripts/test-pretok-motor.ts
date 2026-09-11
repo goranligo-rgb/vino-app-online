@@ -1008,6 +1008,168 @@ async function main() {
     }
   );
 
+  await scenarij(
+    "DOKAZ 15: cuvée nosi GODINU CINA, ne godiste sastavnica",
+    async (tx) => {
+      const u = await napraviKorisnika(tx);
+
+      // Pravilo: cuvée slozen 2026. je 2026. i kad sadrzi vino iz 2025.
+      // Prije ovog dokaza motor je uzimao godiste PRVOG izvora iz forme, pa je
+      // isti pretok s obrnutim redoslijedom izvora davao drugu godinu.
+      const cin = new Date("2026-03-15T10:00:00Z");
+
+      const stariji = await napraviTank(tx, {
+        kolicina: 600,
+        nazivVina: "Grasevina 2024",
+        sorta: "Grasevina",
+        godiste: 2024,
+        sastav: [{ nazivSorte: "Grasevina", postotak: 100 }],
+      });
+      const mladji = await napraviTank(tx, {
+        kolicina: 400,
+        nazivVina: "Sauvignon 2025",
+        sorta: "Sauvignon",
+        godiste: 2025,
+        sastav: [{ nazivSorte: "Sauvignon", postotak: 100 }],
+      });
+      // Cilj koji vec ima svoje godiste — ni ono ne smije prezivjeti cuvée.
+      const cilj = await napraviTank(tx, {
+        kolicina: 200,
+        nazivVina: "Nesto trece",
+        sorta: "Rizling",
+        godiste: 2019,
+        sastav: [{ nazivSorte: "Rizling", postotak: 100 }],
+      });
+      const cilj2 = await napraviTank(tx, { kolicina: 0 });
+
+      await izvrsiPretok(tx, {
+        izvori: [
+          { tankId: stariji.id, kolicina: 600 },
+          { tankId: mladji.id, kolicina: 400 },
+        ],
+        ciljevi: [
+          { tankId: cilj.id, kolicina: 500 },
+          { tankId: cilj2.id, kolicina: 500 },
+        ],
+        vrsta: "CUVEE",
+        nacin: "BEZ",
+        korisnikId: u.id,
+        dogodenoAt: cin,
+        noviIdentitet: { nazivVina: "TEST cuvée 2026", sorta: "Cuvée" },
+      });
+
+      const c1 = await stanje(tx, cilj.id);
+      const c2 = await stanje(tx, cilj2.id);
+
+      jednako(c1.godiste, 2026, "cilj 1 dobio godinu cina, ne 2024 ni 2019");
+      jednako(c2.godiste, 2026, "cilj 2 dobio ISTU godinu cina");
+    }
+  );
+
+  await scenarij(
+    "DOKAZ 16: redoslijed izvora ne mijenja godiste cuvéea",
+    async (tx) => {
+      const u = await napraviKorisnika(tx);
+      const cin = new Date("2026-03-15T10:00:00Z");
+
+      // Isti pretok, obrnut redoslijed izvora. Prije popravka bi ovo dalo
+      // 2025 umjesto 2024 iz DOKAZA 15 — i ni jedno ni drugo ne opisuje cuvée.
+      const mladji = await napraviTank(tx, {
+        kolicina: 400,
+        nazivVina: "Sauvignon 2025",
+        sorta: "Sauvignon",
+        godiste: 2025,
+        sastav: [{ nazivSorte: "Sauvignon", postotak: 100 }],
+      });
+      const stariji = await napraviTank(tx, {
+        kolicina: 600,
+        nazivVina: "Grasevina 2024",
+        sorta: "Grasevina",
+        godiste: 2024,
+        sastav: [{ nazivSorte: "Grasevina", postotak: 100 }],
+      });
+      const cilj = await napraviTank(tx, { kolicina: 0 });
+
+      await izvrsiPretok(tx, {
+        izvori: [
+          { tankId: mladji.id, kolicina: 400 },
+          { tankId: stariji.id, kolicina: 600 },
+        ],
+        ciljevi: [{ tankId: cilj.id, kolicina: 1000 }],
+        vrsta: "CUVEE",
+        nacin: "BEZ",
+        korisnikId: u.id,
+        dogodenoAt: cin,
+        noviIdentitet: { nazivVina: "TEST cuvée 2026", sorta: "Cuvée" },
+      });
+
+      jednako(
+        (await stanje(tx, cilj.id)).godiste,
+        2026,
+        "godiste je isto bez obzira koji je izvor prvi"
+      );
+    }
+  );
+
+  await scenarij(
+    "DOKAZ 17: OBICNI i ISTA_SORTA i dalje nasljedjuju godiste izvora",
+    async (tx) => {
+      const u = await napraviKorisnika(tx);
+      const cin = new Date("2026-03-15T10:00:00Z");
+
+      // Popravak dira SAMO cuvée granu. Kod obicnog pretoka i blenda iste
+      // sorte vino se ne mijenja nego seli, pa godiste putuje s njim — inace
+      // bi pretok Grasevine 2024 u prazan tank od nje napravio 2026.
+      const izvor = await napraviTank(tx, {
+        kolicina: 1000,
+        nazivVina: "Grasevina 2024",
+        sorta: "Grasevina",
+        godiste: 2024,
+        sastav: [{ nazivSorte: "Grasevina", postotak: 100 }],
+      });
+      const prazan = await napraviTank(tx, { kolicina: 0 });
+
+      await izvrsiPretok(tx, {
+        izvori: [{ tankId: izvor.id, kolicina: 400 }],
+        ciljevi: [{ tankId: prazan.id, kolicina: 400 }],
+        vrsta: "OBICNI",
+        nacin: "BEZ",
+        korisnikId: u.id,
+        dogodenoAt: cin,
+      });
+
+      jednako(
+        (await stanje(tx, prazan.id)).godiste,
+        2024,
+        "OBICNI: cilj je naslijedio godiste izvora, ne godinu cina"
+      );
+
+      const izvor2 = await napraviTank(tx, {
+        kolicina: 500,
+        nazivVina: "Grasevina 2024",
+        sorta: "Grasevina",
+        godiste: 2024,
+        sastav: [{ nazivSorte: "Grasevina", postotak: 100 }],
+      });
+      const prazan2 = await napraviTank(tx, { kolicina: 0 });
+
+      await izvrsiPretok(tx, {
+        izvori: [{ tankId: izvor2.id, kolicina: 500 }],
+        ciljevi: [{ tankId: prazan2.id, kolicina: 500 }],
+        vrsta: "ISTA_SORTA",
+        nacin: "BEZ",
+        korisnikId: u.id,
+        dogodenoAt: cin,
+      });
+
+      jednako(
+        (await stanje(tx, prazan2.id)).godiste,
+        2024,
+        "ISTA_SORTA: cilj je naslijedio godiste izvora"
+      );
+    }
+  );
+
   // -------------------------------------------------------------------------
   console.log("");
   console.log("=== DIO 7: cista provjera ulaza, bez baze ===");
