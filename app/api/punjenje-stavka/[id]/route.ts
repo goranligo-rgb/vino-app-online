@@ -442,15 +442,9 @@ export async function DELETE(_req: Request, { params }: Params) {
             where: { tankId },
           });
 
-          if (noviUdjeli.length > 0) {
-            await tx.tankSortaUdio.createMany({
-              data: noviUdjeli.map((u) => ({
-                tankId,
-                nazivSorte: u.nazivSorte,
-                postotak: u.postotak,
-              })),
-            });
-          }
+          // SASTAV SE VISE NE UPISUJE (faza E) — izvodi se iz knjige. Racun
+          // `noviUdjeli` ostaje jer hrani i knjigu; brisanje iznad ostaje da
+          // zatecen sastav ne prezivi ispravak stavke.
 
           const jedinstveneSorte = Array.from(
             new Set(
@@ -586,22 +580,10 @@ export async function DELETE(_req: Request, { params }: Params) {
           where: { tankId },
         });
 
-        if (prethodnaKolicina > 0 && prethodniSastavJson.length > 0) {
-          await tx.tankSortaUdio.createMany({
-            data: prethodniSastavJson
-              .filter(
-                (u: any) =>
-                  u &&
-                  typeof u.nazivSorte === "string" &&
-                  typeof u.postotak === "number"
-              )
-              .map((u: any) => ({
-                tankId,
-                nazivSorte: u.nazivSorte,
-                postotak: u.postotak,
-              })),
-          });
-        }
+        // SASTAV SE VISE NE UPISUJE (faza E). Ponistavanje je vracalo
+        // spremljeni sastav iz snimke; sada ga nema sto vracati jer se ne pise
+        // — sastav se izvede iz knjige, koju ponistavanje ionako ispravlja.
+        void prethodniSastavJson;
       })();
 
       // KNJIGA BERBE, 2/2: prvo CILJANO povlacenje te berbe, pa tek ostatak.

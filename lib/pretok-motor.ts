@@ -64,6 +64,7 @@ import {
   upisiSastav,
   zakljucajTankove,
   type BlendStavka,
+  type SortaUdio,
   type TankOtisak,
   type TankSaSastavom,
   type Tx,
@@ -148,6 +149,17 @@ export type RezultatPretoka = {
     ostaloLitara: number;
     paoNaNulu: boolean;
     prije: TankOtisak;
+    /**
+     * Blend koji OSTAJE u izvoru nakon odljeva, u mililitrima i postotcima.
+     *
+     * Od faze E se nigdje ne upisuje — `TankSortaUdio` i `BlendIzvor` vise
+     * nisu izvor istine, sastav i porijeklo se izvode iz knjige. Racun je
+     * ipak ostao i vraca se OVDJE, jer je to jedina stvar koju o njemu jos
+     * ima smisla tvrditi: da spajanje i dijeljenje ne gube ni mililitar.
+     * Provjerava ga scripts/test-pretok-motor.ts, koji je do faze E isto
+     * dokazivao citajuci retke iz baze.
+     */
+    blend: BlendStavka[];
   }>;
   ciljevi: Array<{
     tankId: string;
@@ -158,6 +170,10 @@ export type RezultatPretoka = {
     biloDrugoVino: boolean;
     noviNazivVina: string | null;
     prije: TankOtisak;
+    /** Blend cilja nakon pretoka — vidi `izvori[].blend`. */
+    blend: BlendStavka[];
+    /** Sastav cilja po sortama nakon pretoka, u postotcima. */
+    sastav: SortaUdio[];
   }>;
   /** Sto je upisano u knjigu berbe. `null` kad `pretokId` nije predan. */
   knjiga: {
@@ -573,9 +589,15 @@ export async function izvrsiPretok(
       // povijest ostaje na njoj i rezuje se granicom vina pri prikazu.
       await isprazniTank(tx, t.id, uLitre(prijeMl));
       ispraznjeni.add(t.id);
-    } else {
-      await upisiBlend(tx, t.id, blendKojiOstaje(t, ostatakMl, prijeMl));
     }
+
+    // Blend koji ostaje racuna se i kad se ne upisuje: vraca se u rezultatu i
+    // ondje se provjerava. Prazan izvor nema sto zadrzati.
+    const blendIzvora = paoNaNulu
+      ? []
+      : normalizirajBlend(blendKojiOstaje(t, ostatakMl, prijeMl));
+
+    await upisiBlend(tx, t.id, blendIzvora);
 
     rezultatIzvori.push({
       tankId: t.id,
@@ -584,6 +606,7 @@ export async function izvrsiPretok(
       ostaloLitara: uLitre(Math.max(0, ostatakMl)),
       paoNaNulu,
       prije: prijeIzvori.get(t.id)!,
+      blend: blendIzvora,
     });
   }
 
@@ -666,7 +689,9 @@ export async function izvrsiPretok(
     // posudi danas.
     const spojeniBlend = [...blendCilja, ...dolazeciBlend];
 
-    await upisiBlend(tx, t.id, normalizirajBlend(spojeniBlend));
+    const blendCiljaUpisan = normalizirajBlend(spojeniBlend);
+
+    await upisiBlend(tx, t.id, blendCiljaUpisan);
 
     // RADNJE PUTUJU S VINOM. Svaki izvor daje ovom cilju onoliko koliko kaze
     // matrica, pa se udjeli mnoze kroz lanac sami od sebe: 50 % vina iz tanka
@@ -690,7 +715,9 @@ export async function izvrsiPretok(
       mapaSastava.set(naziv, (mapaSastava.get(naziv) ?? 0) + ml);
     });
 
-    await upisiSastav(tx, t.id, udjeliIzMape(mapaSastava));
+    const sastavCilja = udjeliIzMape(mapaSastava);
+
+    await upisiSastav(tx, t.id, sastavCilja);
 
     await tx.tank.update({
       where: { id: t.id },
@@ -711,6 +738,8 @@ export async function izvrsiPretok(
       biloDrugoVino,
       noviNazivVina: ulaz.vrsta === "CUVEE" ? identitet.nazivVina : null,
       prije: prijeCiljevi.get(t.id)!,
+      blend: blendCiljaUpisan,
+      sastav: sastavCilja,
     });
   }
 

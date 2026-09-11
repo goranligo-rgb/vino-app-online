@@ -545,12 +545,10 @@ export async function POST(req: Request) {
             ciljMl
           );
 
-          for (let i = 0; i < blendIzvori.length; i++) {
-            await tx.blendIzvor.update({
-              where: { id: blendIzvori[i].id },
-              data: { kolicina: uLitre(dijelovi[i]) },
-            });
-          }
+          // BLEND SE VISE NE UPISUJE (faza E) — porijeklo se izvodi iz knjige,
+          // a ona izlaz vec knjizi. Racun `dijelovi` ostaje: njime se provjerava
+          // da skaliranje odgovara knjizi, i pod testom je.
+          void dijelovi;
         }
       }
 

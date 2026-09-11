@@ -752,19 +752,13 @@ export async function POST(req: Request) {
             }))
             .filter((u) => u.postotak > 0);
 
+          // SASTAV SE VISE NE UPISUJE (faza E) — izvodi se iz knjige.
+          // `noviUdjeli` se i dalje racuna: isti broj hrani i knjigu, pa mu
+          // racun ostaje pod istim testovima. Brise se ono sto je na tanku
+          // zateceno, da stari sastav ne prezivi novo punjenje.
           await tx.tankSortaUdio.deleteMany({
             where: { tankId: tid },
           });
-
-          if (noviUdjeli.length > 0) {
-            await tx.tankSortaUdio.createMany({
-              data: noviUdjeli.map((u) => ({
-                tankId: tid,
-                nazivSorte: u.nazivSorte,
-                postotak: u.postotak,
-              })),
-            });
-          }
 
           // Punjenje MORA ostaviti trag u radnjama. Uvjet `if (korisnikId)` koji
           // je ovdje stajao nikad nije bio ispunjen — forma korisnika nije slala,

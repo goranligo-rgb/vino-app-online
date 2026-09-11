@@ -24,7 +24,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { FiltracijaGreska, uMl } from "../lib/filtracija";
-import { izvrsiPretok, provjeriUlazPretoka } from "../lib/pretok-motor";
+import {
+  izvrsiPretok,
+  provjeriUlazPretoka,
+  type RezultatPretoka,
+} from "../lib/pretok-motor";
 import { razlogZabranePonistavanja } from "../lib/pretok-ponistavanje";
 
 type Tx = Prisma.TransactionClient;
@@ -139,7 +143,22 @@ async function napraviTank(
   return tank;
 }
 
-async function stanje(tx: Tx, tankId: string) {
+/**
+ * Stanje tanka nakon pretoka.
+ *
+ * BLEND I SASTAV DOLAZE IZ REZULTATA MOTORA, ne iz baze (faza E). Do tada su
+ * se citali iz `BlendIzvor` i `TankSortaUdio`; te se tablice od faze E vise ne
+ * pisu, pa bi svaka tvrdnja o njima mjerila prazno i tiho prolazila. Motor te
+ * vrijednosti sada vraca, pa tvrdnje mjere isti racun na istom mjestu gdje i
+ * prije — samo iz povratne vrijednosti.
+ *
+ * Ostalo (litre, naziv, sorta, godiste) i dalje je pravo stanje tanka u bazi.
+ *
+ * `r` je NEOBAVEZAN samo zato sto ga dio scenarija ne treba (brane, snimke);
+ * svaki koji tvrdi nesto o blendu ili sastavu mora ga predati, inace dobiva
+ * prazno i tvrdnja pada — sto je i namjera.
+ */
+async function stanje(tx: Tx, tankId: string, r?: RezultatPretoka) {
   const t = await tx.tank.findUniqueOrThrow({
     where: { id: tankId },
     include: {
@@ -147,19 +166,28 @@ async function stanje(tx: Tx, tankId: string) {
       blendIzvori: { orderBy: { kolicina: "desc" } },
     },
   });
+
+  const cilj = r?.ciljevi.find((x) => x.tankId === tankId);
+  const izvor = r?.izvori.find((x) => x.tankId === tankId);
+  const blend = cilj?.blend ?? izvor?.blend ?? [];
+  const sastav = (cilj?.sastav ?? []).map((u) => ({
+    nazivSorte: u.nazivSorte,
+    postotak: u.postotak,
+  }));
+
   return {
     litara: Number(t.kolicinaVinaUTanku ?? 0),
     nazivVina: t.nazivVina,
     sorta: t.sorta,
     godiste: t.godiste,
-    sastav: t.udjeliSorti.map((u) => ({ nazivSorte: u.nazivSorte, postotak: u.postotak })),
-    blendMl: t.blendIzvori.reduce((z, b) => z + uMl(b.kolicina), 0),
-    blendRedaka: t.blendIzvori.length,
+    sastav: [...sastav].sort((a, b) => a.nazivSorte.localeCompare(b.nazivSorte)),
+    blendMl: blend.reduce((z, b) => z + b.kolicinaMl, 0),
+    blendRedaka: blend.length,
     postotakZbroj: Number(
-      t.blendIzvori.reduce((z, b) => z + Number(b.postotak), 0).toFixed(2)
+      blend.reduce((z, b) => z + Number(b.postotak), 0).toFixed(2)
     ),
     sastavZbroj: Number(
-      t.udjeliSorti.reduce((z, u) => z + Number(u.postotak), 0).toFixed(2)
+      sastav.reduce((z, u) => z + Number(u.postotak), 0).toFixed(2)
     ),
   };
 }
@@ -278,8 +306,8 @@ async function main() {
     jednako(r.usloLitara, 400, "uslo 400 L");
     jednako(r.gubitakLitara, 0, "kalo 0 L");
 
-    const i = await stanje(tx, izvor.id);
-    const c = await stanje(tx, cilj.id);
+    const i = await stanje(tx, izvor.id, r);
+    const c = await stanje(tx, cilj.id, r);
 
     jednako(i.litara, 600, "izvoru ostalo 600 L");
     jednako(c.litara, 400, "u cilju 400 L");
@@ -322,9 +350,9 @@ async function main() {
 
     jednako(r.gubitakLitara, 1, "kalo 1 L");
 
-    const s1 = await stanje(tx, c1.id);
-    const s2 = await stanje(tx, c2.id);
-    const s3 = await stanje(tx, c3.id);
+    const s1 = await stanje(tx, c1.id, r);
+    const s2 = await stanje(tx, c2.id, r);
+    const s3 = await stanje(tx, c3.id, r);
 
     jednako(s1.litara, 333, "cilj 1 ima 333 L");
     jednako(s2.litara, 333, "cilj 2 ima 333 L");
@@ -339,9 +367,12 @@ async function main() {
     jednako(s2.sastavZbroj, 100, "sastav cilja 2 zbraja 100");
     jednako(s3.sastavZbroj, 100, "sastav cilja 3 zbraja 100");
 
-    const izv = await stanje(tx, izvor.id);
+    const izv = await stanje(tx, izvor.id, r);
     jednako(izv.litara, 0, "izvor je prazan");
     jednako(izv.nazivVina, null, "prazan izvor izgubio identitet");
+    // TVRDI ODSUTNOST, pa je prazan racun trivijalno zadovoljava — provjereno
+    // mutacijskim testom 11.09.2026: s namjerno ispraznjenim blendom ova
+    // tvrdnja i dalje prolazi. Vrijedi samo uz tvrdnje iznad, koje tada padaju.
     jednako(izv.blendRedaka, 0, "prazan izvor nema blend");
   });
 
@@ -383,8 +414,8 @@ async function main() {
     jednako(r.usloLitara, 980, "uslo 980 L");
     jednako(r.gubitakLitara, 20, "kalo 20 L");
 
-    const s1 = await stanje(tx, c1.id);
-    const s2 = await stanje(tx, c2.id);
+    const s1 = await stanje(tx, c1.id, r);
+    const s2 = await stanje(tx, c2.id, r);
 
     jednako(s1.nazivVina, "TEST cuvée", "cilj 1 dobio novi naziv");
     jednako(s2.nazivVina, "TEST cuvée", "cilj 2 dobio ISTI novi naziv");
@@ -424,7 +455,7 @@ async function main() {
       sastav: [{ nazivSorte: "Grasevina", postotak: 100 }],
     });
 
-    await izvrsiPretok(tx, {
+    const r = await izvrsiPretok(tx, {
       izvori: [{ tankId: izvor.id, kolicina: 300 }],
       ciljevi: [{ tankId: cilj.id, kolicina: 300 }],
       vrsta: "OBICNI",
@@ -432,13 +463,13 @@ async function main() {
       korisnikId: u.id,
     });
 
-    const c = await stanje(tx, cilj.id);
+    const c = await stanje(tx, cilj.id, r);
     jednako(c.litara, 1000, "u cilju 1000 L");
     jednako(c.nazivVina, "TEST vino", "identitet zadrzan");
     jednako(c.blendMl, 1_000_000, "blend = 1000 L u ml");
     jednako(c.postotakZbroj, 100, "postotci zbrajaju 100");
 
-    const i = await stanje(tx, izvor.id);
+    const i = await stanje(tx, izvor.id, r);
     jednako(i.litara, 200, "izvoru ostalo 200 L");
     jednako(i.nazivVina, "TEST vino", "izvor zadrzao identitet");
   });
@@ -544,7 +575,7 @@ async function main() {
     });
     const cilj = await napraviTank(tx, { kolicina: 0 });
 
-    await izvrsiPretok(tx, {
+    const r = await izvrsiPretok(tx, {
       izvori: [{ tankId: izvor.id, kolicina: 400 }],
       ciljevi: [{ tankId: cilj.id, kolicina: 400 }],
       vrsta: "OBICNI",
@@ -554,7 +585,7 @@ async function main() {
 
     // Orakul: izvor bez blenda daje jednu stavku od tocno prenesene kolicine.
     const orakul = orakulNormaliziraj([{ kljuc: izvor.id, kolicina: 400 }]);
-    const c = await stanje(tx, cilj.id);
+    const c = await stanje(tx, cilj.id, r);
 
     jednako(c.blendMl, uMl(orakul[0].kolicina), "kolicina blenda ista kao u orakula");
     jednako(c.postotakZbroj, orakul[0].postotak, "postotak isti kao u orakula");
@@ -579,7 +610,7 @@ async function main() {
       });
       const cilj = await napraviTank(tx, { kolicina: 0 });
 
-      await izvrsiPretok(tx, {
+      const r = await izvrsiPretok(tx, {
         izvori: [{ tankId: izvor.id, kolicina: 500 }],
         ciljevi: [{ tankId: cilj.id, kolicina: 500 }],
         vrsta: "OBICNI",
@@ -587,16 +618,17 @@ async function main() {
         korisnikId: u.id,
       });
 
-      const c = await stanje(tx, cilj.id);
+      const c = await stanje(tx, cilj.id, r);
 
       jednako(c.blendRedaka, 2, "cilj je dobio DVA blend retka, ne jedan");
       jednako(c.blendMl, uMl(500), "zbroj mililitara blenda je tocno preneseno");
       jednako(c.postotakZbroj, 100, "postotci se zbrajaju na 100");
 
-      const redci = await tx.blendIzvor.findMany({
-        where: { ciljTankId: cilj.id },
-        orderBy: { kolicina: "desc" },
-      });
+      // Redci blenda iz REZULTATA motora (faza E) — `BlendIzvor` se vise ne
+      // pise, pa bi citanje iz baze mjerilo prazno i tvrdnja bi tiho prosla.
+      const redci = [...(r.ciljevi[0]?.blend ?? [])].sort(
+        (a, b) => b.kolicinaMl - a.kolicinaMl
+      );
 
       jednako(Number(redci[0].postotak), 80, "vecinska sorta nosi 80 %");
       jednako(Number(redci[1].postotak), 20, "manjinska sorta nosi 20 %");
@@ -631,7 +663,7 @@ async function main() {
       });
       const cilj = await napraviTank(tx, { kolicina: 0 });
 
-      await izvrsiPretok(tx, {
+      const r = await izvrsiPretok(tx, {
         izvori: [{ tankId: izvor.id, kolicina: 700 }],
         ciljevi: [{ tankId: cilj.id, kolicina: 700 }],
         vrsta: "OBICNI",
@@ -646,8 +678,8 @@ async function main() {
       );
       const orakulMl = orakul.reduce((z, o) => z + uMl(o.kolicina), 0);
 
-      const c = await stanje(tx, cilj.id);
-      const i = await stanje(tx, izvor.id);
+      const c = await stanje(tx, cilj.id, r);
+      const i = await stanje(tx, izvor.id, r);
 
       // Motor: zbroj je TOCNO onoliko koliko je uslo. Orakul: priblizno.
       jednako(c.blendMl, 700_000, "MOTOR: blend cilja tocno 700 L u ml");
@@ -672,7 +704,7 @@ async function main() {
     const i2 = await napraviTank(tx, { kolicina: 400, nazivVina: "B", sorta: "Sauvignon", sastav: [{ nazivSorte: "Sauvignon", postotak: 100 }] });
     const cilj = await napraviTank(tx, { kolicina: 0 });
 
-    await izvrsiPretok(tx, {
+    const r = await izvrsiPretok(tx, {
       izvori: [
         { tankId: i1.id, kolicina: 600 },
         { tankId: i2.id, kolicina: 400 },
@@ -689,16 +721,16 @@ async function main() {
       { kljuc: i2.id, kolicina: 400 },
     ]);
 
-    const c = await tx.tank.findUniqueOrThrow({
-      where: { id: cilj.id },
-      include: { blendIzvori: { orderBy: { kolicina: "desc" } } },
-    });
+    // Blend iz REZULTATA motora (faza E) — vidi biljesku uz `stanje`.
+    const blend = [...(r.ciljevi[0]?.blend ?? [])].sort(
+      (a, b) => b.kolicinaMl - a.kolicinaMl
+    );
 
-    jednako(c.blendIzvori.length, orakul.length, "isti broj sastavnica kao u orakula");
-    jednako(Number(c.blendIzvori[0].postotak), orakul[0].postotak, "prvi udio isti kao u orakula (60%)");
-    jednako(Number(c.blendIzvori[1].postotak), orakul[1].postotak, "drugi udio isti kao u orakula (40%)");
+    jednako(blend.length, orakul.length, "isti broj sastavnica kao u orakula");
+    jednako(Number(blend[0].postotak), orakul[0].postotak, "prvi udio isti kao u orakula (60%)");
+    jednako(Number(blend[1].postotak), orakul[1].postotak, "drugi udio isti kao u orakula (40%)");
     jednako(
-      c.blendIzvori.reduce((z, b) => z + uMl(b.kolicina), 0),
+      blend.reduce((z, b) => z + b.kolicinaMl, 0),
       1_000_000,
       "zbroj blenda tocno 1000 L u ml"
     );
@@ -886,7 +918,7 @@ async function main() {
       });
       const mjerenjaPrije = await tx.mjerenje.count({ where: { tankId: i1.id } });
 
-      await izvrsiPretok(tx, {
+      const r = await izvrsiPretok(tx, {
         izvori: [
           { tankId: i1.id, kolicina: 600 },
           { tankId: i2.id, kolicina: 400 },
@@ -908,9 +940,10 @@ async function main() {
         "pretok NE stvara arhivu, ni kad izvor padne na nulu"
       );
 
-      const i1Poslije = await stanje(tx, i1.id);
+      const i1Poslije = await stanje(tx, i1.id, r);
       jednako(i1Poslije.litara, 0, "ispraznjeni izvor je prazan");
       jednako(i1Poslije.nazivVina, null, "ispraznjeni izvor izgubio identitet");
+      // Kao i gore: tvrdnja o odsutnosti prolazi i nad praznim racunom.
       jednako(i1Poslije.blendRedaka, 0, "ispraznjeni izvor nema blend");
       jednako(
         (await tx.tankSortaUdio.count({ where: { tankId: i1.id } })),
@@ -931,24 +964,30 @@ async function main() {
       // Preusmjeravanja na arhivu vise nema jer arhive nema. Pokazivac na
       // tank je tocan sam po sebi: `parametriBlenda` ga cita NA DATUM kad je
       // vino doslo, pa dobiva vino kakvo je tada bilo.
+      // Pokazivaci iz REZULTATA motora (faza E): `BlendIzvor` se vise ne pise,
+      // pa bi brojanje redaka u bazi svuda davalo nulu i tvrdnje bi prosle bez
+      // ikakva sadrzaja.
+      const blendCilja = r.ciljevi[0]?.blend ?? [];
+
       jednako(
-        (await tx.blendIzvor.count({ where: { ciljTankId: cilj.id, izvorTankId: i1.id } })),
+        blendCilja.filter((b) => b.izvorTankId === i1.id).length,
         1,
         "blend cilja pokazuje na ispraznjeni izvorni tank"
       );
       jednako(
-        (await tx.blendIzvor.count({ where: { ciljTankId: cilj.id, izvorArhivaVinaId: { not: null } } })),
+        blendCilja.filter((b) => b.izvorArhivaVinaId != null).length,
         0,
         "nijedan redak ne pokazuje na arhivu — nije je ni bilo"
       );
 
-      const naPuniIzvor = await tx.blendIzvor.count({
-        where: { ciljTankId: cilj.id, izvorTankId: i2.id },
-      });
-      jednako(naPuniIzvor, 1, "blend cilja i dalje pokazuje na izvor koji je ostao pun");
+      jednako(
+        blendCilja.filter((b) => b.izvorTankId === i2.id).length,
+        1,
+        "blend cilja i dalje pokazuje na izvor koji je ostao pun"
+      );
 
       // --- 3) IDENTITET I SASTAV CUVÉEA ---
-      const c = await stanje(tx, cilj.id);
+      const c = await stanje(tx, cilj.id, r);
       jednako(c.nazivVina, "TEST cuvée", "cilj dobio novi naziv");
       jednako(c.sorta, "Cuvée", "cilj dobio novu sortu");
       jednako(c.godiste, 2025, "cilj dobio novo godiste");
@@ -983,7 +1022,7 @@ async function main() {
       });
       const cilj = await napraviTank(tx, { kolicina: 0 });
 
-      await izvrsiPretok(tx, {
+      const r = await izvrsiPretok(tx, {
         izvori: [
           { tankId: i1.id, kolicina: 700 },
           { tankId: i2.id, kolicina: 300 },
@@ -1007,7 +1046,7 @@ async function main() {
         []
       );
 
-      const c = await stanje(tx, cilj.id);
+      const c = await stanje(tx, cilj.id, r);
       const orakulZbroj = Number(
         orakul.reduce((z, o) => z + o.postotak, 0).toFixed(2)
       );
@@ -1065,7 +1104,7 @@ async function main() {
       });
       const cilj2 = await napraviTank(tx, { kolicina: 0 });
 
-      await izvrsiPretok(tx, {
+      const r = await izvrsiPretok(tx, {
         izvori: [
           { tankId: stariji.id, kolicina: 600 },
           { tankId: mladji.id, kolicina: 400 },
@@ -1081,8 +1120,8 @@ async function main() {
         noviIdentitet: { nazivVina: "TEST cuvée 2026", sorta: "Cuvée" },
       });
 
-      const c1 = await stanje(tx, cilj.id);
-      const c2 = await stanje(tx, cilj2.id);
+      const c1 = await stanje(tx, cilj.id, r);
+      const c2 = await stanje(tx, cilj2.id, r);
 
       jednako(c1.godiste, 2026, "cilj 1 dobio godinu cina, ne 2024 ni 2019");
       jednako(c2.godiste, 2026, "cilj 2 dobio ISTU godinu cina");
@@ -1113,7 +1152,7 @@ async function main() {
       });
       const cilj = await napraviTank(tx, { kolicina: 0 });
 
-      await izvrsiPretok(tx, {
+      const r = await izvrsiPretok(tx, {
         izvori: [
           { tankId: mladji.id, kolicina: 400 },
           { tankId: stariji.id, kolicina: 600 },
@@ -1152,7 +1191,7 @@ async function main() {
       });
       const prazan = await napraviTank(tx, { kolicina: 0 });
 
-      await izvrsiPretok(tx, {
+      const r = await izvrsiPretok(tx, {
         izvori: [{ tankId: izvor.id, kolicina: 400 }],
         ciljevi: [{ tankId: prazan.id, kolicina: 400 }],
         vrsta: "OBICNI",
@@ -1176,7 +1215,7 @@ async function main() {
       });
       const prazan2 = await napraviTank(tx, { kolicina: 0 });
 
-      await izvrsiPretok(tx, {
+      const r2 = await izvrsiPretok(tx, {
         izvori: [{ tankId: izvor2.id, kolicina: 500 }],
         ciljevi: [{ tankId: prazan2.id, kolicina: 500 }],
         vrsta: "ISTA_SORTA",

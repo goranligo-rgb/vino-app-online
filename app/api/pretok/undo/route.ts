@@ -309,39 +309,23 @@ export async function POST(req: Request) {
           },
         });
 
-        // vrati sastav sorti
+        // SASTAV I BLEND SE VISE NE VRACAJU (faza E).
+        //
+        // Snimka ih i dalje nosi i ne dira se — ali vracati ih znacilo bi
+        // upisati spremljeno stanje koje se od ove faze vise nigdje ne pise ni
+        // ne cita. Sastav i porijeklo se izvode iz knjige, a knjigu
+        // ponistavanje ispravlja nize (`zabiljeziPonistenje`), pa se s njom
+        // vrati i jedno i drugo.
+        //
+        // Zaostali redci se svejedno MICU: da ostanu, opisivali bi vino koje
+        // je ponistavanjem otislo iz ovog tanka.
         await tx.tankSortaUdio.deleteMany({
           where: { tankId: snapshot.tankId },
         });
 
-        if (snapshot.sorte.length > 0) {
-          await tx.tankSortaUdio.createMany({
-            data: snapshot.sorte.map((s) => ({
-              tankId: snapshot.tankId,
-              nazivSorte: s.nazivSorte,
-              postotak: s.postotak,
-            })),
-          });
-        }
-
-        // vrati blend izvore samo za cilj tog snapshot tank-a
         await tx.blendIzvor.deleteMany({
           where: { ciljTankId: snapshot.tankId },
         });
-
-        if (snapshot.blendovi.length > 0) {
-          await tx.blendIzvor.createMany({
-            data: snapshot.blendovi.map((b) => ({
-              ciljTankId: snapshot.tankId,
-              izvorTankId: b.izvorTankId,
-              izvorArhivaVinaId: b.izvorArhivaVinaId,
-              nazivVina: b.nazivVina,
-              sorta: b.sorta,
-              kolicina: b.kolicina,
-              postotak: b.postotak,
-            })),
-          });
-        }
       }
 
       // 3) obriši vezu pretok-mjerenje

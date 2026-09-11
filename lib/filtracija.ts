@@ -752,36 +752,47 @@ export function blendKojiOstaje(
   );
 }
 
-export async function upisiSastav(tx: Tx, tankId: string, udjeli: SortaUdio[]) {
-  await tx.tankSortaUdio.deleteMany({ where: { tankId } });
-
-  if (udjeli.length > 0) {
-    await tx.tankSortaUdio.createMany({
-      data: udjeli.map((u) => ({
-        tankId,
-        nazivSorte: u.nazivSorte,
-        postotak: u.postotak,
-      })),
-    });
-  }
+/**
+ * SASTAV I PORIJEKLO SE VISE NE UPISUJU (faza E, 11.09.2026).
+ * ======================================================================
+ *
+ * `TankSortaUdio` i `BlendIzvor` bili su SPREMLJENO STANJE: pretok bi ih
+ * izracunao i ostavio, i od tog trenutka su mogli odlutati a nista ih nije
+ * vracalo natrag. Tank 2 je tako drzao blend koji tvrdi 950 L u tanku od
+ * 2.250 L, tank 28 njih 800 od 3.650 L.
+ *
+ * Isti podatak knjiga IZVODI pri svakom prikazu i ne moze biti u neskladu sam
+ * sa sobom. Od faze E svi citaci idu onamo (`sastavSvihTankova`,
+ * `podrijetloTanka`), pa vise nema razloga voditi drugu istinu.
+ *
+ * BRISANJE OSTAJE. Kad vino ode iz posude, njegov sastav i porijeklo se s nje
+ * skidaju (`isprazniTank`) — zaostali redci bi se zalijepili na sljedece vino.
+ * Prestaje samo UPISIVANJE novih.
+ *
+ * ZASTO PRAZNE FUNKCIJE, A NE MAKNUTI POZIVE: pozivatelji su pretok, filtracija
+ * i punjenje, svaki s vlastitim racunom koji tim vrijednostima hrani i ove
+ * funkcije i knjigu. Brisanjem poziva izgubio bi se i taj racun, a on i dalje
+ * treba — provjerava se protiv knjige. Ovako se gasi samo posljedica.
+ *
+ * STO OSTAJE JEDINI PISAC: rucni unos sastava (`/api/tank-sastav`,
+ * TankRoleSastavModal). Ondje covjek tvrdi ono sto knjiga ne moze znati —
+ * sortu vina zatecenog prije nego je knjiga pocela. Dugorocno mjesto za to je
+ * `Berba.nazivSorte` na `ZATECENO` zapisima, ne tank.
+ */
+export async function upisiSastav(
+  _tx: Tx,
+  _tankId: string,
+  _udjeli: SortaUdio[]
+) {
+  // Namjerno prazno — vidi biljesku iznad.
 }
 
-export async function upisiBlend(tx: Tx, ciljTankId: string, blend: BlendStavka[]) {
-  await tx.blendIzvor.deleteMany({ where: { ciljTankId } });
-
-  if (blend.length > 0) {
-    await tx.blendIzvor.createMany({
-      data: blend.map((b) => ({
-        ciljTankId,
-        izvorTankId: b.izvorTankId,
-        izvorArhivaVinaId: b.izvorArhivaVinaId,
-        nazivVina: b.nazivVina,
-        sorta: b.sorta,
-        kolicina: uLitre(b.kolicinaMl),
-        postotak: b.postotak,
-      })),
-    });
-  }
+export async function upisiBlend(
+  _tx: Tx,
+  _ciljTankId: string,
+  _blend: BlendStavka[]
+) {
+  // Namjerno prazno — vidi biljesku iznad.
 }
 
 // ---------------------------------------------------------------------------
