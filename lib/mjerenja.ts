@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { izvorJeSumnjiv } from "@/lib/berba-lanac";
 import { uValovima } from "@/lib/paralelno";
+import { granicaVina } from "@/lib/granica-vina";
 
 /**
  * Osam mjerenih polja — jedini popis u aplikaciji.
@@ -195,7 +196,12 @@ export function nizPolja(
 }
 
 /** Prihvaca i `prisma` i `tx` iz `$transaction`. */
-type Citac = Pick<Prisma.TransactionClient, "mjerenje" | "arhivaVina">;
+// `berbaKretanje` i `punjenjeTanka` su dodani uz `mjerenje` i `arhivaVina`:
+// granica vise ne dolazi iz arhive nego iz knjige (`granicaVina`).
+type Citac = Pick<
+  Prisma.TransactionClient,
+  "mjerenje" | "arhivaVina" | "berbaKretanje" | "punjenjeTanka"
+>;
 
 /**
  * Cita mjerenja tanka i slaze vrijednosti po polju.
@@ -229,13 +235,12 @@ export async function vrijednostiTankaPoPolju(
 ): Promise<MjerenjePoPolju> {
   const limit = opts?.limit ?? 100;
 
-  const zadnjaArhiva = await db.arhivaVina.findFirst({
-    where: { tankId },
-    orderBy: { arhiviranoAt: "desc" },
-    select: { arhiviranoAt: true },
-  });
-
-  const granicaArhive = zadnjaArhiva?.arhiviranoAt ?? null;
+  // GRANICA IZ KNJIGE (faza D), ne vise iz arhive: crta je trenutak kad je u
+  // tank uslo vino koje je u njemu sada. Arhiva je bila zamjena za to pitanje
+  // i imala je dvije rupe — filtracija prazni tank bez arhiviranja, a tank
+  // koji je nakon praznjenja odmah napunjen zadrzavao je mjerenja prethodnog
+  // vina do sljedeceg arhiviranja. Vidi lib/granica-vina.ts.
+  const granicaArhive = (await granicaVina(db, tankId)).odAt;
 
   const uvjetVremena: Prisma.DateTimeFilter = {};
   if (granicaArhive) uvjetVremena.gte = granicaArhive;

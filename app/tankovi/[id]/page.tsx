@@ -18,6 +18,7 @@ import { smijeUPodrumu } from "@/lib/auth-role";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
 import { popisKvasacaSDopunom } from "@/lib/kvasci";
 import { kvasciPoPartiji } from "@/lib/kvasac-partija";
+import { granicaVina, odGraniceVina } from "@/lib/granica-vina";
 import {
   podrijetloTanka,
   sastavIzPodrijetla,
@@ -401,12 +402,19 @@ function sloziZadnjeMjerenjePoPoljima(
  * arhiviranja. Bez njega prazna kartica izgleda kao da povijesti nema, a
  * zapravo pripada prethodnom vinu i vidi se u arhivi.
  */
-function OdZadnjeArhive({ granica }: { granica: Date | null }) {
+/**
+ * Crta ispod koje pocinje povijest vina koje je u tanku SADA.
+ *
+ * Do faze D je pisalo „od zadnjeg arhiviranja" — jer je crta i dolazila iz
+ * arhive. Sada dolazi iz knjige (zadnji put kad je tank bio prazan), pa i
+ * natpis govori o vinu, ne o zapisu o vinu.
+ */
+function OdPocetkaVina({ granica }: { granica: Date | null }) {
   if (!granica) return null;
   return (
     <div style={odArhiveStyle}>
-      Prikazano od zadnjeg arhiviranja ({formatDatumBezVremena(granica)})
-      nadalje — starije pripada prethodnom vinu i vidi se u arhivi.
+      Prikazano otkad je ovo vino u tanku ({formatDatumBezVremena(granica)})
+      nadalje — starije pripada prethodnom vinu.
     </div>
   );
 }
@@ -972,30 +980,43 @@ export default async function TankPregledPage({
       orderBy: { pocetakAt: "desc" },
       select: { id: true, pocetakAt: true, kvasacNaziv: true },
     }),
+
+    // GRANICA VINA iz knjige — zamjenjuje granicu arhive (faza D).
+    // Dva upita u nizu, pa u valu drzi jednu vezu kao i svaki drugi clan.
+    granicaVina(prisma, id),
   ]);
 
-  const [zadnjeOcitanje, aktivniAlarmi, mjerenja, arhive, otvorenaFermentacija] =
-    prviVal;
+  const [
+    zadnjeOcitanje,
+    aktivniAlarmi,
+    mjerenja,
+    arhive,
+    otvorenaFermentacija,
+    granica,
+  ] = prviVal;
 
-  // GRANICA ARHIVE — jedna crta za cijelu stranicu.
+  // GRANICA VINA — jedna crta za cijelu stranicu.
   //
-  // Arhiviranje znaci da je u tanku bilo DRUGO vino. Mjerenja, zadatke,
-  // punjenja i izlaze arhiviranje i brise, pa oni ionako ne mogu biti stariji.
-  // ALI Radnja se ne arhivira ni ne brise, a Pretok i ZadatakTankStavka zive
-  // na drugim tankovima — pa bi bez ove granice monitor novog vina pokazivao
-  // radnje i pretoke prethodnoga. Izmjereno 23.08.2026: 71 takva radnja na 12
-  // tankova.
+  // FAZA D. Prije je crta bila trenutak zadnjeg ARHIVIRANJA. To je radilo samo
+  // zato sto se pri svakom pretoku koji isprazni tank stvarala arhiva — dakle
+  // zato sto je posuda dobivala zapis o tudem vinu. Dvije rupe su bile odmah
+  // vidljive: filtracija prazni tank BEZ arhiviranja (cetiri tanka bez crte),
+  // a tank 32 je nakon filtracije 18.08. i pretoka 19.08. i dalje pokazivao
+  // mjerenja vina koje je otislo.
   //
-  // Filtar se stavlja i na ono sto se danas ionako brise (punjenja, izlazi,
-  // mjerenja), da prikaz ostane tocan i ako se to ponasanje promijeni.
-  const granicaArhive = arhive[0]?.arhiviranoAt ?? null;
-  const odGranice = granicaArhive ? { gte: granicaArhive } : undefined;
+  // Sada crta dolazi IZ KNJIGE: zadnji trenutak u kojem je tank bio prazan.
+  // Sve poslije toga pripada vinu koje je u njemu danas. Vidi lib/granica-vina.ts.
+  //
+  // Filtar se i dalje stavlja i na ono sto arhiviranje danas brise (punjenja,
+  // izlazi, mjerenja) — da prikaz ostane tocan kad se to prestane brisati.
+  const granicaVinaAt = granica.odAt;
+  const odGranice = odGraniceVina(granica);
 
   // Izlazi dolaze ugnijezdjeni iz glavnog upita, prije nego je granica poznata,
   // pa se filtriraju ovdje. Danas je to prazan hod jer arhiviranje brise
   // IzlazVina — ali ostaje tocno ako se to promijeni.
   const izlaziZaPrikaz = (tank.izlaziVina ?? []).filter(
-    (x) => !granicaArhive || x.datum >= granicaArhive
+    (x) => !granicaVinaAt || x.datum >= granicaVinaAt
   );
 
   // Ne cekaj — samo pokreni. Ceka se nize, kad rezultat stvarno zatreba.
@@ -1308,7 +1329,7 @@ export default async function TankPregledPage({
 
   const mjerenjaZaParametre = mjerenjaTrenutnogVina(
     mjerenja,
-    granicaArhive,
+    granicaVinaAt,
     pocetnaMjerenjaNovogVina
   ) as unknown as RedakMjerenja[];
 
@@ -1472,8 +1493,8 @@ export default async function TankPregledPage({
   // Popis mjerenja poštuje istu granicu kao mreža parametara. Ne koristi
   // mjerenjaZaParametre jer je ono suženo na tip RedakMjerenja, bez napomene.
   const svaMjerenja = (
-    granicaArhive
-      ? mjerenja.filter((m) => m.izmjerenoAt >= granicaArhive)
+    granicaVinaAt
+      ? mjerenja.filter((m) => m.izmjerenoAt >= granicaVinaAt)
       : mjerenja
   ).slice(0, 100);
 
@@ -2129,10 +2150,10 @@ export default async function TankPregledPage({
               : "nema bentotesta"}
           </div>
           {zadnje?.napomena ? <div>Napomena: {zadnje.napomena}</div> : null}
-          {granicaArhive ? (
+          {granicaVinaAt ? (
             <div>
-              Prikazana su mjerenja od zadnjeg arhiviranja (
-              {formatDatumBezVremena(granicaArhive)}) nadalje — starija pripadaju
+              Prikazana su mjerenja otkad je ovo vino u tanku (
+              {formatDatumBezVremena(granicaVinaAt)}) nadalje — starija pripadaju
               prethodnom vinu.
             </div>
           ) : null}
@@ -2808,7 +2829,7 @@ export default async function TankPregledPage({
         broj={dogadaji.length}
         pod="sve što se s ovim vinom radilo"
       >
-        <OdZadnjeArhive granica={granicaArhive} />
+        <OdPocetkaVina granica={granicaVinaAt} />
         <div style={{ padding: 10 }}>
           <Kronologija dogadaji={dogadaji} />
         </div>
@@ -3145,7 +3166,7 @@ export default async function TankPregledPage({
         pod="napomena i bentotest po zapisu"
         sklopljena
       >
-        <OdZadnjeArhive granica={granicaArhive} />
+        <OdPocetkaVina granica={granicaVinaAt} />
         {svaMjerenja.length === 0 ? (
           <div style={mutedTextStyle}>Nema mjerenja.</div>
         ) : (

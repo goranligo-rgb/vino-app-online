@@ -57,6 +57,10 @@ import {
   vinoUTrenucima,
 } from "../lib/berba-model";
 import { satKretanja } from "../lib/sat-knjige";
+import {
+  izracunajGranicuVina,
+  granicaSvihTankova,
+} from "../lib/granica-vina";
 
 let proslo = 0;
 let palo = 0;
@@ -359,6 +363,167 @@ async function main() {
   tvrdi(
     vinoPrijePocetka === 0,
     "prije prvog retka knjige nijedan tank nema vino"
+  );
+
+  // ------------------------------------ faza D: granica vina umjesto arhive
+  //
+  // Cisti racun, bez baze. Sve vrijeme je UTC i granica se spusta na pocetak
+  // dana, pa se ocekivanja pisu kao ponoc tog dana.
+  const R = (
+    smjer: "u" | "iz",
+    litre: number,
+    iso: string,
+    punjenjeId?: string
+  ) => ({
+    uTankId: smjer === "u" ? "T" : null,
+    izTankId: smjer === "iz" ? "T" : null,
+    litre,
+    dogodenoAt: new Date(iso),
+    createdAt: new Date(iso),
+    punjenjeId: punjenjeId ?? null,
+  });
+
+  const dan = (iso: string) => new Date(iso).getTime();
+
+  {
+    const g = izracunajGranicuVina("T", []);
+    tvrdi(g.odAt === null && g.razlog === "NEMA_KNJIGE", "bez knjige: nema granice");
+  }
+  {
+    const g = izracunajGranicuVina("T", [
+      R("u", 1000, "2026-06-01T10:00:00Z"),
+      R("u", 500, "2026-07-01T10:00:00Z"),
+    ]);
+    tvrdi(
+      g.odAt?.getTime() === dan("2026-06-01T00:00:00Z"),
+      "tank koji nikad nije bio prazan: granica je prvi ulaz",
+      String(g.odAt)
+    );
+  }
+  {
+    const g = izracunajGranicuVina("T", [
+      R("u", 1000, "2026-06-01T10:00:00Z"),
+      R("iz", 1000, "2026-07-01T10:00:00Z"),
+      R("u", 800, "2026-08-15T09:00:00Z"),
+    ]);
+    tvrdi(
+      g.odAt?.getTime() === dan("2026-08-15T00:00:00Z"),
+      "praznjenje pa punjenje: granica je NOVO punjenje, ne prvo",
+      String(g.odAt)
+    );
+  }
+  {
+    const g = izracunajGranicuVina("T", [
+      R("u", 1000, "2026-06-01T10:00:00Z"),
+      R("iz", 1000, "2026-07-01T10:00:00Z"),
+    ]);
+    tvrdi(
+      g.odAt === null && g.razlog === "PRAZAN",
+      "prazan tank nema granicu, i to se kaze razlogom"
+    );
+  }
+  {
+    // Ostatak od 300 ml nije vino — inace bi zaokruzivanje pretoka drzalo
+    // granicu vjecno na prvom punjenju.
+    const g = izracunajGranicuVina("T", [
+      R("u", 1000, "2026-06-01T10:00:00Z"),
+      R("iz", 999.7, "2026-07-01T10:00:00Z"),
+      R("u", 800, "2026-08-15T09:00:00Z"),
+    ]);
+    tvrdi(
+      g.odAt?.getTime() === dan("2026-08-15T00:00:00Z"),
+      "ostatak ispod litre broji se kao prazno",
+      String(g.odAt)
+    );
+  }
+  {
+    // Tank 30 i 31: punjenje datirano 01.06., upisano 16.06. Mjerenje od
+    // 03.06. je ISTO vino, pa granica mora pasti na 01.06.
+    const g = izracunajGranicuVina(
+      "T",
+      [R("u", 3300, "2026-06-16T10:38:00Z", "p1")],
+      new Map([["p1", new Date("2026-06-01T12:24:00Z")]])
+    );
+    tvrdi(
+      g.odAt?.getTime() === dan("2026-06-01T00:00:00Z"),
+      "unatrag datirano punjenje povlaci granicu na datum iz forme",
+      String(g.odAt)
+    );
+  }
+  {
+    // Tank 40: mjerenje u ponoc, vino uslo u 08:47 istog dana.
+    const g = izracunajGranicuVina("T", [R("u", 850, "2026-09-05T08:47:00Z")]);
+    tvrdi(
+      g.odAt?.getTime() === dan("2026-09-05T00:00:00Z"),
+      "granica se spusta na pocetak dana, pa mjerenje u ponoc ostaje",
+      String(g.odAt)
+    );
+  }
+
+  // Nad pravom bazom: nova granica smije biti KASNIJA od arhivske samo ako
+  // knjiga za taj tank dokazuje praznjenje izmedju te dvije crte. Bez tog
+  // uvjeta bi svako pomicanje crte unaprijed tiho sakrilo tudu povijest.
+  const svegranice = await granicaSvihTankova(prisma);
+  let bezDokaza = 0;
+  let prviBezDokaza = "";
+
+  for (const t of tankovi) {
+    const nova = svegranice.get(t.id)?.odAt ?? null;
+    if (!nova) continue;
+
+    const arh = await prisma.arhivaVina.findFirst({
+      where: { tankId: t.id },
+      orderBy: { arhiviranoAt: "desc" },
+      select: { arhiviranoAt: true },
+    });
+    const stara = arh?.arhiviranoAt ?? null;
+    if (!stara || nova <= stara) continue;
+
+    // Crta se pomaknula unaprijed — mora postojati trenutak izmedju `stara` i
+    // `nova` u kojem je tank bio prazan.
+    const kretanja = await prisma.berbaKretanje.findMany({
+      where: { OR: [{ uTankId: t.id }, { izTankId: t.id }] },
+      select: {
+        uTankId: true,
+        izTankId: true,
+        litre: true,
+        dogodenoAt: true,
+        createdAt: true,
+      },
+    });
+
+    // DOPUSTENJE ZA ISTU TRANSAKCIJU. `ArhivaVina.arhiviranoAt` nastaje u istoj
+    // transakciji kao i retci knjige koji su tank ispraznili, i UVIJEK je
+    // milisekundu-dvije iza njih (arhiviranje se zove nakon knjizenja). Bez
+    // ovog dopustenja donja granica prozora izreze bas onaj redak koji je
+    // dokaz — tank 6: knjiga prazni u 06:31:44,2, arhiva stoji na 06:31:44,6.
+    const TOLERANCIJA_MS = 5 * 60_000;
+
+    const dokaz = kretanja.some((k) => {
+      const ms = satKretanja(k);
+      if (
+        ms < stara.getTime() - TOLERANCIJA_MS ||
+        ms > nova.getTime() + 86_400_000
+      )
+        return false;
+      const doTad = izracunajGranicuVina(
+        t.id,
+        kretanja.filter((x) => satKretanja(x) <= ms)
+      );
+      return doTad.razlog === "PRAZAN";
+    });
+
+    if (!dokaz) {
+      bezDokaza++;
+      if (!prviBezDokaza)
+        prviBezDokaza = `tank ${t.broj}: crta s ${stara.toISOString()} na ${nova.toISOString()} bez praznjenja u knjizi`;
+    }
+  }
+
+  tvrdi(
+    bezDokaza === 0,
+    "crta se pomice unaprijed samo ondje gdje knjiga dokazuje praznjenje",
+    prviBezDokaza
   );
 
   // ------------------------------------------------------------- mjere
