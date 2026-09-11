@@ -38,6 +38,7 @@
     "blend:popravi": "tsx scripts/popravi-blend-izlazima.ts",
     "ime:provjeri": "tsx scripts/provjeri-fazu-4.ts",
     "test:ime:vina": "tsx scripts/test-ime-vina.ts",
+    "test:imenovanje:baza": "tsx scripts/test-imenovanje-baza.ts",
     "ime:backfill": "tsx scripts/backfill-ime-vina.ts"
   },
   "prisma": {

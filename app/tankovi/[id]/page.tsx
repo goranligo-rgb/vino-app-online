@@ -15,7 +15,8 @@ import TankRoleSastavModal from "./tank-role-sastav-modal";
 import TankRoleDokumentiUpload from "./tank-role-dokumenti-upload";
 import HladjenjeGraf from "./hladjenje-graf";
 import FermentacijaGumb from "./fermentacija-gumb";
-import { smijeUPodrumu } from "@/lib/auth-role";
+import { jeL12, smijeUPodrumu } from "@/lib/auth-role";
+import ImenujVino from "./imenuj-vino";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
 import { popisKvasacaSDopunom } from "@/lib/kvasci";
 import { kvasciPoPartiji } from "@/lib/kvasac-partija";
@@ -2284,6 +2285,24 @@ export default async function TankPregledPage({
             <div style={sortaNeskladStyle}>
               Vino je u tanku, ali ga nitko nije imenovao.
             </div>
+          ) : null}
+
+          {/* IMENOVANJE (faza 5). Samo L1/L2 i samo uz vino u tanku — prazan
+              tank ovaj blok ionako ne crta. Sastav ide iz knjige, isti popis
+              kao u kartici Sastav, da se ne imenuje naslijepo. */}
+          {jeL12(prijavljeni.role) ? (
+            <ImenujVino
+              tankId={tank.id}
+              brojTanka={tank.broj}
+              naziv={ime.naziv}
+              deklariranaSorta={ime.deklariranaSorta}
+              sastav={sastavKnjige.map((s) => ({
+                nazivSorte: s.nazivSorte,
+                litre: s.litre,
+                postotak: s.postotak,
+                nepoznata: s.nepoznata,
+              }))}
+            />
           ) : null}
         </div>
       )}

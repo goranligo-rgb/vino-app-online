@@ -1,5 +1,15 @@
 import type { Prisma } from "@prisma/client";
 import { granicaSvihTankova, type GranicaVina } from "@/lib/granica-vina";
+import { ocisti } from "@/lib/ime-vina-cisto";
+
+// Usporedba s knjigom i `ocisti` stoje u modulu bez ovisnosti, jer ih treba i
+// obrazac u pregledniku. Ovdje se prosljeduju da postojeci uvozi ostanu isti.
+export {
+  ocisti,
+  PRAG_JEDNOSORTNO,
+  usporediSaSastavom,
+  type UsporedbaSorte,
+} from "@/lib/ime-vina-cisto";
 
 /**
  * IME VINA — izvedeno iz cinova imenovanja, ne iz posude.
@@ -264,57 +274,6 @@ export function imeZaPrikaz(ime: ImeVina | null | undefined): {
 }
 
 /**
- * DEKLARIRANA SORTA NAPRAMA STVARNOM SASTAVU — dvije tvrdnje o istom vinu.
- *
- * Deklarirana sorta je ono sto bi pisalo na etiketi i upisuje ju covjek ili
- * cin koji je vino premjestio. Stvarni sastav se IZVODI iz knjige pri svakom
- * prikazu. Smiju se razlikovati — cuvée se zove „Cuvée bijeli" i to nije
- * greska — pa ekran mora pokazati OBOJE, a ne birati jedno.
- *
- * RAZILAZENJE SE TVRDI SAMO KAD JE NEDVOSMISLENO: kad je vino po knjizi
- * praktički jednosortno (jedna sorta drzi bar `PRAG_JEDNOSORTNO` posto), a
- * deklarirana sorta imenuje nesto drugo. Za pravi blend se nista ne tvrdi —
- * „Cuvée" naprama cetiri sorte nije nesklad nego opis.
- *
- * Usporedjuje se bez obzira na velicina slova, ali se NE normaliziraju
- * tipfeleri ni obrnut red rijeci („Rajnski riesling" naprama „Rajnski
- * rizling", „Zeleni veltlinac" naprama „Veltlinac zeleni"). To je odluka
- * vlasnika: takvi se popravljaju rukom, a dotle je posteno da se vide.
- */
-export const PRAG_JEDNOSORTNO = 95;
-
-export type UsporedbaSorte = {
-  deklarirana: string | null;
-  /** Sorta koja u knjizi drzi najveci udio, ako je vino jednosortno. */
-  glavna: string | null;
-  glavniPostotak: number | null;
-  /** `true` samo kad je nesklad nedvojben — vidi biljesku iznad. */
-  razilazi: boolean;
-};
-
-export function usporediSaSastavom(
-  deklarirana: string | null | undefined,
-  sastav: ReadonlyArray<{ nazivSorte: string; postotak: number; nepoznata?: boolean }>
-): UsporedbaSorte {
-  const d = ocisti(deklarirana);
-  const poznate = sastav.filter((s) => !s.nepoznata);
-  const najveca = [...poznate].sort((a, b) => b.postotak - a.postotak)[0];
-
-  if (!najveca || najveca.postotak < PRAG_JEDNOSORTNO) {
-    return { deklarirana: d, glavna: null, glavniPostotak: null, razilazi: false };
-  }
-
-  return {
-    deklarirana: d,
-    glavna: najveca.nazivSorte,
-    glavniPostotak: najveca.postotak,
-    razilazi:
-      d != null &&
-      d.toLowerCase() !== najveca.nazivSorte.toLowerCase(),
-  };
-}
-
-/**
  * Cijela povijest imenovanja jedne posude — i ono sto je ispalo iz prozora.
  *
  * Namjerno NE reze granicom: ovo je odgovor na pitanje „kako se kroz godine
@@ -340,12 +299,6 @@ export function vrijediUpisati(
   sorta: string | null | undefined
 ): boolean {
   return Boolean(ocisti(naziv) || ocisti(sorta));
-}
-
-/** Prazan string iz obrasca je isto sto i „nije upisano". */
-export function ocisti(v: string | null | undefined): string | null {
-  const s = (v ?? "").trim();
-  return s === "" ? null : s;
 }
 
 /**
