@@ -62,6 +62,11 @@ export async function GET() {
         ph: true,
         maceracija: true,
         maceracijaSati: true,
+        // BRANJE — cije je grozdje i koliko je trebalo. Sve neobavezno.
+        vlastitaBerba: true,
+        pocetakBranja: true,
+        krajBranja: true,
+        brojBeraca: true,
         napomena: true,
         prviTankId: true,
         izvornaPunjenjeStavkaId: true,

@@ -59,6 +59,13 @@ type Berba = {
   maceracija: boolean | null;
   maceracijaSati: number | null;
 
+  /** NULL = ne zna se cije je grozdje. `false` = kooperantsko. */
+  vlastitaBerba: boolean | null;
+  /** Cisto vrijeme branja, bez prijevoza i pauza. */
+  pocetakBranja: string | null;
+  krajBranja: string | null;
+  brojBeraca: number | null;
+
   napomena: string | null;
   ispravljenoAt: string | null;
   razlogIspravka: string | null;
@@ -171,6 +178,83 @@ function izracunajProsjek(
     vrijednost: zbroj / sVrijednoscu.length,
     n: sVrijednoscu.length,
     od: zapisi.length,
+  };
+}
+
+/**
+ * KG PO BERACU PO SATU — brzina branja, ne prinos.
+ *
+ * `kilogrami / (trajanje_sati * broj_beraca)`. Trajanje je cisto vrijeme
+ * branja; prijevoz i pauze se ne racunaju jer se ni ne mjere.
+ *
+ * NE ZBRAJA PO RETKU. Jedna berba zna uci u vise punjenja, a svako punjenje
+ * stvara SVOJ zapis s ISTIM kilogramima i istim vremenom — Sauvignon s parcele
+ * 13 od 27.08.2026. stoji u tri retka, svaki sa 8.400 kg. Zbrajanje po retku
+ * utrostrucilo bi i kilograme i sate. Grupa je (datum, sorta, parcela), isto
+ * pravilo koje vec vrijedi za same kilograme.
+ *
+ * SAMO VLASTITA BERBA. Kooperantsko grozdje nemaju brali nasi ljudi, pa u
+ * prosjek ne ulazi. `vlastitaBerba === null` (svih 52 zatecena zapisa) takodjer
+ * ne ulazi — ne zna se cije je.
+ */
+type BrzinaBranja = {
+  /** Prosjek ponderiran kilogramima, ne prosjek prosjeka. */
+  kgPoBeracuSat: number | null;
+  /** Koliko je berbi (grupa) uslo u racun i koliko ih je ukupno bilo. */
+  izmjereno: number;
+  ukupno: number;
+  kg: number;
+  radniSati: number;
+};
+
+function kljucGrupe(z: Berba): string {
+  return [
+    (z.datumBerbe ?? "").slice(0, 10),
+    z.nazivSorte.trim().toLocaleLowerCase("hr"),
+    (z.parcela ?? "").trim().toLocaleLowerCase("hr"),
+  ].join("|");
+}
+
+function satiBranja(z: Berba): number | null {
+  if (!z.pocetakBranja || !z.krajBranja) return null;
+  const od = new Date(z.pocetakBranja).getTime();
+  const doo = new Date(z.krajBranja).getTime();
+  if (!Number.isFinite(od) || !Number.isFinite(doo) || doo <= od) return null;
+  return (doo - od) / 3_600_000;
+}
+
+function izracunajBrzinu(zapisi: Berba[]): BrzinaBranja {
+  // Vlastite berbe, skupljene po grupi — svaka grupa ulazi JEDNOM.
+  const grupe = new Map<string, Berba>();
+  for (const z of zapisi) {
+    if (z.vlastitaBerba !== true) continue;
+    const k = kljucGrupe(z);
+    if (!grupe.has(k)) grupe.set(k, z);
+  }
+
+  let kg = 0;
+  let radniSati = 0;
+  let izmjereno = 0;
+
+  for (const z of grupe.values()) {
+    const sati = satiBranja(z);
+    const beraca = z.brojBeraca ?? 0;
+    const kgGrupe = z.kolicinaKgGrozdja ?? 0;
+    if (sati == null || beraca <= 0 || kgGrupe <= 0) continue;
+
+    kg += kgGrupe;
+    radniSati += sati * beraca;
+    izmjereno++;
+  }
+
+  return {
+    // Ponderirano kilogramima: velika berba nosi vise od male, kao i svugdje
+    // drugdje u ovoj aplikaciji.
+    kgPoBeracuSat: radniSati > 0 ? kg / radniSati : null,
+    izmjereno,
+    ukupno: grupe.size,
+    kg,
+    radniSati,
   };
 }
 
@@ -458,6 +542,7 @@ export default function BerbaPage() {
   // --- sazetak -------------------------------------------------------------
 
   const sazetak = useMemo(() => izracunajSazetak(filtrirani), [filtrirani]);
+  const brzina = useMemo(() => izracunajBrzinu(filtrirani), [filtrirani]);
 
   const najzastupljenijaSorta = useMemo(() => {
     const poSorti = new Map<string, number>();
@@ -680,6 +765,15 @@ export default function BerbaPage() {
               vrijednost={String(sazetak.zapisa)}
             />
             <KarticaBroj naslov="Sorte" vrijednost={String(sazetak.sorte)} />
+            <KarticaBroj
+              naslov="kg po beraču po satu"
+              vrijednost={
+                brzina.kgPoBeracuSat == null
+                  ? "—"
+                  : formatBroj(brzina.kgPoBeracuSat, 1)
+              }
+              podnaslov={`izmjereno na ${brzina.izmjereno} od ${brzina.ukupno} berbi`}
+            />
             <KarticaProsjek naslov="Prosječni šećer" p={sazetak.secer} />
             <KarticaProsjek naslov="Prosječne kiseline" p={sazetak.kiseline} />
             <KarticaBroj
@@ -695,6 +789,32 @@ export default function BerbaPage() {
                   : undefined
               }
             />
+          </div>
+
+          {/* TRI OGRADE UZ BROJ. Bez njih "kg po beracu po satu" laze na tri
+              nacina: da ukljucuje sve berbe, da mjeri prinos i da vrijedi za
+              tude grozdje. */}
+          <div className="mt-3 border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-[12px] leading-relaxed text-emerald-900">
+            <strong>kg po beraču po satu</strong> mjeri brzinu branja, ne prinos
+            — kilogrami su kilogrami grožđa, a randman se razlikuje po sorti.{" "}
+            {brzina.kgPoBeracuSat == null ? (
+              <>
+                Još nema nijedne berbe s upisanim vremenom i brojem berača, pa
+                se broj ne može izračunati.
+              </>
+            ) : (
+              <>
+                Izmjereno na <strong>{brzina.izmjereno}</strong> od{" "}
+                <strong>{brzina.ukupno}</strong>{" "}
+                {brzina.ukupno === 1 ? "berbe" : "berbi"}; ostale nemaju upisano
+                vrijeme ili broj berača i <strong>ne ulaze u prosjek</strong> —
+                ne broje se kao nula. Ukupno {formatBroj(brzina.kg, 0)} kg kroz{" "}
+                {formatBroj(brzina.radniSati, 1)} radnih sati.
+              </>
+            )}{" "}
+            U prosjek ulazi <strong>samo vlastita berba</strong>: kooperantsko
+            grožđe nisu brali naši ljudi. Berba koja je ušla u više punjenja
+            broji se jednom.
           </div>
         </div>
 

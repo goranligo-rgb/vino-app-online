@@ -1994,6 +1994,36 @@ model Berba {
   /// Tank u koji je vino prvo uslo. Bez FK — vidi biljesku iznad.
   prviTankId String?
 
+  // -------------------------------------------------------------------------
+  // BRANJE: cije je grozdje i koliko je trebalo da se ubere.
+  //
+  // Sve cetiri su NEOBAVEZNE i na svih 52 zatecena zapisa ostaju NULL. Punjenje
+  // se upisuje dok grozdje stize u podrum; da je ijedno obavezno, blokiralo bi
+  // unos dok netko ne izmjeri sate.
+  //
+  // TRAJANJE SE NE SPREMA. Izvodi se iz `pocetakBranja` i `krajBranja`, kao i
+  // sve ostalo u ovoj aplikaciji: spremljena izvedenica moze odlutati od svojih
+  // sastojaka. Radni sati su `trajanje * brojBeraca`.
+  //
+  // PRAVILO "NE ZBRAJAJ" — isto koje vec vrijedi za `kolicinaKgGrozdja`.
+  // Jedna berba zna uci u vise punjenja, a svako punjenje stvara SVOJ `Berba`
+  // zapis: Sauvignon s parcele 13 od 27.08.2026. stoji u tri retka, sa 8.400 kg
+  // ponovljenih na svakom. Trajanje i berači ponasaju se isto — ako se zbroje
+  // po retku, radni sati se utrostruce. Grupa je (datumBerbe, nazivSorte,
+  // parcela); danas je 20 od 22 berbe jedinstveno po njoj, jedna ima tri retka.
+  // -------------------------------------------------------------------------
+
+  /// NULL = ne zna se (svih 52 zatecenih). `false` = kooperantsko grozdje, koje
+  /// nema nase berace pa u statistiku branja ne ulazi.
+  vlastitaBerba Boolean?
+
+  /// CISTO VRIJEME BRANJA, bez prijevoza i pauza.
+  pocetakBranja DateTime? @db.Timestamptz(6)
+  krajBranja    DateTime? @db.Timestamptz(6)
+
+  /// Koliko je ljudi bralo. Bez njega se sati ne mogu izracunati.
+  brojBeraca Int?
+
   /// Veza na stari zapis, radi backfilla i usporedbe. UNIQUE cini backfill
   /// idempotentnim; Postgres dopusta vise NULL-ova u unique indeksu.
   izvornaPunjenjeStavkaId String? @unique
