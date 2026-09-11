@@ -794,3 +794,83 @@ export async function vinoUTrenucima(
     };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Sastav za CIJELI podrum (faza E)
+// ---------------------------------------------------------------------------
+
+/**
+ * IZVEDENI SASTAV SVIH TANKOVA — dva upita za cijeli podrum.
+ *
+ * Faza E. `TankSortaUdio` prestaje biti izvor istine i postaje predmemorija;
+ * ekrani koji prikazuju sastav citaju odavde. Postoji odvojeno od
+ * `sastavIzPodrijetla` jer stranice s vise tankova (izvjestaj podruma,
+ * statistika, popis sadrzaja) inace trebaju dva upita PO TANKU — 96 upita za
+ * 48 tankova, sto lib/paralelno.ts zabranjuje.
+ *
+ * Racun je isti: mililitri po sorti, pa postotci metodom najveceg ostatka.
+ * Ponder je LITRA, nikad broj zapisa berbe.
+ *
+ * Tank kojeg nema u mapi nema vina po knjizi — to nije isto sto i prazan
+ * popis, pa pozivatelj razlikuje `undefined` (knjiga ne zna nista) od `[]`.
+ */
+export async function sastavSvihTankova(
+  db: CitacBerbe,
+  opts?: Opcije
+): Promise<Map<string, StavkaSastava[]>> {
+  const stanje = await stanjeSvihTankova(db, opts);
+  if (stanje.size === 0) return new Map();
+
+  const berbaIds = new Set<string>();
+  for (const popis of stanje.values())
+    for (const s of popis) berbaIds.add(s.berbaId);
+
+  const berbe = await db.berba.findMany({
+    where: { id: { in: [...berbaIds] } },
+    select: { id: true, nazivSorte: true },
+  });
+
+  const nazivPoId = new Map(berbe.map((b) => [b.id, b.nazivSorte]));
+  const izlaz = new Map<string, StavkaSastava[]>();
+
+  for (const [tankId, popis] of stanje) {
+    const poSorti = new Map<string, { ml: number; berbi: number }>();
+
+    for (const s of popis) {
+      if (s.ml <= 0) continue;
+      const naziv = (nazivPoId.get(s.berbaId) ?? "").trim() || SORTA_NEPOZNATA;
+      const prije = poSorti.get(naziv) ?? { ml: 0, berbi: 0 };
+      poSorti.set(naziv, { ml: prije.ml + s.ml, berbi: prije.berbi + 1 });
+    }
+
+    const redci = [...poSorti.entries()].sort(
+      (a, b) => b[1].ml - a[1].ml || a[0].localeCompare(b[0], "hr")
+    );
+
+    if (redci.length === 0) {
+      izlaz.set(tankId, []);
+      continue;
+    }
+
+    const postotci = postotciIzMl(redci.map(([, v]) => v.ml));
+    const poznati = redci.filter(([naziv]) => naziv !== SORTA_NEPOZNATA);
+    const postotciPoznatih = postotciIzMl(poznati.map(([, v]) => v.ml));
+    const poznatiPoNazivu = new Map(
+      poznati.map(([naziv], i) => [naziv, postotciPoznatih[i]])
+    );
+
+    izlaz.set(
+      tankId,
+      redci.map(([nazivSorte, v], i) => ({
+        nazivSorte,
+        litre: uLitre(v.ml),
+        postotak: postotci[i],
+        postotakOdPoznatog: poznatiPoNazivu.get(nazivSorte) ?? null,
+        nepoznata: nazivSorte === SORTA_NEPOZNATA,
+        berbi: v.berbi,
+      }))
+    );
+  }
+
+  return izlaz;
+}

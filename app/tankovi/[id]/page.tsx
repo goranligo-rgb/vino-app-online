@@ -922,15 +922,10 @@ export default async function TankPregledPage({
     (sum, u) => sum + Number(u.postotak ?? 0),
     0
   );
+  // Zbroj UPISANOG sastava. Od faze E se ne prikazuje kao mjera ispravnosti
+  // — glavni sastav dolazi iz knjige i uvijek se zbraja na 100 — nego sluzi
+  // samo usporedbi u kartici Sastav.
   const ukupnoPostotakRounded = Number(ukupnoPostotak.toFixed(2));
-  const sastavIspravan = Math.abs(ukupnoPostotakRounded - 100) < 0.01;
-
-  const oznakaSastava =
-    udjeliSorti.length === 0
-      ? "Nije upisano"
-      : udjeliSorti.length === 1
-        ? udjeliSorti[0].nazivSorte
-        : "Cuvée / blend";
 
   const tankJePrazan =
     Number(tank.kolicinaVinaUTanku ?? 0) <= 0 &&
@@ -1316,6 +1311,22 @@ export default async function TankPregledPage({
   const podrijetloKnjige = await podrijetloTanka(prisma, id);
   const sastavKnjige = sastavIzPodrijetla(podrijetloKnjige);
   const nepoznatoUKnjizi = nepoznatiDio(sastavKnjige);
+
+  // OZNAKA U ZAGLAVLJU dolazi iz knjige, ne iz upisanog sastava.
+  const poznateSorte = sastavKnjige.filter((x) => !x.nepoznata);
+  const oznakaSastava =
+    sastavKnjige.length === 0
+      ? "Nije poznat"
+      : poznateSorte.length === 1 && sastavKnjige.length === 1
+        ? poznateSorte[0].nazivSorte
+        : poznateSorte.length === 0
+          ? "Zatečeno vino"
+          : "Cuvée / blend";
+
+  // KNJIGA PROTIV TANKA. `Tank.kolicinaVinaUTanku` je od faze E predmemorija,
+  // pa se uz nju pokazuje sto knjiga kaze. Razlika je uredno nula; kad nije,
+  // to se mora vidjeti, a ne tiho progutati.
+  const razlikaKnjigaTank = podrijetloKnjige.razlikaOdTankaL;
   const razlikeSastava = razlikaSastava(udjeliSorti, sastavKnjige);
 
   // PARAMETRI IZ KNJIGE — zadnja mjerena vrijednost koja pripada OVOM vinu, u
@@ -2172,9 +2183,7 @@ export default async function TankPregledPage({
           <div style={headerBadgesWrapStyle}>
             <div style={headerBadgeStyle}>Sastav: {oznakaSastava}</div>
             <div style={headerBadgeStyle}>Tip: {tank.tip ?? "-"}</div>
-            <div style={headerBadgeStyle}>
-              Ukupno sastav: {ukupnoPostotakRounded}%
-            </div>
+ARRAY(0xa0003a308)
           </div>
 
           <div style={headerActionsStyle}>
@@ -2376,10 +2385,20 @@ export default async function TankPregledPage({
         )}
       </Card>
 
-      <Card title="Sastav" broj={udjeliSorti.length} pod="sorti" sklopljena>
+      {/* SASTAV — IZVEDEN IZ KNJIGE (faza E).
+          Do sada je glavni popis bio `TankSortaUdio`: spremljeno stanje koje
+          je netko upisao ili ga je pretok izracunao i ostavio, i koje od tada
+          moze odlutati a nista ga ne vraca natrag. Sada je glavni popis onaj
+          koji se racuna iz knjige kretanja pri svakom prikazu, ponderiran po
+          LITRAMA (tri berbe od 100 L i jedna od 3.000 L nisu 75:25 nego 9:91).
+          Upisani sastav se i dalje pise i cuva, ali se prikazuje samo kad se
+          razide od knjige — i tada kao sporedan. */}
+      <Card title="Sastav" broj={sastavKnjige.length} pod="sorti" sklopljena>
         <div style={{ display: "grid", gap: 12 }}>
           <div style={sectionToolbarStyle}>
-            <div style={mutedTextStyle}>Trenutni sastav vina u tanku</div>
+            <div style={mutedTextStyle}>
+              Sastav vina u tanku — iz knjige kretanja
+            </div>
 
             <TankRoleSastavModal
               rola={prijavljeni.role}
@@ -2392,33 +2411,40 @@ export default async function TankPregledPage({
             />
           </div>
 
-          <div style={infoStripStyle}>
-            <div>Ukupno upisano: {ukupnoPostotakRounded}%</div>
-            <div>
-              {sastavIspravan
-                ? "Sastav je ispravno zbrojen"
-                : "Upozorenje: sastav nije 100%"}
+          {sastavKnjige.length === 0 ? (
+            <div style={mutedTextStyle}>
+              Knjiga za ovaj tank ne zna nijednu berbu — vino je u njega ušlo
+              prije nego je knjiga počela, ili je tank prazan.
             </div>
-          </div>
-
-          {udjeliSorti.length === 0 ? (
-            <div style={mutedTextStyle}>Nema podataka o sastavu vina.</div>
           ) : (
             <div style={{ display: "grid", gap: 8 }}>
-              {udjeliSorti.map((u) => (
-                <div key={u.id} style={compositionRowStyle}>
+              {sastavKnjige.map((s) => (
+                <div key={s.nazivSorte} style={compositionRowStyle}>
                   <div style={compositionHeaderStyle}>
-                    <strong style={{ fontWeight: 600 }}>{u.nazivSorte}</strong>
-                    <span>{formatBroj(u.postotak)}%</span>
+                    <strong
+                      style={{
+                        fontWeight: 600,
+                        color: s.nepoznata ? "#6b7280" : undefined,
+                      }}
+                    >
+                      {s.nazivSorte}
+                    </strong>
+                    <span>
+                      <span style={{ color: "#6b7280", marginRight: 8 }}>
+                        {formatBroj(s.litre, 0)} L
+                      </span>
+                      {formatBroj(s.postotak)}%
+                    </span>
                   </div>
 
                   <div style={progressTrackStyle}>
                     <div
                       style={{
                         ...progressFillStyle,
+                        background: s.nepoznata ? "#c8c8c8" : undefined,
                         width: `${Math.max(
                           0,
-                          Math.min(100, Number(u.postotak))
+                          Math.min(100, Number(s.postotak))
                         )}%`,
                       }}
                     />
@@ -2428,85 +2454,58 @@ export default async function TankPregledPage({
             </div>
           )}
 
-          {/* IZ KNJIGE — isti sastav, izveden umjesto zapamcen.
-              Gornji popis je `TankSortaUdio`: netko ga je upisao ili ga je
-              pretok izracunao i ostavio. Ovaj se racuna iz knjige kretanja pri
-              svakom prikazu, ponderirano po LITRAMA (ne po broju berbi: tri
-              berbe od 100 L i jedna od 3.000 L nisu 75:25 nego 9:91).
-              Prikazuju se oba, jer se spremljeno stanje ne ispravlja
-              prikazom — vidi se samo gdje se razislo. */}
-          <div style={izKnjigeOkvirStyle}>
-            <div style={izKnjigeNaslovStyle}>
-              Iz knjige kretanja (izvedeno, ponderirano po litrama)
+          {/* NEPOZNATO NIJE NESLAGANJE nego rupa u znanju: vino zateceno prije
+              nego je knjiga pocela. Imenuje se posebno, a usporedba s upisanim
+              sastavom gleda samo poznati dio. */}
+          {nepoznatoUKnjizi.litre > 0 ? (
+            <div style={mutedTextStyle}>
+              Za {formatBroj(nepoznatoUKnjizi.litre, 0)} L (
+              {formatBroj(nepoznatoUKnjizi.postotak, 0)}%) knjiga ne zna sortu —
+              to je vino zatečeno u podrumu prije nego je knjiga počela.
             </div>
+          ) : null}
 
-            {sastavKnjige.length === 0 ? (
-              <div style={mutedTextStyle}>
-                Knjiga za ovaj tank ne zna nijednu berbu — vino je u njega ušlo
-                prije nego je knjiga počela ili je tank prazan.
+          {/* UPISANI SASTAV se prikazuje SAMO kad se razide od knjige. Dok se
+              slazu, dva ista popisa jedan ispod drugoga samo zauzimaju ekran. */}
+          {razlikeSastava.length > 0 ? (
+            <div style={izKnjigeOkvirStyle}>
+              <div style={izKnjigeNaslovStyle}>
+                Upisano u tank — razilazi se s knjigom
               </div>
-            ) : (
-              <>
-                <div style={{ display: "grid", gap: 4 }}>
-                  {sastavKnjige.map((s) => (
-                    <div key={s.nazivSorte} style={izKnjigeRedStyle}>
-                      <span style={s.nepoznata ? { color: "#6b7280" } : undefined}>
-                        {s.nazivSorte}
-                        {s.berbi > 1 ? ` · ${s.berbi} zapisa` : ""}
-                      </span>
-                      <span style={{ color: "#6b7280", marginLeft: "auto" }}>
-                        {formatBroj(s.litre, 0)} L
-                      </span>
-                      <strong style={{ fontVariantNumeric: "tabular-nums" }}>
-                        {formatBroj(s.postotak)}%
-                      </strong>
-                    </div>
-                  ))}
-                </div>
 
-                {/* NEPOZNATO NIJE NESLAGANJE. Litre kojima knjiga ne zna sortu
-                    su rupa u znanju, ne tvrdnja da je upisani sastav kriv —
-                    zato se imenuju posebno, a usporedba ide samo nad poznatim
-                    dijelom. */}
-                {nepoznatoUKnjizi.litre > 0 ? (
-                  <div style={mutedTextStyle}>
-                    Za {formatBroj(nepoznatoUKnjizi.litre, 0)} L (
-                    {formatBroj(nepoznatoUKnjizi.postotak, 0)}%) knjiga ne zna
-                    sortu — to je vino zatečeno u podrumu prije nego je knjiga
-                    počela. Usporedba ispod gleda samo ostatak.
+              <div style={{ display: "grid", gap: 4 }}>
+                {udjeliSorti.map((u) => (
+                  <div key={u.id} style={izKnjigeRedStyle}>
+                    <span>{u.nazivSorte}</span>
+                    <strong
+                      style={{
+                        marginLeft: "auto",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {formatBroj(u.postotak)}%
+                    </strong>
                   </div>
-                ) : null}
+                ))}
+              </div>
 
-                {razlikeSastava.length === 0 ? (
-                  <div style={mutedTextStyle}>
-                    Upisani sastav slaže se s knjigom
-                    {nepoznatoUKnjizi.litre > 0 ? " u poznatom dijelu" : ""}.
-                  </div>
-                ) : (
-                  <div style={blendUpozorenjeStyle}>
-                    Upisani sastav i knjiga se razilaze
-                    {nepoznatoUKnjizi.litre > 0 ? " (u poznatom dijelu)" : ""}:{" "}
-                    {razlikeSastava
-                      .map(
-                        (r) =>
-                          `${r.nazivSorte} ${
-                            r.spremljeno == null
-                              ? "nije upisan"
-                              : `${formatBroj(r.spremljeno)}%`
-                          } → knjiga ${
-                            r.izKnjige == null
-                              ? "ne poznaje"
-                              : `${formatBroj(r.izKnjige)}%`
-                          }`
-                      )
-                      .join("; ")}
-                    . Ništa se ne ispravlja samo od sebe — knjiga se dopisuje,
-                    upisani sastav se mijenja rukom.
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+              <div style={blendUpozorenjeStyle}>
+                {razlikeSastava
+                  .map(
+                    (r) =>
+                      `${r.nazivSorte}: upisano ${
+                        r.spremljeno == null ? "—" : `${formatBroj(r.spremljeno)}%`
+                      }, knjiga ${
+                        r.izKnjige == null ? "ne poznaje" : `${formatBroj(r.izKnjige)}%`
+                      }`
+                  )
+                  .join("; ")}
+                . Prikazuje se knjiga — ona se samo dopisuje i ne može odlutati.
+                Upisani sastav se mijenja rukom i ovdje stoji samo da se vidi
+                razlika.
+              </div>
+            </div>
+          ) : null}
         </div>
       </Card>
 
