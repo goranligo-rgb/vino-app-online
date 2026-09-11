@@ -26,17 +26,13 @@ import {
   razlikaSastava,
   vinoUTrenucima,
   type VinoUTrenutku,
+  type ZapisPodrijetla,
 } from "@/lib/berba-model";
 import { opisGubitka } from "@/lib/pretok-gubitak";
 import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
-import {
-  berbaKrozLanac,
-  usporediPoBerbi,
-  PRAZAN_LANAC,
-  type KarikaLanca,
-  type StavkaBerbe,
-  type StavkaULancu,
-} from "@/lib/berba-lanac";
+// `berbaKrozLanac` se od 11.09.2026. vise ne zove s ove stranice — berbu daje
+// knjiga (`podrijetloTanka`). Modul ostaje i dalje se koristi drugdje.
+import { usporediPoBerbi, type StavkaBerbe } from "@/lib/berba-lanac";
 import {
   sloziPoPolju,
   POLJA_MJERENJA,
@@ -562,46 +558,6 @@ function BerbaStavkaKartica({
   );
 }
 
-/**
- * "prešlo 4.800 L od 5.200 L" za jednu kariku lanca.
- *
- * Bez nazivnika ("od 5.200 L") broj ne kaze nista: 4.800 L moze biti cijeli
- * izvor ili njegova cetvrtina, a o tome ovisi koliko ovdje prikazana berba
- * uopce opisuje ovaj tank. Kad izvor nema svojih punjenja, nazivnika nema i
- * ne izmislja se.
- */
-function opisPrijelaza(k: KarikaLanca): string {
-  const preslo = `prešlo ${formatBroj(k.presloL, 0)} L`;
-  return k.odUkupnoL > 0
-    ? `${preslo} od ${formatBroj(k.odUkupnoL, 0)} L`
-    : preslo;
-}
-
-/**
- * Put od ovog tanka do izvora berbe, karika po karika — UZ SVAKU STAVKU.
- *
- * Stoji uz stavku, a ne kao zaglavlje grupe, jer su stavke poredane po datumu
- * berbe: dvije susjedne obicno dolaze iz razlicitih bacvi. Bez oznake na svakoj
- * bi popis izgledao kao da je sve iz jednog izvora, i "samo dio" bi nestalo.
- */
-function PutLanca({ put, sumnjiv }: { put: KarikaLanca[]; sumnjiv: boolean }) {
-  return (
-    <div style={lanacPutStyle}>
-      <span style={{ color: "#6b7280" }}>kroz </span>
-      {put.map((k, i) => (
-        <span key={k.blendIzvorId}>
-          {i > 0 ? <span style={{ opacity: 0.5 }}> ← </span> : null}
-          <strong>{k.naziv}</strong>
-          <span style={{ fontWeight: 400, color: "#6b7280" }}>
-            {" "}
-            ({opisPrijelaza(k)})
-          </span>
-        </span>
-      ))}
-      {sumnjiv ? <span style={sumnjivoZnakStyle}>SUMNJIVO</span> : null}
-    </div>
-  );
-}
 
 /**
  * Koliko naslijedjenih zapisa stoji otvoreno prije "prikazi sve".
@@ -674,19 +630,62 @@ function VinoUTrenutkuRedak({ vino }: { vino: VinoUTrenutku | undefined }) {
   );
 }
 
-/** Jedan naslijedjeni zapis berbe, s putem i omjerom uza se. */
-function NaslijedenaStavka({ x }: { x: StavkaULancu }) {
+/**
+ * Jedna PARTIJA iz knjige kretanja.
+ *
+ * Zamjenjuje `NaslijedenaStavka`, koja je isti podatak dohvacala kroz lanac
+ * `BlendIzvor` pokazivaca. Razlika nije kozmeticka:
+ *
+ *   - lanac je isao kroz POSUDE („kroz tank 14 <- arhiva tanka 7") i donosio
+ *     berbu tanka kroz koji je vino nekad proslo, cak i kad ta posuda danas
+ *     drzi tude vino — zato je 61 od 147 zapisa bio oznacen SUMNJIVO;
+ *   - knjiga ide po VINU: za svaku partiju zna koliko je je u ovom tanku sada,
+ *     do litre, i taj se broj racuna iz zapisa koji se samo dopisuju.
+ *
+ * Zato ovdje nema ni `sumnjiv`, ni puta, ni dubine — nema sto biti sumnjivo
+ * kad se ne pogadja nego cita.
+ *
+ * LITRE SU DVIJE I OBJE SE PISU: `uTankuL` je koliko te partije ima OVDJE
+ * (pravi broj, zbrojiv), `kolicinaLitara` koliko je cijela partija imala.
+ * Kilogrami stoje uz drugu, neskalirani — vidi pravilo u lib/berba-model.ts.
+ */
+function PartijaIzKnjige({ x }: { x: ZapisPodrijetla }) {
+  const zateceno = x.vrstaUnosa === "ZATECENO";
+
   return (
     <BerbaStavkaKartica
-      s={x.stavka}
-      rub="#9ca3af"
-      // Litre su izvorne — vidi `izvorneLitre` u BerbaStavkaKartica.
-      izvorneLitre
-      podrijetlo={<PutLanca put={x.put} sumnjiv={x.sumnjiv} />}
+      s={{
+        id: x.berbaId,
+        nazivSorte: x.nazivSorte,
+        // U naslovu stoje litre KOJE SU OVDJE — to je ono sto se zbraja i ono
+        // sto pise u sazetku iznad.
+        kolicinaLitara: x.uTankuL,
+        kolicinaKgGrozdja: x.kolicinaKgGrozdja,
+        opis: null,
+        datumBerbe: x.datumBerbe,
+        godinaBerbe: x.godinaBerbe,
+        polozaj: x.polozaj,
+        parcela: x.parcela,
+        vinograd: x.vinograd,
+        oznakaBerbe: x.oznakaBerbe,
+        secer: x.secer,
+        kiseline: x.kiseline,
+        ph: x.ph,
+        napomenaBerbe: x.napomena,
+        maceracija: x.maceracija,
+        maceracijaSati: x.maceracijaSati,
+      }}
+      rub={zateceno ? "#9ca3af" : undefined}
       podnaslov={
         <>
-          {x.punjenje.nazivVina ?? "bez naziva vina"} · punjeno{" "}
-          {formatDatumBezVremena(x.punjenje.datumPunjenja)}
+          {formatBroj(x.postotak)} % ovog tanka
+          {x.kolicinaLitara > 0 && Math.abs(x.kolicinaLitara - x.uTankuL) > 0.5
+            ? ` · od ${formatBroj(x.kolicinaLitara, 0)} L cijele partije`
+            : ""}
+          {/* ZATECENO se ne skriva. To je 30 od 52 zapisa u knjizi i istina je:
+              vino je zateceno u podrumu kad je knjiga pocela, pa mu se
+              podrijetlo ne izmislja. */}
+          {zateceno ? " · zatečeno, podrijetlo se ne zna" : ""}
         </>
       }
     />
@@ -1270,11 +1269,17 @@ export default async function TankPregledPage({
   // sirine 2); pokretanjem ovoga uz njih bio bi 8, po istoj mjeri preblizu.
   // Ovako se placa jedan krug latencije, a ne rizik od EMAXCONNSESSION.
   //
-  // Tank bez sastavnica nema odakle nasljedjivati — ni jedan upit.
-  const berbaLanca =
-    tank.blendIzvori.length > 0
-      ? await berbaKrozLanac(prisma, id, { dubina: 2, sirina: 2 })
-      : PRAZAN_LANAC;
+  // BERBA VISE NE IDE KROZ LANAC POKAZIVACA (11.09.2026).
+  //
+  // `berbaKrozLanac` je berbu trazio kroz `BlendIzvor` — dakle kroz POSUDE
+  // kroz koje je vino proslo. Na tanku 6 je to davalo 21 zapis berbe iz 2026,
+  // svih 21 oznacenih SUMNJIVO, putem „tank 14 <- arhiva tanka 7", dok knjiga
+  // za isti tank kaze sest partija zatecenog vina. Preko cijelog podruma: 147
+  // zapisa kroz lanac, od toga 61 sumnjiv.
+  //
+  // Sada karticu hrani `podrijetloKnjige` (racuna se nize, bez novog upita).
+  // `lib/berba-lanac.ts` ostaje u kodu — `izvorJeSumnjiv` i `usporediPoBerbi`
+  // jos se koriste — ali ga ova stranica vise ne zove.
 
   // FAZA B — ISTI ODGOVOR, IZVEDEN IZ KNJIGE.
   //
@@ -1461,10 +1466,11 @@ export default async function TankPregledPage({
       s.maceracija != null
   );
 
-  // Naslijedjeno kroz blend. Vlastite stavke idu GORE, naslijedjene ispod —
-  // ono sto je u ovaj tank stvarno uslo nije isto sto i ono sto je uslo u
-  // njegov izvor, pa se ne smiju izmijesati u jedan popis.
-  const naslijedenoStavki = berbaLanca.stavke.length;
+  // Partije koje su u tanku SADA, po knjizi. Vlastita punjenja stoje GORE i
+  // odgovaraju na drugo pitanje („sto je u ovaj tank usuto"), pa se ne mijesaju
+  // u isti popis.
+  const partijeKnjige = podrijetloKnjige.stavke;
+  const naslijedenoStavki = partijeKnjige.length;
 
   // Kartica se prikazuje i kad tank NEMA nijedno svoje punjenje — to je i bio
   // cijeli problem: tank napunjen pretokom nije pokazivao nikakvu berbu.
@@ -2652,7 +2658,7 @@ export default async function TankPregledPage({
           broj={stavkeBerbe.length + naslijedenoStavki}
           pod={
             naslijedenoStavki > 0
-              ? `${stavkeBerbe.length} s ovog tanka · ${naslijedenoStavki} kroz blend`
+              ? `${stavkeBerbe.length} s ovog tanka · ${naslijedenoStavki} iz knjige`
               : "stavki punjenja"
           }
           akcija={
@@ -2698,7 +2704,7 @@ export default async function TankPregledPage({
             {stavkeBerbe.length === 0 && naslijedenoStavki === 0 ? (
               <div style={mutedTextStyle}>
                 Za ovaj tank nema zapisa berbe — ni vlastitog punjenja ni
-                naslijeđenog kroz blend.
+                partije u knjizi kretanja.
               </div>
             ) : null}
 
@@ -2715,106 +2721,72 @@ export default async function TankPregledPage({
               />
             ))}
 
-            {/* --- NASLIJEDJENO KROZ BLEND ---
-                Litre i kilogrami su IZVORNI, onakvi kakvi su zapisani pri
-                punjenju izvora — ne skaliraju se na udio koji je presao. Kg
-                grozdja i secer opisuju berbenu partiju, ne sadrzaj tanka;
-                skaliranje bi izmislilo kilograme koje nitko nije izvagao.
-                Omjer stoji u zaglavlju puta ("preslo 4.800 L od 5.200 L"). */}
-            {naslijedenoStavki > 0 ? (
+            {/* --- PARTIJE IZ KNJIGE ---
+                Vlastita punjenja idu GORE (ono sto je u OVAJ tank fizicki
+                usuto), partije iz knjige ispod (ono sto je u njemu SADA, bez
+                obzira kojim putem je doslo). Litre su stvarne i zbrojive; kg
+                grozdja i secer opisuju cijelu berbenu partiju i ne zbrajaju
+                se — iz svake je ovamo doslo samo onoliko koliko pise uz nju. */}
+            {partijeKnjige.length > 0 ? (
               <>
-                <div style={naslijedenoZaglavljeStyle}>
-                  Naslijeđeno kroz blend
-                </div>
+                <div style={naslijedenoZaglavljeStyle}>Iz knjige kretanja</div>
 
-                {/* SAZETAK — namjerno BEZ zbroja kilograma. Iz svake berbe je
-                    dosao samo dio, pa bi zbrojeni kilogrami tvrdili grozdje
-                    koje u ovaj tank nikad nije uslo. Litre se smiju zbrojiti
-                    jer se za njih zna koliko ih je stvarno preslo. */}
+                {/* SAZETAK. Litre se smiju zbrojiti jer knjiga za svaku partiju
+                    zna koliko je STVARNO u ovom tanku. Kilogrami se NE zbrajaju
+                    — oni opisuju cijelu berbenu partiju, a ovamo je doslo samo
+                    dio. Isto pravilo koje knjiga vec ima zapisano uz sebe. */}
                 <div style={sazetakLancaStyle}>
                   <strong>
-                    {berbaLanca.sazetak.zapisa}{" "}
+                    {partijeKnjige.length}{" "}
                     {hrvatskiOblik(
-                      berbaLanca.sazetak.zapisa,
-                      "zapis berbe",
-                      "zapisa berbe",
-                      "zapisa berbe"
+                      partijeKnjige.length,
+                      "partija",
+                      "partije",
+                      "partija"
                     )}
                   </strong>{" "}
-                  iz {berbaLanca.sazetak.izravnihIzvora}{" "}
-                  {hrvatskiOblik(
-                    berbaLanca.sazetak.izravnihIzvora,
-                    "izvora",
-                    "izvora",
-                    "izvora"
-                  )}{" "}
-                  {/* "u ovaj tank ušlo", a NE "ukupno prešlo". Zapisi ispod
-                      nose IZVORNE litre — koliko je te berbe bilo u izvornom
-                      tanku — pa im je zbroj redovito veći od ovoga i izgledao
-                      je kao da se naslov ne slaže. Dvije različite mjere, obje
-                      točne; naslov sada kaže koja je koja. */}
-                  · u ovaj tank ušlo{" "}
-                  <strong>
-                    {formatBroj(berbaLanca.sazetak.presloUkupnoL, 0)} L
-                  </strong>
-                  {berbaLanca.sazetak.odDatuma && berbaLanca.sazetak.doDatuma ? (
+                  · u tanku{" "}
+                  <strong>{formatBroj(podrijetloKnjige.ukupnoL, 0)} L</strong>
+                  {Math.abs(podrijetloKnjige.razlikaOdTankaL) > 0.5 ? (
                     <>
-                      {" · berba "}
-                      {formatDatumBezVremena(berbaLanca.sazetak.odDatuma)}
-                      {berbaLanca.sazetak.odDatuma.getTime() !==
-                      berbaLanca.sazetak.doDatuma.getTime()
-                        ? ` – ${formatDatumBezVremena(berbaLanca.sazetak.doDatuma)}`
-                        : ""}
+                      {" "}
+                      · knjiga i tank se razilaze za{" "}
+                      {formatBroj(podrijetloKnjige.razlikaOdTankaL, 0)} L
                     </>
                   ) : null}
                 </div>
 
                 <div style={mutedTextStyle}>
-                  Berba se upisuje na tank u koji je grožđe ušlo. Ovo je berba
-                  izvora ovog vina, poredana po datumu berbe. Litre i kilogrami
-                  su onakvi kakvi su <strong>ondje</strong> zapisani — iz svakog
-                  izvora prešao je samo dio, pa se{" "}
-                  <strong>ni litre ni kilogrami ne zbrajaju</strong> u količinu
-                  ovog tanka. Koliko je stvarno ušlo piše u retku iznad; omjer
-                  po izvoru stoji uz svaki zapis, u obliku prešlo … od ….
+                  Ovo je ono što knjiga kretanja kaže da je <strong>sada</strong>{" "}
+                  u tanku — računa se iz zapisa koji se samo dopisuju, pa ne može
+                  odlutati od stvarnog stanja. Litre su stvarne, u ovom tanku.
+                  Kilogrami i šećer opisuju cijelu berbenu partiju i{" "}
+                  <strong>ne zbrajaju se</strong>: ovamo je iz svake došlo samo
+                  onoliko koliko piše uz nju.
                 </div>
 
-                {berbaLanca.stavke.slice(0, NASLIJEDENO_ODMAH).map((x) => (
-                  <NaslijedenaStavka key={x.kljuc} x={x} />
+                {partijeKnjige.slice(0, NASLIJEDENO_ODMAH).map((x) => (
+                  <PartijaIzKnjige key={x.berbaId} x={x} />
                 ))}
 
                 {/* Ostatak iza <details> — bez JS-a, radi i na posluzitelju. */}
-                {berbaLanca.stavke.length > NASLIJEDENO_ODMAH ? (
+                {partijeKnjige.length > NASLIJEDENO_ODMAH ? (
                   <details style={{ display: "grid", gap: 10 }}>
                     <summary style={prikaziSveStyle}>
-                      Prikaži još{" "}
-                      {berbaLanca.stavke.length - NASLIJEDENO_ODMAH}{" "}
+                      Prikaži još {partijeKnjige.length - NASLIJEDENO_ODMAH}{" "}
                       {hrvatskiOblik(
-                        berbaLanca.stavke.length - NASLIJEDENO_ODMAH,
-                        "zapis berbe",
-                        "zapisa berbe",
-                        "zapisa berbe"
+                        partijeKnjige.length - NASLIJEDENO_ODMAH,
+                        "partiju",
+                        "partije",
+                        "partija"
                       )}
                     </summary>
                     <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-                      {berbaLanca.stavke.slice(NASLIJEDENO_ODMAH).map((x) => (
-                        <NaslijedenaStavka key={x.kljuc} x={x} />
+                      {partijeKnjige.slice(NASLIJEDENO_ODMAH).map((x) => (
+                        <PartijaIzKnjige key={x.berbaId} x={x} />
                       ))}
                     </div>
                   </details>
-                ) : null}
-
-                {berbaLanca.staloNaDubini ? (
-                  <div style={mutedTextStyle}>
-                    Lanac se čita dvije razine duboko. Ispod zadnje prikazane
-                    razine može biti još izvora — oni se ne čitaju.
-                  </div>
-                ) : null}
-                {berbaLanca.preskocenoCiklusa > 0 ? (
-                  <div style={mutedTextStyle}>
-                    Preskočeno izvora jer su se već pojavili u lancu:{" "}
-                    {berbaLanca.preskocenoCiklusa}.
-                  </div>
                 ) : null}
               </>
             ) : null}
@@ -3630,25 +3602,9 @@ const berbaVrijednostStyle: React.CSSProperties = {
   overflowWrap: "anywhere",
 };
 
-const lanacPutStyle: React.CSSProperties = {
-  fontSize: 12,
-  lineHeight: 1.6,
-  // Bez ovoga se dugi put (dvije karike s dva omjera) na mobitelu razvlaci i
-  // gura karticu u vodoravno listanje.
-  overflowWrap: "anywhere",
-};
 
-const sumnjivoZnakStyle: React.CSSProperties = {
-  display: "inline-block",
-  marginLeft: 8,
-  padding: "1px 6px",
-  fontSize: 10,
-  fontWeight: 800,
-  letterSpacing: "0.06em",
-  color: "#7f1d1d",
-  border: "1px solid rgba(127,29,29,0.35)",
-  background: "rgba(127,29,29,0.06)",
-};
+
+
 
 const sazetakLancaStyle: React.CSSProperties = {
   fontSize: 13,
