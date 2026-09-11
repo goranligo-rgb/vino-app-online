@@ -29,7 +29,7 @@ import type { GranicaVina } from "@/lib/granica-vina";
  * prikazati je uz stvarni sastav iz knjige, ne umjesto njega.
  */
 
-/** Samo tablica koju ovaj racun cita — ne cijeli klijent (kao u granica-vina). */
+/** Samo tablica koju ovaj racun cita i pise — ne cijeli klijent. */
 type Klijent = Pick<Prisma.TransactionClient, "imeVina">;
 
 export type IzvorImena =
@@ -223,4 +223,73 @@ export function vrijediUpisati(
 export function ocisti(v: string | null | undefined): string | null {
   const s = (v ?? "").trim();
   return s === "" ? null : s;
+}
+
+/**
+ * ZABILJEZI CIN IMENOVANJA. Jedini nacin na koji se u ovu tablicu pise.
+ * ======================================================================
+ *
+ * Zove se ODMAH UZ upis identiteta na tank, unutar iste transakcije: pretok,
+ * punjenje, filtracija i rucna izmjena tanka. Dok traje faza 3, `Tank.nazivVina`
+ * se i dalje pise — ovo mu je dvojnik koji ce ga u fazi 4 zamijeniti kao izvor
+ * za citanje, a u fazi 5 i kao jedini upis.
+ *
+ * NE PISE SE KAD SE NISTA NIJE PROMIJENILO. Obican pretok koji dolije vino u
+ * tank koji se vec tako zove nije cin imenovanja i ne treba zapis; bez ovoga
+ * bi svaki od 94 pretoka ostavio redak, a povijest imenovanja bi prestala
+ * razlikovati imenovanje od premjestanja.
+ *
+ * IZUZETAK JE PRAZNA POSUDA. Tada se zapis pise UVIJEK, cak i kad je ime isto
+ * kao zadnji put: granica vina se pomakla, stariji zapisi su ispali iz prozora
+ * i bez novoga bi vino koje je upravo uslo bilo bezimeno. Isto pravilo vrijedi
+ * u backfillu (`scripts/backfill-ime-vina.ts`).
+ *
+ * Vraca je li zapis nastao.
+ */
+export async function zabiljeziImenovanje(
+  db: Klijent,
+  arg: {
+    tankId: string;
+    /** Kad se cin dogodio — datum iz obrasca, ne trenutak upisa. */
+    odAt: Date;
+    naziv: string | null | undefined;
+    deklariranaSorta: string | null | undefined;
+    izvor: IzvorImena;
+    /** Stanje tanka NEPOSREDNO PRIJE ovog cina. Sluzi samo za usporedbu. */
+    prijeNaziv?: string | null;
+    prijeSorta?: string | null;
+    /** Je li posuda bila prazna — vidi „IZUZETAK" iznad. */
+    bioPrazan?: boolean;
+    pretokId?: string | null;
+    punjenjeId?: string | null;
+    korisnikId?: string | null;
+    razlog?: string | null;
+    napomena?: string | null;
+  }
+): Promise<boolean> {
+  const naziv = ocisti(arg.naziv);
+  const sorta = ocisti(arg.deklariranaSorta);
+
+  if (!vrijediUpisati(naziv, sorta)) return false;
+
+  const isto =
+    naziv === ocisti(arg.prijeNaziv) && sorta === ocisti(arg.prijeSorta);
+  if (isto && !arg.bioPrazan) return false;
+
+  await db.imeVina.create({
+    data: {
+      tankId: arg.tankId,
+      odAt: arg.odAt,
+      naziv,
+      deklariranaSorta: sorta,
+      izvor: arg.izvor,
+      pretokId: arg.pretokId ?? null,
+      punjenjeId: arg.punjenjeId ?? null,
+      korisnikId: arg.korisnikId ?? null,
+      razlog: ocisti(arg.razlog),
+      napomena: ocisti(arg.napomena),
+    },
+  });
+
+  return true;
 }

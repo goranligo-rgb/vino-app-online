@@ -24,6 +24,7 @@ import {
   zabiljeziPrijenos,
 } from "@/lib/berba-knjiga";
 import { stanjeTanka } from "@/lib/berba-model";
+import { zabiljeziImenovanje } from "@/lib/ime-vina";
 import {
   upisiVinoRadnju,
   prenesiVinoRadnje,
@@ -1332,6 +1333,28 @@ export async function izvrsiFiltraciju(
         sorta: praznCilj ? izvor.sorta ?? null : undefined,
         godiste: praznCilj ? izvor.godiste ?? null : undefined,
       },
+    });
+
+    // CIN IMENOVANJA (faza 3). Filtracija ne stvara novo vino nego ga seli,
+    // pa ime dolazi s izvora — osim kad je cilj vec imao drugo vino i korisnik
+    // je poslao novi naziv. Isti racun kao `tx.tank.update` iznad, samo sto
+    // ovaj pamti i trenutak.
+    const imeNakonPrijenosa = praznCilj
+      ? (trazeniNaziv ?? izvor.nazivVina ?? null)
+      : (noviNazivVina ?? ciljPrije.nazivVina ?? null);
+
+    await zabiljeziImenovanje(tx, {
+      tankId: cilj.tank.id,
+      odAt: datumIzvrsenja,
+      naziv: imeNakonPrijenosa,
+      deklariranaSorta: praznCilj
+        ? (izvor.sorta ?? null)
+        : (ciljPrije.sorta ?? null),
+      izvor: "FILTRACIJA",
+      prijeNaziv: ciljPrije.nazivVina,
+      prijeSorta: ciljPrije.sorta,
+      bioPrazan: praznCilj,
+      korisnikId: args.izvrsioKorisnikId,
     });
 
     await upisiSastav(tx, cilj.tank.id, udjeliIzMape(mapa));

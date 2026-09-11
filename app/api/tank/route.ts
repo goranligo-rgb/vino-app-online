@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
 import { jeL12 } from "@/lib/auth-role";
 import { razlikaPolja, zabiljeziIzmjene } from "@/lib/dnevnik-izmjena";
+import { zabiljeziImenovanje } from "@/lib/ime-vina";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
@@ -248,6 +249,29 @@ export async function PUT(req: Request) {
               : undefined,
         },
       });
+
+      // CIN IMENOVANJA (faza 3). Jedini put kojim COVJEK imenuje vino; sve
+      // ostale zapise pisu pretok, punjenje i filtracija.
+      //
+      // Pise se samo kad je ime ili sorta stvarno poslana i stvarno drukcija —
+      // izmjena kapaciteta ili tipa tanka nije imenovanje vina.
+      //
+      // `razlog` je zasad opcijski: obrazac s poljem za njega dolazi u fazi 5,
+      // a do tada bi obavezan razlog zatvorio jedini put kojim se tipfeler
+      // („Cvee bijeli", „Rajnski riesling") uopce moze popraviti.
+      if (prije && (nazivVina !== undefined || sorta !== undefined)) {
+        await zabiljeziImenovanje(tx, {
+          tankId: poslije.id,
+          odAt: new Date(),
+          naziv: poslije.nazivVina,
+          deklariranaSorta: poslije.sorta,
+          izvor: "RUCNO",
+          prijeNaziv: prije.nazivVina,
+          prijeSorta: prije.sorta,
+          korisnikId: user.id,
+          razlog: typeof body.razlog === "string" ? body.razlog : null,
+        });
+      }
 
       // `prije` je null samo ako tanka nema — a tada bi `update` iznad vec
       // bacio P2025 i ovamo se ne bi ni doslo. Provjera je zbog tipa.

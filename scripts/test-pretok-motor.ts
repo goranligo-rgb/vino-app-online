@@ -1232,6 +1232,131 @@ async function main() {
     }
   );
 
+  await scenarij(
+    "DOKAZ 18: pretok upisuje CIN IMENOVANJA, ali samo kad ga ima (faza 3)",
+    async (tx) => {
+      const u = await napraviKorisnika(tx);
+      const cin = new Date("2026-03-15T10:00:00Z");
+
+      const imena = (tankId: string) =>
+        tx.imeVina.findMany({ where: { tankId }, orderBy: { odAt: "asc" } });
+
+      // (a) CUVEE u praznu posudu — nastalo je novo vino, zapis mora postojati
+      //     i nositi trenutak cina, ne trenutak upisa.
+      const a1 = await napraviTank(tx, {
+        kolicina: 600,
+        nazivVina: "Grasevina 2024",
+        sorta: "Grasevina",
+        sastav: [{ nazivSorte: "Grasevina", postotak: 100 }],
+      });
+      const a2 = await napraviTank(tx, {
+        kolicina: 400,
+        nazivVina: "Sauvignon 2024",
+        sorta: "Sauvignon",
+        sastav: [{ nazivSorte: "Sauvignon", postotak: 100 }],
+      });
+      const cilj = await napraviTank(tx, { kolicina: 0 });
+
+      await izvrsiPretok(tx, {
+        izvori: [
+          { tankId: a1.id, kolicina: 600 },
+          { tankId: a2.id, kolicina: 400 },
+        ],
+        ciljevi: [{ tankId: cilj.id, kolicina: 1000 }],
+        vrsta: "CUVEE",
+        nacin: "BEZ",
+        korisnikId: u.id,
+        dogodenoAt: cin,
+        noviIdentitet: { nazivVina: "Cuvee bijeli 2026", sorta: "Cuvée" },
+      });
+
+      const zapisi = await imena(cilj.id);
+      jednako(zapisi.length, 1, "CUVEE: upisan tocno jedan cin imenovanja");
+      jednako(
+        zapisi[0]?.naziv,
+        "Cuvee bijeli 2026",
+        "CUVEE: zapis nosi ime iz obrasca"
+      );
+      jednako(
+        zapisi[0]?.deklariranaSorta,
+        "Cuvée",
+        "CUVEE: zapis nosi deklariranu sortu, ne izvedeni sastav"
+      );
+      jednako(zapisi[0]?.izvor, "CUVEE", "CUVEE: izvor imena je cuvée");
+      jednako(
+        zapisi[0]?.odAt.getTime(),
+        cin.getTime(),
+        "CUVEE: zapis je datiran trenutkom cina, ne trenutkom upisa"
+      );
+
+      // (b) OBICNI pretok u ISTOIMENO vino NIJE imenovanje. Bez ovoga bi svaki
+      //     pretok ostavljao redak i povijest imenovanja bi prestala
+      //     razlikovati imenovanje od premjestanja.
+      const b1 = await napraviTank(tx, {
+        kolicina: 500,
+        nazivVina: "Grasevina 2024",
+        sorta: "Grasevina",
+        sastav: [{ nazivSorte: "Grasevina", postotak: 100 }],
+      });
+      const b2 = await napraviTank(tx, {
+        kolicina: 500,
+        nazivVina: "Grasevina 2024",
+        sorta: "Grasevina",
+        sastav: [{ nazivSorte: "Grasevina", postotak: 100 }],
+      });
+
+      await izvrsiPretok(tx, {
+        izvori: [{ tankId: b1.id, kolicina: 200 }],
+        ciljevi: [{ tankId: b2.id, kolicina: 200 }],
+        vrsta: "OBICNI",
+        nacin: "BEZ",
+        korisnikId: u.id,
+        dogodenoAt: cin,
+      });
+
+      jednako(
+        (await imena(b2.id)).length,
+        0,
+        "OBICNI u istoimeno vino: nema zapisa, jer imenovanja nije ni bilo"
+      );
+
+      // (c) OBICNI pretok u PRAZNU posudu JEST zapis, iako je ime isto: granica
+      //     vina se pomakla, pa bi bez novog zapisa vino ostalo bezimeno.
+      const c1 = await napraviTank(tx, {
+        kolicina: 500,
+        nazivVina: "Grasevina 2024",
+        sorta: "Grasevina",
+        sastav: [{ nazivSorte: "Grasevina", postotak: 100 }],
+      });
+      const c2 = await napraviTank(tx, {
+        kolicina: 0,
+        nazivVina: "Grasevina 2024",
+        sorta: "Grasevina",
+      });
+
+      await izvrsiPretok(tx, {
+        izvori: [{ tankId: c1.id, kolicina: 300 }],
+        ciljevi: [{ tankId: c2.id, kolicina: 300 }],
+        vrsta: "OBICNI",
+        nacin: "BEZ",
+        korisnikId: u.id,
+        dogodenoAt: cin,
+      });
+
+      const zapisiC = await imena(c2.id);
+      jednako(
+        zapisiC.length,
+        1,
+        "OBICNI u praznu posudu: zapis postoji i kad je ime isto"
+      );
+      jednako(
+        zapisiC[0]?.izvor,
+        "PRETOK",
+        "OBICNI: ime je posudjeno, izvor je PRETOK a ne CUVEE"
+      );
+    }
+  );
+
   // -------------------------------------------------------------------------
   console.log("");
   console.log("=== DIO 7: cista provjera ulaza, bez baze ===");

@@ -8,6 +8,7 @@ import { uMl } from "@/lib/filtracija";
 import { pocetnoMjerenjeIzStavki } from "@/lib/berba-polja";
 import { BerbaGreska, zabiljeziUlazUVise } from "@/lib/berba-knjiga";
 import { upisiVinoRadnju, prenesiVinoRadnje } from "@/lib/vino-radnja";
+import { zabiljeziImenovanje } from "@/lib/ime-vina";
 
 // Tko smije UPISATI punjenje. Isti popis koji proxy.ts pusta na stranicu
 // /punjenje — proxy stiti samo stranice, pa svaka ruta mora sama provjeriti
@@ -717,6 +718,24 @@ export async function POST(req: Request) {
               sorta: glavnaSorta,
               godiste: godinaZaTank,
             },
+          });
+
+          // CIN IMENOVANJA (faza 3). Punjenje je prvo imenovanje vina u
+          // zivotu, pa se `odAt` sidri na `datumPunjenja` — ne na trenutak
+          // upisa. Punjenja se unose unatrag (T44: uneseno 16.06., datirano
+          // istog dana u drugi sat; T20: uneseno 10.09., datirano 09.09.), a
+          // ime pripada casu u kojem je vino uslo, ne casu tipkanja.
+          await zabiljeziImenovanje(tx, {
+            tankId: tid,
+            odAt: datumPunjenja,
+            naziv: nazivVina,
+            deklariranaSorta: glavnaSorta,
+            izvor: "PUNJENJE",
+            prijeNaziv: tank.nazivVina ?? null,
+            prijeSorta: tank.sorta ?? null,
+            bioPrazan: trenutnoUTanku <= 0,
+            punjenjeId: created.id,
+            korisnikId,
           });
 
           await tx.tankContent.upsert({

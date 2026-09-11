@@ -771,6 +771,18 @@ async function main() {
         100,
         "sastav zbraja 100,00"
       );
+
+      // CIN IMENOVANJA (faza 3). Filtracija ne stvara vino nego ga seli, ali
+      // kad je u cilju bilo drugo vino i korisnik posalje novi naziv, to JEST
+      // imenovanje i mora ostaviti zapis s vlastitim trenutkom —
+      // `Tank.nazivVina` zna samo danasnje stanje.
+      const imena = await tx.imeVina.findMany({
+        where: { tankId: cilj.id },
+        orderBy: { odAt: "asc" },
+      });
+      jednako(imena.length, 1, "upisan tocno jedan cin imenovanja");
+      jednako(imena[0]?.naziv, "TEST mjesavina", "zapis nosi zadani naziv");
+      jednako(imena[0]?.izvor, "FILTRACIJA", "izvor imena je filtracija");
     }
   );
 

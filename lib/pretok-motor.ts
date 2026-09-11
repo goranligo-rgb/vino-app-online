@@ -77,6 +77,7 @@ import {
   type Nadopuna,
 } from "@/lib/berba-knjiga";
 import { prenesiVinoRadnje, snimiVinoRadnje } from "@/lib/vino-radnja";
+import { zabiljeziImenovanje } from "@/lib/ime-vina";
 import { stanjeTanka } from "@/lib/berba-model";
 
 /** Sto se radi. Mehanika je za sve tri ISTA — razlikuje se samo identitet vina. */
@@ -727,6 +728,25 @@ export async function izvrsiPretok(
         sorta: identitet.sorta,
         godiste: identitet.godiste,
       },
+    });
+
+    // CIN IMENOVANJA (faza 3). Dvojnik gornjeg upisa, samo sto ovaj pamti I
+    // TRENUTAK — `Tank.nazivVina` zna samo danasnje stanje. Cuvée je pravo
+    // imenovanje (nastalo je novo vino), obican pretok i blend iste sorte
+    // samo nose ime sa sobom; `zabiljeziImenovanje` sam odlucuje treba li
+    // zapis uopce, pa pretok koji dolije u istoimeno vino ne ostavlja nista.
+    const otisakPrije = prijeCiljevi.get(t.id)!;
+    await zabiljeziImenovanje(tx, {
+      tankId: t.id,
+      odAt: ulaz.dogodenoAt ?? new Date(),
+      naziv: identitet.nazivVina,
+      deklariranaSorta: identitet.sorta,
+      izvor: ulaz.vrsta === "CUVEE" ? "CUVEE" : "PRETOK",
+      prijeNaziv: otisakPrije.nazivVina,
+      prijeSorta: otisakPrije.sorta,
+      bioPrazan: prijeMl <= 0,
+      pretokId: ulaz.pretokId ?? null,
+      korisnikId: ulaz.korisnikId,
     });
 
     rezultatCiljevi.push({
