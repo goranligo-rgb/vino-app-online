@@ -1923,6 +1923,14 @@ export default function PunjenjePage() {
               padding: 18,
               position: isMobile ? "static" : "sticky",
               top: isMobile ? undefined : 18,
+              // NA RACUNALU traka ima vlastiti klizac. Bez granice je u sezoni
+              // visa od ekrana (21 berba je ~3.000 px, 60 bi bilo ~8.400 px),
+              // pa `sticky` ne drzi: traka putuje sa stranicom i obrazac
+              // punjenja nestane dok se lista. S granicom na visinu ekrana
+              // (18 px gore i dolje, isto kao `top`) obrazac ostaje gdje jest.
+              // Na mobitelu traka stoji ispod obrasca i ostaje kakva je bila.
+              maxHeight: isMobile ? undefined : "calc(100vh - 36px)",
+              overflowY: isMobile ? undefined : "auto",
             }}
           >
             {/* BERBE, ne punjenja. Do 11.09.2026. je ovdje stajao popis
