@@ -291,6 +291,11 @@ type Identitet = {
   godiste: number | null;
 };
 
+/**
+ * `nazivVina` je IZVEDENO ime (`ucitajTank`), ne stupac — od faze 5 se stupac
+ * ne pise, pa bi ispraznjena posuda nosila ime vina koje je otislo. `sorta` i
+ * `godiste` su i dalje stupci: `Tank.sorta` se u fazi 5 ne gasi.
+ */
 function otisakIdentiteta(t: TankSaSastavom): Identitet {
   return {
     nazivVina: t.nazivVina ?? null,
@@ -722,19 +727,18 @@ export async function izvrsiPretok(
 
     await tx.tank.update({
       where: { id: t.id },
+      // IME SE OVDJE VISE NE PISE (faza 5) — nosi ga cin imenovanja ispod.
       data: {
         kolicinaVinaUTanku: uLitre(poslijeMl),
-        nazivVina: identitet.nazivVina,
         sorta: identitet.sorta,
         godiste: identitet.godiste,
       },
     });
 
-    // CIN IMENOVANJA (faza 3). Dvojnik gornjeg upisa, samo sto ovaj pamti I
-    // TRENUTAK — `Tank.nazivVina` zna samo danasnje stanje. Cuvée je pravo
-    // imenovanje (nastalo je novo vino), obican pretok i blend iste sorte
-    // samo nose ime sa sobom; `zabiljeziImenovanje` sam odlucuje treba li
-    // zapis uopce, pa pretok koji dolije u istoimeno vino ne ostavlja nista.
+    // CIN IMENOVANJA — od faze 5 JEDINI upis imena. Cuvée je pravo imenovanje
+    // (nastalo je novo vino), obican pretok i blend iste sorte samo nose ime
+    // sa sobom; `zabiljeziImenovanje` sam odlucuje treba li zapis uopce, pa
+    // pretok koji dolije u istoimeno vino ne ostavlja nista.
     const otisakPrije = prijeCiljevi.get(t.id)!;
     await zabiljeziImenovanje(tx, {
       tankId: t.id,

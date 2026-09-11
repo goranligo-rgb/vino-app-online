@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { uLitre } from "@/lib/filtracija";
 import { zabiljeziIzlaz } from "@/lib/berba-knjiga";
 import { stanjeTanka } from "@/lib/berba-model";
+import { imeVinaSada } from "@/lib/ime-vina";
 
 export async function POST(req: Request) {
   const user = await getAuthUser();
@@ -82,12 +83,16 @@ export async function POST(req: Request) {
         orderBy: { zadanoAt: "asc" },
       });
 
+      // Ime u arhivu IZVEDENO, kakvo je vino imalo u trenutku arhiviranja —
+      // stupac se od faze 5 ne pise. Cita se PRIJE upisa izlaza u knjigu.
+      const imeArhive = await imeVinaSada(tx, tank.id, { zadnjeVino: true });
+
       const arhiva = await tx.arhivaVina.create({
         data: {
           tankId: tank.id,
           brojTanka: tank.broj,
           sorta: tank.sorta,
-          nazivVina: tank.nazivVina,
+          nazivVina: imeArhive.naziv,
           godiste: tank.godiste,
           kolicinaVina: kolicina,
           kapacitetTanka: tank.kapacitet,
@@ -234,7 +239,6 @@ export async function POST(req: Request) {
         data: {
           kolicinaVinaUTanku: 0,
           sorta: null,
-          nazivVina: null,
           godiste: null,
         },
       });

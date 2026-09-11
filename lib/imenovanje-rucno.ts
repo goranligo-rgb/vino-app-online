@@ -22,13 +22,10 @@ import { zakljucajTankove } from "@/lib/filtracija";
  * promijenilo" gleda ono sto covjek vidi na ekranu (zadnji cin u prozoru
  * danasnjeg vina), jer je to ime koje obrazac nudi na izmjenu.
  *
- * STUPCI SE ZASAD ZRCALE (odluka A, 11.09.2026.). `Tank.nazivVina` i
- * `Tank.sorta` jos citaju putovi pisanja — motor pretoka i filtracija iz njih
- * odlucuju koje ime vino nosi u sljedeci tank. Da ih obrazac ne osvjezi, prvi
- * pretok nakon preimenovanja prepisao bi STARO ime u cilj. Kad se ti putovi
- * prebace na izvedeno ime, `Tank.nazivVina` se ovdje prestaje pisati.
- * `Tank.sorta` se pise i dalje — ne gasi se u fazi 5 (vidi memoriju
- * ime-vina-faza5-otvoreno).
+ * `Tank.nazivVina` SE NE PISE (faza 5, korak 2). Motor pretoka i filtracija
+ * ime citaju izvedeno (`ucitajTank`), pa preimenovanje putuje s vinom samo od
+ * sebe. `Tank.sorta` se i dalje zrcali deklariranom sortom — ne gasi se u
+ * fazi 5 i motor je treba za blend iste sorte (memorija ime-vina-faza5-otvoreno).
  *
  * SVE U JEDNOJ TRANSAKCIJI, s tankom zakljucanim kao kod pretoka: izmedju
  * citanja imena i upisa ne smije uletjeti pretok koji mijenja vino u posudi.
@@ -91,7 +88,7 @@ export async function imenujVinoRucno(
 
   const tank = await tx.tank.findUniqueOrThrow({
     where: { id: ulaz.tankId },
-    select: { id: true, broj: true, nazivVina: true, sorta: true },
+    select: { id: true, broj: true, sorta: true },
   });
 
   const granica = await granicaVina(tx, tank.id);
@@ -125,11 +122,11 @@ export async function imenujVinoRucno(
     );
   }
 
-  // ZRCALO NA STUPCIMA — vidi „STUPCI SE ZASAD ZRCALE" gore.
+  // ZRCALO SAMO NA `Tank.sorta` — vidi biljesku gore.
   const poslijeTank = await tx.tank.update({
     where: { id: tank.id },
-    data: { nazivVina: naziv, sorta },
-    select: { nazivVina: true, sorta: true },
+    data: { sorta },
+    select: { sorta: true },
   });
 
   // Dnevnik izmjena tanka biljezi STUPCE, kao i `PUT /api/tank`; tko je vino
@@ -139,7 +136,7 @@ export async function imenujVinoRucno(
     entityId: tank.id,
     opisEntiteta: `Tank ${tank.broj}`,
     userId: ulaz.korisnikId,
-    izmjene: razlikaPolja(tank, poslijeTank, ["sorta", "nazivVina"]),
+    izmjene: razlikaPolja(tank, poslijeTank, ["sorta"]),
   });
 
   const poslije = await imeVina(tx, tank.id, granica);

@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { izvorJeSumnjiv } from "@/lib/berba-lanac";
 import { uValovima } from "@/lib/paralelno";
 import { granicaVina, odGraniceVina } from "@/lib/granica-vina";
+import { imeVinaSada } from "@/lib/ime-vina";
 
 /**
  * Osam mjerenih polja — jedini popis u aplikaciji.
@@ -433,7 +434,10 @@ export type ParametriBlenda = {
 // `tank` je dodan uz `blendIzvor` i `arhivaVinaMjerenje`: pokrivenost se mjeri
 // i prema kolicini u tanku, a ne samo prema zbroju sastavnica.
 type CitacBlenda = Citac &
-  Pick<Prisma.TransactionClient, "blendIzvor" | "arhivaVinaMjerenje" | "tank">;
+  Pick<
+    Prisma.TransactionClient,
+    "blendIzvor" | "arhivaVinaMjerenje" | "tank" | "imeVina"
+  >;
 
 /** Ista logika po polju, ali nad arhiviranim mjerenjima. */
 export async function vrijednostiArhivePoPolju(
@@ -502,7 +506,7 @@ export async function parametriBlenda(
     orderBy: { kolicina: "desc" },
     include: {
       izvorTank: {
-        select: { broj: true, nazivVina: true, sorta: true, kolicinaVinaUTanku: true },
+        select: { broj: true, sorta: true, kolicinaVinaUTanku: true },
       },
       izvorArhivaVina: { select: { brojTanka: true, arhiviranoAt: true } },
     },
@@ -562,10 +566,15 @@ export async function parametriBlenda(
         // pri obilasku lanca, a dvije kopije bi se razisle prvom izmjenom.
         // Sastavnica koja pokazuje na SAM ovaj tank nije sumnjiva — ona je
         // ciklus, i njime se bavi obilazak, ne ova provjera.
-        if (b.izvorTankId !== tankId) {
+        //
+        // Ime vina u izvoru je IZVEDENO (faza 5): `Tank.nazivVina` se vise ne
+        // pise, pa bi ispraznjen i ponovno napunjen tank i dalje nosio ime
+        // prethodnog vina — i sumnja bi se tvrdila ili previdjela nasumce.
+        if (b.izvorTankId !== tankId && b.izvorTank) {
+          const imeIzvora = await imeVinaSada(db, b.izvorTankId);
           sumnjiv = izvorJeSumnjiv(
             { nazivVina: b.nazivVina, sorta: b.sorta },
-            b.izvorTank
+            { ...b.izvorTank, nazivVina: imeIzvora.naziv }
           );
         }
       } else {

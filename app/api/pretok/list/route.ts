@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
+import { imenaPodruma } from "@/lib/ime-vina";
 
 export async function GET() {
   try {
@@ -27,7 +28,6 @@ export async function GET() {
                 id: true,
                 broj: true,
                 sorta: true,
-                nazivVina: true,
                 tip: true,
               },
             },
@@ -38,7 +38,6 @@ export async function GET() {
             id: true,
             broj: true,
             sorta: true,
-            nazivVina: true,
             tip: true,
           },
         },
@@ -50,7 +49,6 @@ export async function GET() {
                 id: true,
                 broj: true,
                 sorta: true,
-                nazivVina: true,
                 tip: true,
               },
             },
@@ -59,9 +57,22 @@ export async function GET() {
       },
     });
 
+    // IME TANKA JE IZVEDENO (faza 5) — `Tank.nazivVina` se vise ne pise. Ide
+    // pod istim imenom polja, pa ekran pretoka ne treba mijenjati.
+    const imena = await imenaPodruma(prisma);
+    const sImenom = <T extends { id: string }>(t: T) => ({
+      ...t,
+      nazivVina: imena.get(t.id)?.naziv ?? null,
+    });
+
     return NextResponse.json({
       ok: true,
-      pretoci,
+      pretoci: pretoci.map((p) => ({
+        ...p,
+        ciljTank: p.ciljTank ? sImenom(p.ciljTank) : p.ciljTank,
+        ciljevi: p.ciljevi.map((c) => ({ ...c, tank: sImenom(c.tank) })),
+        izvori: p.izvori.map((i) => ({ ...i, tank: sImenom(i.tank) })),
+      })),
     });
   } catch (error) {
     console.error("GET /api/pretok/list error:", error);

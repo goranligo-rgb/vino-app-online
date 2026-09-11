@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
 import { jeL12 } from "@/lib/auth-role";
 import { razlikaPolja, zabiljeziIzmjene } from "@/lib/dnevnik-izmjena";
-import { imeZaPrikaz, imenaPodruma, jeBezImena, zabiljeziImenovanje } from "@/lib/ime-vina";
+import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
@@ -24,7 +24,6 @@ const POLJA_DNEVNIKA_TANKA = {
   kapacitet: true,
   tip: true,
   sorta: true,
-  nazivVina: true,
 } as const;
 
 /**
@@ -49,9 +48,9 @@ const POLJA_DNEVNIKA_TANKA = {
  * `Tank.nazivVina` na svih 38. Nijedan ekran se danas ne mijenja — mijenja se
  * samo odakle podatak dolazi, i to je i bila svrha.
  *
- * STUPCI IDU UZ, POD `tankNazivVina` i `tankSorta`. Faza 4 ih jos pise (gasi
- * ih faza 5), pa tko ih treba — a to je za sada samo obrazac na /tankovi —
- * ima ih. Kad se ugase, ostaje samo izvedeno.
+ * `Tank.sorta` IDE UZ, pod `tankSorta` — to je sorta posude koju motor pretoka
+ * provjerava, i u fazi 5 se ne gasi. `Tank.nazivVina` se od faze 5 ne pise
+ * (zamrznut je na danu gasenja), pa se vise ni ne vraca.
  *
  * PRAZAN TANK NEMA IME. Ne nasljedjuje ga od vina koje je otislo: granica se
  * pomakne i stariji zapisi ispadnu iz prozora sami od sebe.
@@ -76,8 +75,7 @@ export async function GET() {
         ...t,
         nazivVina: ime?.naziv ?? null,
         sorta: ime?.deklariranaSorta ?? null,
-        /** Zatecene vrijednosti sa stupaca — vidi biljesku iznad. */
-        tankNazivVina: t.nazivVina ?? null,
+        /** Sorta posude sa stupca — vidi biljesku iznad. */
         tankSorta: t.sorta ?? null,
         /**
          * „Vino je u posudi, ali ga nitko nije imenovao" — razlicito od
@@ -185,19 +183,19 @@ export async function POST(req: Request) {
 }
 
 /**
- * PUT - izmjena tanka: broj, kapacitet, tip, sorta, nazivVina.
+ * PUT - izmjena tanka: broj, kapacitet, tip, sorta.
  *
- * `nazivVina` je DODAN 10.09.2026. Do tada je ruta pisala `sorta` a `nazivVina`
- * uopce nije dirala, pa se ta dva polja nisu mogla dovesti u sklad ni kad su se
- * razisla: tank 26 je stajao sa `sorta` "Zeleni veltlinac" i `nazivVina`
- * "Chardonnay", dok je po `TankSortaUdio` i po knjizi bio 100 % Chardonnay.
- * Monitor cita `sorta`, stranica tanka `nazivVina` — isti tank, dva imena, i
- * nijedan ekran nije mogao popraviti drugo polje.
+ * `nazivVina` SE ODBIJA (faza 5, 11.09.2026.). Ime vina nije svojstvo posude
+ * nego cin imenovanja, i daje se kroz `POST /api/tank/imenuj`, gdje je razlog
+ * obavezan. Da ga ova ruta i dalje prima, bio bi to put oko obaveznog razloga.
+ * Odbija se glasno (400), ne ignorira tiho: tko ga salje, ocekuje da se ime
+ * promijeni. Nijedan ekran ga ne salje.
  *
- * Oba polja idu ISTIM pravilom, i to je bitno:
+ * `sorta` mijenja SAMO `Tank.sorta` — sortu koju motor pretoka provjerava pri
+ * blendu iste sorte — i NE upisuje cin imenovanja. Deklarirana sorta (etiketa)
+ * je druga tvrdnja i daje se u istom obrascu imenovanja. Pravilo za `sorta`:
  *   nije poslano (`undefined`) -> `undefined`, dakle "ne diraj"
  *   poslano prazno ("", "  ")  -> `null`, dakle "obrisi"
- * Bez toga bi "obrisi ime" bilo neizvedivo, a izostavljeno polje bi brisalo.
  *
  * KOLICINU VINA NE DIRA. Ovdje su do 26.08.2026. stajala dva kvara:
  *
@@ -247,11 +245,22 @@ export async function PUT(req: Request) {
     const body = await req.json();
 
     // `kolicinaVinaUTanku` se NAMJERNO ne cita iz tijela — vidi nize.
-    const { id, broj, kapacitet, tip, sorta, nazivVina } = body;
+    const { id, broj, kapacitet, tip, sorta } = body;
 
     if (!id) {
       return NextResponse.json(
         { error: "ID je obavezan." },
+        { status: 400 }
+      );
+    }
+
+    // Ime vina se ovdje ne mijenja — vidi biljesku iznad funkcije.
+    if (body.nazivVina !== undefined) {
+      return NextResponse.json(
+        {
+          error:
+            "Ime vina se ne mijenja ovdje. Imenuj vino na stranici tanka — ondje je razlog obavezan.",
+        },
         { status: 400 }
       );
     }
@@ -290,39 +299,12 @@ export async function PUT(req: Request) {
           tip: tip !== undefined ? String(tip).trim() || null : undefined,
           sorta:
             sorta !== undefined ? String(sorta).trim() || null : undefined,
-          // Isto pravilo kao `sorta`: nije poslano -> ne diraj, poslano prazno
-          // -> obrisi. Dva polja koja opisuju isto vino moraju se moci
-          // mijenjati zajedno; dok je ovdje bila samo `sorta`, razlika se nije
-          // dala zatvoriti.
-          nazivVina:
-            nazivVina !== undefined
-              ? String(nazivVina).trim() || null
-              : undefined,
         },
       });
 
-      // CIN IMENOVANJA (faza 3). Jedini put kojim COVJEK imenuje vino; sve
-      // ostale zapise pisu pretok, punjenje i filtracija.
-      //
-      // Pise se samo kad je ime ili sorta stvarno poslana i stvarno drukcija —
-      // izmjena kapaciteta ili tipa tanka nije imenovanje vina.
-      //
-      // `razlog` je zasad opcijski: obrazac s poljem za njega dolazi u fazi 5,
-      // a do tada bi obavezan razlog zatvorio jedini put kojim se tipfeler
-      // („Cvee bijeli", „Rajnski riesling") uopce moze popraviti.
-      if (prije && (nazivVina !== undefined || sorta !== undefined)) {
-        await zabiljeziImenovanje(tx, {
-          tankId: poslije.id,
-          odAt: new Date(),
-          naziv: poslije.nazivVina,
-          deklariranaSorta: poslije.sorta,
-          izvor: "RUCNO",
-          prijeNaziv: prije.nazivVina,
-          prijeSorta: prije.sorta,
-          korisnikId: user.id,
-          razlog: typeof body.razlog === "string" ? body.razlog : null,
-        });
-      }
+      // CIN IMENOVANJA SE OVDJE VISE NE PISE (faza 5). Covjek imenuje vino
+      // kroz `POST /api/tank/imenuj`, s obaveznim razlogom; `sorta` iz ove rute
+      // je sorta posude za motor pretoka, ne deklarirana sorta.
 
       // `prije` je null samo ako tanka nema — a tada bi `update` iznad vec
       // bacio P2025 i ovamo se ne bi ni doslo. Provjera je zbog tipa.
@@ -338,7 +320,6 @@ export async function PUT(req: Request) {
             "kapacitet",
             "tip",
             "sorta",
-            "nazivVina",
           ]),
         });
       }

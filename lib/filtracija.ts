@@ -24,7 +24,7 @@ import {
   zabiljeziPrijenos,
 } from "@/lib/berba-knjiga";
 import { stanjeTanka } from "@/lib/berba-model";
-import { zabiljeziImenovanje } from "@/lib/ime-vina";
+import { imeVinaSada, zabiljeziImenovanje } from "@/lib/ime-vina";
 import {
   upisiVinoRadnju,
   prenesiVinoRadnje,
@@ -260,6 +260,7 @@ export type TankSaSastavom = {
   kapacitet: number;
   kolicinaVinaUTanku: number | null;
   sorta: string | null;
+  /** IZVEDENO ime vina (zadnji cin u prozoru), ne `Tank.nazivVina` — vidi `ucitajTank`. */
   nazivVina: string | null;
   godiste: number | null;
   udjeliSorti: Array<{ nazivSorte: string; postotak: number }>;
@@ -418,7 +419,6 @@ export async function ucitajTank(tx: Tx, tankId: string): Promise<TankSaSastavom
       kapacitet: true,
       kolicinaVinaUTanku: true,
       sorta: true,
-      nazivVina: true,
       godiste: true,
       udjeliSorti: {
         select: { nazivSorte: true, postotak: true },
@@ -440,7 +440,14 @@ export async function ucitajTank(tx: Tx, tankId: string): Promise<TankSaSastavom
     throw new FiltracijaGreska("Tank nije pronaden.");
   }
 
-  return tank as TankSaSastavom;
+  // `nazivVina` JE IZVEDENO IME, ne stupac (faza 5). Stupac se vise ne pise, pa
+  // bi na ispraznjenoj posudi ostalo ime vina koje je otislo. Ovo je jedino
+  // mjesto kroz koje motor pretoka i filtracija uopce vide ime, pa se prebacuju
+  // oba odjednom: identitet vina, "drugo vino", ime koje prazan cilj preuzima i
+  // snimka "prije" za ponistavanje.
+  const ime = await imeVinaSada(tx, tank.id);
+
+  return { ...tank, nazivVina: ime.naziv } as TankSaSastavom;
 }
 
 export function napraviOtisak(tank: TankSaSastavom): TankOtisak {
@@ -1214,8 +1221,10 @@ export async function izvrsiFiltraciju(
   // 6) Izvorni tank.
   if (izvorPaoNaNulu) {
     // F1: tank je ostao prazan pa mu se brise identitet vina.
-    // Brisu se: nazivVina, sorta, godiste, SVI TankSortaUdio zapisi tog tanka
+    // Brisu se: sorta, godiste, SVI TankSortaUdio zapisi tog tanka
     // i SVI BlendIzvor zapisi kojima je taj tank cilj.
+    // `nazivVina` se od faze 5 NE dira: ime prazne posude nestaje samo od sebe,
+    // jer knjiga pomakne granicu vina i zapis o imenu ispadne iz prozora.
     // NE dira se: broj, kapacitet, tip, opis, modbusAdresa, grana, temperaturne
     // postavke, mjerenja, dokumenti, povijest zadataka.
     //
@@ -1252,7 +1261,6 @@ export async function izvrsiFiltraciju(
       where: { id: izvor.id },
       data: {
         kolicinaVinaUTanku: 0,
-        nazivVina: null,
         sorta: null,
         godiste: null,
       },
@@ -1281,6 +1289,9 @@ export async function izvrsiFiltraciju(
 
   // 7) Ciljni tankovi.
   const rezultatCiljeva: RezultatIzvrsenja["ciljevi"] = [];
+
+  /** Ime koje je cin dao svakom cilju — treba ga otisak POSLIJE (korak 8). */
+  const imeNakonCina = new Map<string, string | null>();
 
   for (const cilj of ciljevi) {
     const ciljPrije = napraviOtisak(cilj.tank);
@@ -1340,22 +1351,21 @@ export async function izvrsiFiltraciju(
       data: {
         kolicinaVinaUTanku: uLitre(ciljPoslijeMl),
         // Prazan ciljni tank preuzima identitet vina koje u njega ulazi.
-        // Popunjen zadrzava svoj, osim ako je korisnik poslao novi naziv.
-        nazivVina: praznCilj
-          ? trazeniNaziv ?? izvor.nazivVina ?? null
-          : noviNazivVina ?? undefined,
+        // Popunjen zadrzava svoj. IME se ovdje vise ne pise (faza 5) — nosi ga
+        // cin imenovanja odmah ispod.
         sorta: praznCilj ? izvor.sorta ?? null : undefined,
         godiste: praznCilj ? izvor.godiste ?? null : undefined,
       },
     });
 
-    // CIN IMENOVANJA (faza 3). Filtracija ne stvara novo vino nego ga seli,
-    // pa ime dolazi s izvora — osim kad je cilj vec imao drugo vino i korisnik
-    // je poslao novi naziv. Isti racun kao `tx.tank.update` iznad, samo sto
-    // ovaj pamti i trenutak.
+    // CIN IMENOVANJA. Filtracija ne stvara novo vino nego ga seli, pa ime
+    // dolazi s izvora — osim kad je cilj vec imao drugo vino i korisnik je
+    // poslao novi naziv. Od faze 5 jedini upis imena; `izvor.nazivVina` i
+    // `ciljPrije.nazivVina` su izvedena imena (`ucitajTank`).
     const imeNakonPrijenosa = praznCilj
       ? (trazeniNaziv ?? izvor.nazivVina ?? null)
       : (noviNazivVina ?? ciljPrije.nazivVina ?? null);
+    imeNakonCina.set(cilj.tank.id, imeNakonPrijenosa);
 
     await zabiljeziImenovanje(tx, {
       tankId: cilj.tank.id,
@@ -1469,10 +1479,24 @@ export async function izvrsiFiltraciju(
 
   // 8) Otisak stanja POSLIJE — cita se ponovno iz baze, ne racuna se napamet,
   //    da bude tocno ono sto ce ponistavanje kasnije usporediti.
+  //
+  //    IME U OTISKU POSLIJE je ono koje je cin upravo dao, ne ono sto se sada
+  //    izvodi. Knjiga ovog prijenosa upisuje se tek u koraku 8b, pa bi izvedeno
+  //    ime napunjenog praznog cilja ovdje jos bilo prazno — a ponistavanje ga
+  //    kasnije, uz upisanu knjigu, cita s imenom. `kljucOtiska` bi se razisao i
+  //    svaka filtracija u praznu posudu bila bi proglasena "mijenjanom izvan
+  //    zadatka". Izvor koji je pao na nulu nema ime; ostatak zadrzava svoje.
   const poslije: TankOtisak[] = [];
 
   for (const tankId of [izvor.id, ...ciljevi.map((c) => c.tank.id)]) {
-    poslije.push(napraviOtisak(await ucitajTank(tx, tankId)));
+    const otisak = napraviOtisak(await ucitajTank(tx, tankId));
+    otisak.nazivVina =
+      tankId === izvor.id
+        ? izvorPaoNaNulu
+          ? null
+          : izvorPrijeOtisak.nazivVina
+        : (imeNakonCina.get(tankId) ?? null);
+    poslije.push(otisak);
   }
 
   // Brojevi tankova za citljiv zapis planiranog i stvarnog. Planirani ciljni
@@ -1927,10 +1951,11 @@ export async function ponistiFiltraciju(
   for (const otisak of snapshot.prije) {
     await tx.tank.update({
       where: { id: otisak.tankId },
+      // `nazivVina` se ne vraca (faza 5): stupac se vise ne pise. Da ponistavanje
+      // vrati i ime, mora dirati `ImeVina` — to je otvoreno i nije dio faze 5.
       data: {
         kolicinaVinaUTanku: uLitre(otisak.kolicinaMl),
         sorta: otisak.sorta,
-        nazivVina: otisak.nazivVina,
         godiste: otisak.godiste,
       },
     });

@@ -50,7 +50,6 @@ export default async function HladjenjeDashboard() {
       id: true,
       broj: true,
       sorta: true,
-      nazivVina: true,
       zadanaTemp: true,
       zadnjaZadanaTemp: true,
       alarmMinus: true,

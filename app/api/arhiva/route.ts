@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
+import { imeVinaSada } from "@/lib/ime-vina";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -103,12 +104,15 @@ export async function POST(req: Request) {
         }))
       );
 
+      // Ime u arhivu IZVEDENO — `Tank.nazivVina` se od faze 5 ne pise.
+      const imeArhive = await imeVinaSada(tx, tank.id, { zadnjeVino: true });
+
       const arhiva = await tx.arhivaVina.create({
         data: {
           tankId: tank.id,
           brojTanka: tank.broj,
           sorta: tank.sorta,
-          nazivVina: tank.nazivVina,
+          nazivVina: imeArhive.naziv,
           godiste: tank.godiste,
           kolicinaVina: tank.kolicinaVinaUTanku ?? 0,
           kapacitetTanka: tank.kapacitet,

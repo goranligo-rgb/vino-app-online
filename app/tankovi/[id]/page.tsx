@@ -930,10 +930,12 @@ export default async function TankPregledPage({
   // samo usporedbi u kartici Sastav.
   const ukupnoPostotakRounded = Number(ukupnoPostotak.toFixed(2));
 
+  // `Tank.nazivVina` NIJE u uvjetu (faza 5): stupac se vise ne pise, pa bi na
+  // ispraznjenom tanku ostalo ime vina koje je otislo i tank nikad ne bi bio
+  // "prazan". Svi putovi koji prazne tank i dalje brisu sortu i godiste.
   const tankJePrazan =
     Number(tank.kolicinaVinaUTanku ?? 0) <= 0 &&
     !tank.sorta &&
-    !tank.nazivVina &&
     !tank.godiste &&
     udjeliSorti.length === 0;
 

@@ -1,5 +1,9 @@
 import type { Prisma } from "@prisma/client";
-import { granicaSvihTankova, type GranicaVina } from "@/lib/granica-vina";
+import {
+  granicaSvihTankova,
+  granicaVina,
+  type GranicaVina,
+} from "@/lib/granica-vina";
 import { ocisti } from "@/lib/ime-vina-cisto";
 
 // Usporedba s knjigom i `ocisti` stoje u modulu bez ovisnosti, jer ih treba i
@@ -161,6 +165,33 @@ export async function imeVina(
 }
 
 /**
+ * IME VINA U TANKU SADA — granica i zadnji cin, za jedan tank. Tri upita.
+ *
+ * Ulaz za PUTOVE PISANJA od faze 5, kad `Tank.nazivVina` prestaje biti izvor:
+ * motor pretoka i filtracija iz ovoga odlucuju koje ime vino nosi dalje, a
+ * kopije u povijest (snimka pretoka, arhiva, punjenje) iz ovoga uzimaju ime
+ * kakvo je bilo u trenutku upisa. Mora se zvati PRIJE nego cin promijeni
+ * knjigu — poslije toga granica vise ne opisuje vino o kojem je rijec.
+ *
+ * `zadnjeVino`: za kopije koje nastaju kad je vino UPRAVO izaslo (arhiva nakon
+ * zavrsnog izlaza). Knjiga tada vec kaze da je tank prazan, pa bi obicno
+ * pitanje vratilo „nema imena"; ovako se dobije ime vina koje je otislo.
+ * Na tanku u kojem vino jos jest daje isto sto i obicno pitanje.
+ *
+ * Za popise cijelog podruma ne zvati u petlji — za to je `imenaPodruma`.
+ */
+export async function imeVinaSada(
+  db: Klijent & Parameters<typeof granicaVina>[0],
+  tankId: string,
+  opts?: { zadnjeVino?: boolean }
+): Promise<ImeVina> {
+  const granica = await granicaVina(db, tankId, {
+    zadnjeVino: opts?.zadnjeVino,
+  });
+  return imeVina(db, tankId, granica);
+}
+
+/**
  * Imena SVIH tankova — jedan upit za cijeli podrum.
  *
  * Postoji iz istog razloga kao `granicaSvihTankova`: 48 odvojenih upita je
@@ -306,9 +337,10 @@ export function vrijediUpisati(
  * ======================================================================
  *
  * Zove se ODMAH UZ upis identiteta na tank, unutar iste transakcije: pretok,
- * punjenje, filtracija i rucna izmjena tanka. Dok traje faza 3, `Tank.nazivVina`
- * se i dalje pise — ovo mu je dvojnik koji ce ga u fazi 4 zamijeniti kao izvor
- * za citanje, a u fazi 5 i kao jedini upis.
+ * punjenje, filtracija i rucno imenovanje (lib/imenovanje-rucno.ts). Od faze 5
+ * ovo je JEDINI upis imena — `Tank.nazivVina` se vise nigdje ne pise i ostaje
+ * zamrznut na stanju od dana gasenja. „Prije" se predaje kao IZVEDENO ime
+ * (`imeVinaSada`), nikad sa stupca.
  *
  * NE PISE SE KAD SE NISTA NIJE PROMIJENILO. Obican pretok koji dolije vino u
  * tank koji se vec tako zove nije cin imenovanja i ne treba zapis; bez ovoga

@@ -30,6 +30,7 @@ import {
   type RezultatPretoka,
 } from "../lib/pretok-motor";
 import { razlogZabranePonistavanja } from "../lib/pretok-ponistavanje";
+import { zabiljeziImenovanje } from "../lib/ime-vina";
 
 type Tx = Prisma.TransactionClient;
 
@@ -102,12 +103,27 @@ async function napraviKorisnika(tx: Tx) {
   });
 }
 
+/** Prije svega sto scenarij radi — knjiga i ime vina iz tanka koji je vec bio pun. */
+const POCETAK_VINA = new Date("2020-01-01T00:00:00Z");
+
+/**
+ * Sintetski tank.
+ *
+ * IME VINA JE CIN, NE STUPAC (faza 5). Motor ime cita izvedeno — granica iz
+ * knjige + zadnji zapis `ImeVina` — pa tank s vinom i imenom dobiva oboje:
+ * ulaz u knjigu i zapis o imenovanju, datirane prije scenarija. Bez toga bi
+ * motor svaki tank vidio kao bezimen i tvrdnje o imenu mjerile bi prazno.
+ *
+ * `stupacNazivVina` postavlja `Tank.nazivVina` DRUKCIJE od imena — tako se
+ * dokazuje da motor stupac vise ne cita. Zadano je isto kao `nazivVina`.
+ */
 async function napraviTank(
   tx: Tx,
   p: {
     kolicina: number;
     kapacitet?: number;
     nazivVina?: string | null;
+    stupacNazivVina?: string | null;
     sorta?: string | null;
     godiste?: number | null;
     sastav?: Array<{ nazivSorte: string; postotak: number }>;
@@ -119,7 +135,8 @@ async function napraviTank(
       broj: sljedeciBroj++,
       kapacitet: p.kapacitet ?? 20000,
       kolicinaVinaUTanku: p.kolicina,
-      nazivVina: p.nazivVina ?? null,
+      nazivVina:
+        p.stupacNazivVina !== undefined ? p.stupacNazivVina : (p.nazivVina ?? null),
       sorta: p.sorta ?? null,
       godiste: p.godiste ?? null,
       nadzorHladjenja: false,
@@ -127,6 +144,35 @@ async function napraviTank(
       samokontrolaAktivna: false,
     },
   });
+
+  if (p.kolicina > 0 && (p.nazivVina || p.sorta)) {
+    const berba = await tx.berba.create({
+      data: {
+        vrstaUnosa: "ZATECENO",
+        nazivSorte: p.sorta ?? "Grasevina",
+        kolicinaLitara: p.kolicina,
+        prviTankId: tank.id,
+      },
+    });
+    await tx.berbaKretanje.create({
+      data: {
+        berbaId: berba.id,
+        uTankId: tank.id,
+        litre: p.kolicina,
+        vrsta: "ULAZ",
+        dogodenoAt: POCETAK_VINA,
+        createdAt: POCETAK_VINA,
+      },
+    });
+    await zabiljeziImenovanje(tx, {
+      tankId: tank.id,
+      odAt: POCETAK_VINA,
+      naziv: p.nazivVina,
+      deklariranaSorta: p.sorta,
+      izvor: "BACKFILL",
+      bioPrazan: true,
+    });
+  }
 
   if (p.sastav?.length) {
     await tx.tankSortaUdio.createMany({
@@ -167,6 +213,16 @@ async function stanje(tx: Tx, tankId: string, r?: RezultatPretoka) {
     },
   });
 
+  // IME PO CINOVIMA (faza 5). Motor ime vise ne pise na tank nego ga upisuje
+  // kao cin. Ovi scenariji ne vode knjigu za sam pretok (nema `pretokId`), pa
+  // se granica nakon pretoka ne pomice; ime se zato cita pravilom koje knjiga
+  // inace provodi: prazna posuda nema ime, inace vrijedi zadnji cin.
+  const zadnjiCin = await tx.imeVina.findFirst({
+    where: { tankId, obrisano: false },
+    orderBy: [{ odAt: "desc" }, { createdAt: "desc" }],
+  });
+  const litara = Number(t.kolicinaVinaUTanku ?? 0);
+
   const cilj = r?.ciljevi.find((x) => x.tankId === tankId);
   const izvor = r?.izvori.find((x) => x.tankId === tankId);
   const blend = cilj?.blend ?? izvor?.blend ?? [];
@@ -176,8 +232,10 @@ async function stanje(tx: Tx, tankId: string, r?: RezultatPretoka) {
   }));
 
   return {
-    litara: Number(t.kolicinaVinaUTanku ?? 0),
-    nazivVina: t.nazivVina,
+    litara,
+    nazivVina: litara <= 0 ? null : (zadnjiCin?.naziv ?? null),
+    /** Sam stupac — od faze 5 ga nista ne pise, pa mora ostati kakav je bio. */
+    stupacNazivVina: t.nazivVina,
     sorta: t.sorta,
     godiste: t.godiste,
     sastav: [...sastav].sort((a, b) => a.nazivSorte.localeCompare(b.nazivSorte)),
@@ -1239,7 +1297,12 @@ async function main() {
       const cin = new Date("2026-03-15T10:00:00Z");
 
       const imena = (tankId: string) =>
-        tx.imeVina.findMany({ where: { tankId }, orderBy: { odAt: "asc" } });
+        // BACKFILL je ime koje sintetski tank donosi od prije (`napraviTank`),
+        // ne cin ovog pretoka — ne broji se.
+        tx.imeVina.findMany({
+          where: { tankId, izvor: { not: "BACKFILL" } },
+          orderBy: { odAt: "asc" },
+        });
 
       // (a) CUVEE u praznu posudu — nastalo je novo vino, zapis mora postojati
       //     i nositi trenutak cina, ne trenutak upisa.
@@ -1353,6 +1416,79 @@ async function main() {
         zapisiC[0]?.izvor,
         "PRETOK",
         "OBICNI: ime je posudjeno, izvor je PRETOK a ne CUVEE"
+      );
+    }
+  );
+
+  await scenarij(
+    "DOKAZ 19: motor ime cita IZVEDENO, a Tank.nazivVina vise ne pise (faza 5)",
+    async (tx) => {
+      const u = await napraviKorisnika(tx);
+      const cin = new Date("2026-03-15T10:00:00Z");
+
+      // (a) Stupac i ime se RAZILAZE: stupac kaze staro, cin kaze novo. Vino u
+      //     praznu posudu mora ponijeti ime iz cina.
+      const izvor = await napraviTank(tx, {
+        kolicina: 1000,
+        nazivVina: "TEST izvedeno ime",
+        stupacNazivVina: "TEST zamrznut stupac",
+        sorta: "Grasevina",
+        sastav: [{ nazivSorte: "Grasevina", postotak: 100 }],
+      });
+      const cilj = await napraviTank(tx, { kolicina: 0 });
+
+      await izvrsiPretok(tx, {
+        izvori: [{ tankId: izvor.id, kolicina: 1000 }],
+        ciljevi: [{ tankId: cilj.id, kolicina: 1000 }],
+        vrsta: "OBICNI",
+        nacin: "BEZ",
+        korisnikId: u.id,
+        dogodenoAt: cin,
+      });
+
+      const cinCilja = await tx.imeVina.findFirst({
+        where: { tankId: cilj.id },
+        orderBy: { odAt: "desc" },
+      });
+      jednako(cinCilja?.naziv, "TEST izvedeno ime", "cilj nosi ime iz CINA, ne sa stupca");
+
+      const c = await stanje(tx, cilj.id);
+      const i = await stanje(tx, izvor.id);
+      jednako(c.stupacNazivVina, null, "stupac cilja NIJE upisan");
+      jednako(
+        i.stupacNazivVina,
+        "TEST zamrznut stupac",
+        "stupac ispraznjenog izvora NIJE obrisan"
+      );
+      jednako(i.sorta, null, "sorta ispraznjenog izvora i dalje se brise");
+
+      // (b) "Drugo vino" se prosuduje po IZVEDENOM imenu. Stupci su isti, imena
+      //     nisu — obican pretok mora pasti.
+      const a = await napraviTank(tx, {
+        kolicina: 500,
+        nazivVina: "TEST vino A",
+        stupacNazivVina: "TEST isti stupac",
+        sorta: "Grasevina",
+      });
+      const b = await napraviTank(tx, {
+        kolicina: 500,
+        nazivVina: "TEST vino B",
+        stupacNazivVina: "TEST isti stupac",
+        sorta: "Grasevina",
+      });
+
+      await ocekujGresku(
+        () =>
+          izvrsiPretok(tx, {
+            izvori: [{ tankId: a.id, kolicina: 100 }],
+            ciljevi: [{ tankId: b.id, kolicina: 100 }],
+            vrsta: "OBICNI",
+            nacin: "BEZ",
+            korisnikId: u.id,
+            dogodenoAt: cin,
+          }),
+        "drugo vino",
+        "isti stupac, razlicito ime -> drugo vino"
       );
     }
   );

@@ -20,7 +20,11 @@ import { ocistiVinoRadnje } from "./vino-radnja";
  *   - `BlendIzvor` (gdje je ovaj tank CILJ) — porijeklo tog istog vina;
  *   - `VinoRadnja` — udjeli kvasaca i dodataka u vinu koje je otislo; da
  *     ostanu, zalijepili bi se na sljedece vino koje u ovaj tank udje;
- *   - `Tank.sorta`, `nazivVina`, `godiste` i kolicina — identitet posude.
+ *   - `Tank.sorta`, `godiste` i kolicina — identitet posude.
+ *
+ * `Tank.nazivVina` se od faze 5 NE brise: stupac se vise ne pise ni ne cita.
+ * Ime prazne posude nestaje samo od sebe — knjiga pomakne granicu vina i zapis
+ * o imenu ispadne iz prozora (lib/ime-vina.ts).
  *
  * NE BRISE SE NISTA OD POVIJESTI: mjerenja, zadaci, dokumenti, punjenja,
  * radnje i izlazi OSTAJU na tanku. Prije ih je arhiviranje prepisivalo pa
@@ -72,7 +76,6 @@ export async function isprazniTank(
     data: {
       kolicinaVinaUTanku: 0,
       sorta: null,
-      nazivVina: null,
       godiste: null,
     },
   });

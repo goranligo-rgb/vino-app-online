@@ -299,10 +299,12 @@ export async function POST(req: Request) {
       for (const snapshot of pretok.snapshoti) {
         await tx.tank.update({
           where: { id: snapshot.tankId },
+          // `nazivVina` se ne vraca (faza 5): stupac se vise ne pise. Da
+          // ponistavanje vrati ime, mora dirati `ImeVina` — otvoreno, vidi
+          // memoriju ime-vina-faza5-otvoreno.
           data: {
             kolicinaVinaUTanku: snapshot.kolicinaPrije ?? 0,
             sorta: snapshot.sortaPrije,
-            nazivVina: snapshot.nazivVinaPrije,
             godiste: snapshot.godistePrije,
             tip: snapshot.tipTankaPrije,
             opis: snapshot.opisPrije,

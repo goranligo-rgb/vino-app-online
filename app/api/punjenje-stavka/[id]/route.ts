@@ -403,7 +403,6 @@ export async function DELETE(_req: Request, { params }: Params) {
               data: {
                 kolicinaVinaUTanku: 0,
                 sorta: null,
-                nazivVina: null,
                 godiste: null,
               },
             });
@@ -480,10 +479,11 @@ export async function DELETE(_req: Request, { params }: Params) {
 
           await tx.tank.update({
             where: { id: tankId },
+            // `Tank.nazivVina` se od faze 5 ne pise. Brisanje stavke ne dira ni
+            // `ImeVina` — to je otvoreno (memorija ime-vina-faza5-otvoreno).
             data: {
               kolicinaVinaUTanku: novaKolicinaUTanku,
               sorta: novaSorta,
-              nazivVina: noviNazivVina,
               godiste: novoGodiste,
             },
           });
@@ -550,7 +550,6 @@ export async function DELETE(_req: Request, { params }: Params) {
           data: {
             kolicinaVinaUTanku: prethodnaKolicina,
             sorta: prethodnaSorta,
-            nazivVina: prethodniNazivVina,
             godiste: prethodnoGodiste,
           },
         });

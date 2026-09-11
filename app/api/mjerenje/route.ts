@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
 import { citajGranicuArhive, odGranice } from "@/lib/granica-arhive";
+import { imenaPodruma } from "@/lib/ime-vina";
 
 function brojIliNull(v: unknown): number | null {
   if (v === "" || v === null || v === undefined) return null;
@@ -70,7 +71,20 @@ export async function GET(req: Request) {
       },
     });
 
-    return NextResponse.json(mjerenja);
+    // IME VINA JE IZVEDENO (faza 5) — `Tank.nazivVina` se vise ne pise, pa bi
+    // `tank: true` vracao zamrznut stupac. Isto ime polja, ekran se ne mijenja.
+    // POST i PUT vracaju mjerenje s tankom, ali ekran nakon spremanja ponovno
+    // cita ovaj popis, pa ondje ime nije potrebno.
+    const imena = await imenaPodruma(prisma);
+
+    return NextResponse.json(
+      mjerenja.map((m) => ({
+        ...m,
+        tank: m.tank
+          ? { ...m.tank, nazivVina: imena.get(m.tank.id)?.naziv ?? null }
+          : m.tank,
+      }))
+    );
   } catch (error) {
     console.error("Greška kod dohvaćanja mjerenja:", error);
 

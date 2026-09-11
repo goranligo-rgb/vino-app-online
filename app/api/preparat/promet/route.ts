@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { citajSesiju } from "@/lib/auth-sesija";
+import { imenaPodruma } from "@/lib/ime-vina";
 import type { AuthUser } from "@/lib/auth-token";
 
 async function getAuthUser(): Promise<AuthUser | null> {
@@ -101,7 +102,6 @@ export async function GET(req: Request) {
               select: {
                 id: true,
                 broj: true,
-                nazivVina: true,
                 sorta: true,
               },
             },
@@ -113,6 +113,11 @@ export async function GET(req: Request) {
       },
       take: 200,
     });
+
+    // IME VINA JE IZVEDENO (faza 5) — `Tank.nazivVina` se vise ne pise.
+    const imena = await imenaPodruma(prisma);
+    const nazivVinaZa = (tankId: string | undefined) =>
+      (tankId ? imena.get(tankId)?.naziv : null) ?? null;
 
     const promet = zapisi
       .map((z) => ({
@@ -129,7 +134,7 @@ export async function GET(req: Request) {
           preparat.unit?.naziv ??
           null,
         tankBroj: z.radnja?.tank?.broj ?? null,
-        nazivVina: z.radnja?.tank?.nazivVina ?? null,
+        nazivVina: nazivVinaZa(z.radnja?.tank?.id),
         sorta: z.radnja?.tank?.sorta ?? null,
         dobavljac: z.dobavljac ?? null,
         brojDokumenta: z.brojDokumenta ?? null,
@@ -137,7 +142,7 @@ export async function GET(req: Request) {
         korisnik: z.korisnik?.ime ?? null,
         opis: z.radnja?.tank
           ? `Tank ${z.radnja.tank.broj} — ${
-              z.radnja.tank.nazivVina ?? z.radnja.tank.sorta ?? ""
+              nazivVinaZa(z.radnja.tank.id) ?? z.radnja.tank.sorta ?? ""
             }`
           : z.tip === "ULAZ"
           ? z.dobavljac

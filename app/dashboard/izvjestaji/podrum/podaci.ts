@@ -158,7 +158,6 @@ export async function dohvatiPodrum() {
     select: {
       id: true,
       broj: true,
-      nazivVina: true,
       sorta: true,
       kolicinaVinaUTanku: true,
       kapacitet: true,

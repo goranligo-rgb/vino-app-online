@@ -233,7 +233,6 @@ export async function POST(req: Request) {
           data: {
             kolicinaVinaUTanku: 0,
             sorta: null,
-            nazivVina: null,
             godiste: null,
           },
         });

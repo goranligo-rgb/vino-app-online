@@ -11,20 +11,23 @@
  *
  * STO DOKAZUJE
  *   1. Imenovanje upisuje cin (RUCNO, razlog, tko, kada), ekran cita novo ime,
- *      stupci su zrcaljeni, dnevnik biljezi samo promijenjena polja.
+ *      `Tank.nazivVina` se NE pise (faza 5), dnevnik biljezi samo stupce.
  *   2. Bez razloga, bez imena i sorte, bez promjene, u prazan i nepostojeci
  *      tank — odbijeno, i NISTA se ne upise.
- *   3. Nesklad deklarirane sorte s knjigom NE brani upis.
- *   4. Preimenovanje prezivi pretok: vino u novi tank nosi NOVO ime (razlog za
- *      zrcaljenje stupaca dok putovi pisanja citaju stupac).
+ *   3. Nesklad deklarirane sorte s knjigom NE brani upis; `Tank.sorta` se zrcali.
+ *   4. Preimenovanje prezivi pretok iako je stupac zamrznut — motor ime cita
+ *      izvedeno.
+ *   5. Kopija u povijest (arhiva) nosi izvedeno ime; pitanje za "zadnje vino"
+ *      vraca ime vina koje je upravo izaslo.
  */
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { izvrsiPretok } from "../lib/pretok-motor";
 import { granicaVina } from "../lib/granica-vina";
-import { imeVina, zabiljeziImenovanje } from "../lib/ime-vina";
+import { imeVina, imeVinaSada, zabiljeziImenovanje } from "../lib/ime-vina";
 import { ImenovanjeGreska, imenujVinoRucno } from "../lib/imenovanje-rucno";
+import { arhivirajPotroseniTank } from "../lib/pretok-arhiviranje";
 
 type Tx = Prisma.TransactionClient;
 
@@ -187,18 +190,15 @@ async function main() {
       jednako((await ekran(tx, t.id)).naziv, "TEST Grasevina 2025", "ekran cita novo ime");
 
       const stupci = await tx.tank.findUniqueOrThrow({ where: { id: t.id } });
-      jednako(stupci.nazivVina, "TEST Grasevina 2025", "Tank.nazivVina zrcaljen");
+      jednako(stupci.nazivVina, "TEST Grasevina", "Tank.nazivVina se NE pise (faza 5)");
       jednako(stupci.sorta, "Grasevina", "Tank.sorta nepromijenjen");
 
+      // Dnevnik izmjena tanka biljezi stupce; mijenja se samo ime, a ono nije
+      // stupac — tko, kad i zasto stoji na samom cinu.
       const dnevnik = await tx.activityLog.findMany({
         where: { entityType: "Tank", entityId: t.id },
       });
-      jednako(dnevnik.length, 1, "dnevnik: jedan redak, samo promijenjeno polje");
-      jednako(
-        (dnevnik[0]?.payload as { polje?: string } | null)?.polje,
-        "nazivVina",
-        "dnevnik: polje je nazivVina"
-      );
+      jednako(dnevnik.length, 0, "dnevnik: nista, nijedan stupac se nije promijenio");
     }
   );
 
@@ -290,6 +290,16 @@ async function main() {
         "Muskat zuti",
         "Tank.sorta zrcaljen (ne gasi se u fazi 5)"
       );
+
+      const dnevnik = await tx.activityLog.findMany({
+        where: { entityType: "Tank", entityId: t.id },
+      });
+      jednako(dnevnik.length, 1, "dnevnik: jedan redak za promijenjenu sortu");
+      jednako(
+        (dnevnik[0]?.payload as { polje?: string } | null)?.polje,
+        "sorta",
+        "dnevnik: polje je sorta"
+      );
     }
   );
 
@@ -328,6 +338,55 @@ async function main() {
 
       jednako((await ekran(tx, cilj.id)).naziv, "TEST Novo ime", "cilj nosi NOVO ime");
       jednako((await ekran(tx, izvor.id)).naziv, "TEST Novo ime", "izvor zadrzava novo ime");
+      jednako(
+        (await tx.tank.findUniqueOrThrow({ where: { id: izvor.id } })).nazivVina,
+        "TEST Staro ime",
+        "stupac izvora je zamrznut, a ime ipak putuje — motor ga ne cita"
+      );
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  await scenarij(
+    "DOKAZ 5: kopija u povijest nosi IZVEDENO ime, i kad je vino upravo otislo",
+    async (tx) => {
+      const u = await napraviKorisnika(tx);
+      const t = await napraviTank(tx, 1000, "TEST Zamrznut stupac", "Grasevina");
+
+      await imenujVinoRucno(tx, {
+        tankId: t.id,
+        naziv: "TEST Pravo ime",
+        deklariranaSorta: "Grasevina",
+        razlog: "test kopije",
+        korisnikId: u.id,
+        sada: new Date("2026-01-01T00:00:00Z"),
+      });
+
+      // Arhiva iz pretoka — ime iz cina, ne sa stupca.
+      const tank = await tx.tank.findUniqueOrThrow({ where: { id: t.id } });
+      const arhiva = await arhivirajPotroseniTank(tx, tank, 1000, "TEST");
+      jednako(arhiva.nazivVina, "TEST Pravo ime", "arhiva nosi izvedeno ime");
+
+      // Vino je OTISLO (knjiga: izlaz iz podruma) — obicno pitanje nema ime,
+      // a pitanje za zadnje vino vraca ime onoga koje je izaslo.
+      const berba = await tx.berba.findFirstOrThrow({ where: { prviTankId: t.id } });
+      await tx.berbaKretanje.create({
+        data: {
+          berbaId: berba.id,
+          izTankId: t.id,
+          litre: 1000,
+          vrsta: "IZLAZ",
+          dogodenoAt: new Date("2026-02-01T00:00:00Z"),
+          createdAt: new Date("2026-02-01T00:00:00Z"),
+        },
+      });
+
+      jednako((await imeVinaSada(tx, t.id)).naziv, null, "prazan tank nema ime");
+      jednako(
+        (await imeVinaSada(tx, t.id, { zadnjeVino: true })).naziv,
+        "TEST Pravo ime",
+        "zadnje vino: ime vina koje je upravo izaslo"
+      );
     }
   );
 

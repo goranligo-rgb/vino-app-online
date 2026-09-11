@@ -8,7 +8,7 @@ import { uMl } from "@/lib/filtracija";
 import { pocetnoMjerenjeIzStavki } from "@/lib/berba-polja";
 import { BerbaGreska, zabiljeziUlazUVise } from "@/lib/berba-knjiga";
 import { upisiVinoRadnju, prenesiVinoRadnje } from "@/lib/vino-radnja";
-import { zabiljeziImenovanje } from "@/lib/ime-vina";
+import { imeVinaSada, zabiljeziImenovanje } from "@/lib/ime-vina";
 
 // Tko smije UPISATI punjenje. Isti popis koji proxy.ts pusta na stranicu
 // /punjenje — proxy stiti samo stranice, pa svaka ruta mora sama provjeriti
@@ -627,6 +627,11 @@ export async function POST(req: Request) {
             createdMjerenjeId = createdMjerenje.id;
           }
 
+          // IME PRIJE PUNJENJA — izvedeno, ne sa stupca (faza 5). Cita se prije
+          // nego ovo punjenje udje u knjigu (`zabiljeziUlazUVise` nize), pa
+          // opisuje vino koje je u tanku bilo DO sada.
+          const imePrije = await imeVinaSada(tx, tid);
+
           const prethodniSastavJson =
             tank.udjeliSorti && tank.udjeliSorti.length > 0
               ? tank.udjeliSorti.map((u) => ({
@@ -653,7 +658,7 @@ export async function POST(req: Request) {
 
               prethodnaKolicinaUTanku: trenutnoUTanku,
               prethodnaSorta: tank.sorta ?? null,
-              prethodniNazivVina: tank.nazivVina ?? null,
+              prethodniNazivVina: imePrije.naziv,
               prethodnoGodiste: tank.godiste ?? null,
               prethodniSastavJson: prethodniSastavJson,
 
@@ -712,26 +717,27 @@ export async function POST(req: Request) {
 
           await tx.tank.update({
             where: { id: tid },
+            // Ime se ovdje vise ne pise (faza 5) — nosi ga cin imenovanja ispod.
             data: {
               kolicinaVinaUTanku: novaKolicinaUTanku,
-              nazivVina: nazivVina,
               sorta: glavnaSorta,
               godiste: godinaZaTank,
             },
           });
 
-          // CIN IMENOVANJA (faza 3). Punjenje je prvo imenovanje vina u
-          // zivotu, pa se `odAt` sidri na `datumPunjenja` — ne na trenutak
-          // upisa. Punjenja se unose unatrag (T44: uneseno 16.06., datirano
-          // istog dana u drugi sat; T20: uneseno 10.09., datirano 09.09.), a
-          // ime pripada casu u kojem je vino uslo, ne casu tipkanja.
+          // CIN IMENOVANJA — od faze 5 jedini upis imena. Punjenje je prvo
+          // imenovanje vina u zivotu, pa se `odAt` sidri na `datumPunjenja` —
+          // ne na trenutak upisa. Punjenja se unose unatrag (T44: uneseno
+          // 16.06., datirano istog dana u drugi sat; T20: uneseno 10.09.,
+          // datirano 09.09.), a ime pripada casu u kojem je vino uslo, ne casu
+          // tipkanja.
           await zabiljeziImenovanje(tx, {
             tankId: tid,
             odAt: datumPunjenja,
             naziv: nazivVina,
             deklariranaSorta: glavnaSorta,
             izvor: "PUNJENJE",
-            prijeNaziv: tank.nazivVina ?? null,
+            prijeNaziv: imePrije.naziv,
             prijeSorta: tank.sorta ?? null,
             bioPrazan: trenutnoUTanku <= 0,
             punjenjeId: created.id,

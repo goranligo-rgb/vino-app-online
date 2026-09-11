@@ -17,6 +17,7 @@
 import { Prisma } from "@prisma/client";
 import { citajGranicuArhive, odGranice } from "./granica-arhive";
 import { ocistiVinoRadnje } from "./vino-radnja";
+import { imeVinaSada } from "./ime-vina";
 
 /**
  * Preusmjeri pokazivace s tanka na arhivu.
@@ -137,12 +138,17 @@ export async function arhivirajPotroseniTank(
     orderBy: { datum: "asc" },
   });
 
+  // Arhiva nosi ime kakvo je vino imalo kad je otislo — IZVEDENO, ne sa stupca,
+  // koji se od faze 5 ne pise. `zadnjeVino`, jer je potroseni tank po knjizi
+  // mozda vec prazan.
+  const imeArhive = await imeVinaSada(tx, tank.id, { zadnjeVino: true });
+
   const arhiva = await tx.arhivaVina.create({
     data: {
       tankId: tank.id,
       brojTanka: tank.broj,
       sorta: tank.sorta,
-      nazivVina: tank.nazivVina,
+      nazivVina: imeArhive.naziv,
       godiste: tank.godiste,
       kolicinaVina: kolicinaZaArhivu,
       kapacitetTanka: tank.kapacitet,
@@ -400,7 +406,6 @@ export async function arhivirajPotroseniTank(
     data: {
       kolicinaVinaUTanku: 0,
       sorta: null,
-      nazivVina: null,
       godiste: null,
     },
   });

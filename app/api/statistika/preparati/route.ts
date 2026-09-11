@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { VrstaRadnje } from "@prisma/client";
 import { citajSesiju } from "@/lib/auth-sesija";
+import { imenaPodruma } from "@/lib/ime-vina";
 import type { AuthUser } from "@/lib/auth-token";
 
 export const dynamic = "force-dynamic";
@@ -149,7 +150,6 @@ export async function GET(req: NextRequest) {
             id: true,
             broj: true,
             sorta: true,
-            nazivVina: true,
             godiste: true,
           },
         },
@@ -177,6 +177,9 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    // IME VINA JE IZVEDENO (faza 5) — `Tank.nazivVina` se vise ne pise.
+    const imena = await imenaPodruma(prisma);
+
     const stavke: StavkaResponse[] = radnje.map((r) => {
       const faktor = toNumber(r.jedinica?.faktor, 1);
       const kolicina = toNumber(r.kolicina, 0);
@@ -188,7 +191,7 @@ export async function GET(req: NextRequest) {
         tankId: r.tankId,
         brojTanka: r.tank?.broj ?? null,
         sorta: r.tank?.sorta ?? null,
-        nazivVina: r.tank?.nazivVina ?? null,
+        nazivVina: imena.get(r.tankId)?.naziv ?? null,
         godiste: r.tank?.godiste ?? null,
         preparatId: r.preparat?.id ?? null,
         preparatNaziv: r.preparat?.naziv ?? null,

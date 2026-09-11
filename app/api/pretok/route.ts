@@ -26,6 +26,7 @@ import {
 } from "@/lib/mjerenja";
 import { Prisma, TipPretokaDb } from "@prisma/client";
 import { izvrsiPretok } from "@/lib/pretok-motor";
+import { imeVinaSada } from "@/lib/ime-vina";
 
 type UlazPretoka = {
   tankId: string;
@@ -52,6 +53,7 @@ type TankZaSnapshot = {
   tip: string | null;
   opis: string | null;
   sorta: string | null;
+  /** IZVEDENO ime prije pretoka (faza 5), ne `Tank.nazivVina`. */
   nazivVina: string | null;
   godiste: number | null;
   udjeliSorti: {
@@ -366,6 +368,16 @@ export async function POST(req: Request) {
 
     const tankById = new Map(sourceTankovi.map((t) => [t.id, t]));
 
+    // IME PRIJE PRETOKA — izvedeno, ne sa stupca (faza 5). Treba ga zastita
+    // "drugo vino" nize i snimka za ponistavanje (`nazivVinaPrije`). Po tanku,
+    // redom: tankova u pretoku je nekoliko, a `imenaPodruma` bi citao cijelu
+    // knjigu. Motor isto ime cita jos jednom, pod bravom — ovo je samo za poruku
+    // i snimku, kao i ostala polja snimke.
+    const imePrije = new Map<string, string | null>();
+    for (const id of new Set([...sourceTankIds, ...ciljevi.map((c) => c.tankId)])) {
+      imePrije.set(id, (await imeVinaSada(prisma, id)).naziv);
+    }
+
     for (const i of izvori) {
       const tank = tankById.get(i.tankId);
 
@@ -417,7 +429,8 @@ export async function POST(req: Request) {
 
         const istaSorta = (t.sorta ?? "").trim() === (sourceTank.sorta ?? "").trim();
         const istiNaziv =
-          (t.nazivVina ?? "").trim() === (sourceTank.nazivVina ?? "").trim();
+          (imePrije.get(t.id) ?? "").trim() ===
+          (imePrije.get(sourceTank.id) ?? "").trim();
 
         if (!istaSorta || !istiNaziv) {
           return NextResponse.json(
@@ -584,7 +597,7 @@ export async function POST(req: Request) {
             tip: t.tip,
             opis: t.opis,
             sorta: t.sorta,
-            nazivVina: t.nazivVina,
+            nazivVina: imePrije.get(t.id) ?? null,
             godiste: t.godiste,
             udjeliSorti: t.udjeliSorti.map((u) => ({
               nazivSorte: u.nazivSorte,
@@ -615,7 +628,7 @@ export async function POST(req: Request) {
             tip: sourceTank.tip,
             opis: sourceTank.opis,
             sorta: sourceTank.sorta,
-            nazivVina: sourceTank.nazivVina,
+            nazivVina: imePrije.get(sourceTank.id) ?? null,
             godiste: sourceTank.godiste,
             udjeliSorti: sourceTank.udjeliSorti.map((u) => ({
               nazivSorte: u.nazivSorte,

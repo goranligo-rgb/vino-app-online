@@ -468,7 +468,13 @@ async function main() {
         where: { id: s.tank.id },
       });
       jednako(tankPoslije.kolicinaVinaUTanku, 0, "pretok: tank je ispraznjen");
-      jednako(tankPoslije.nazivVina, null, "pretok: identitet vina je ocisten");
+      jednako(tankPoslije.sorta, null, "pretok: identitet vina je ocisten");
+      // Ime prazne posude nestaje kroz granicu vina, ne brisanjem stupca (faza 5).
+      jednako(
+        tankPoslije.nazivVina,
+        s.tank.nazivVina,
+        "pretok: stupac nazivVina se vise ne dira"
+      );
     }
   );
 
@@ -497,7 +503,12 @@ async function main() {
         where: { id: s.tank.id },
       });
       jednako(tankPoslije.kolicinaVinaUTanku, 0, "izlaz-vina: tank je ispraznjen");
-      jednako(tankPoslije.nazivVina, null, "izlaz-vina: identitet vina je ocisten");
+      jednako(tankPoslije.sorta, null, "izlaz-vina: identitet vina je ocisten");
+      jednako(
+        tankPoslije.nazivVina,
+        s.tank.nazivVina,
+        "izlaz-vina: stupac nazivVina se vise ne dira"
+      );
     }
   );
 

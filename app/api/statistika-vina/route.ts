@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import { sastavSvihTankova } from "@/lib/berba-model";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
+import { imenaPodruma } from "@/lib/ime-vina";
 
 function round(value: number, decimals = 2) {
   const factor = 10 ** decimals;
@@ -55,7 +56,6 @@ export async function GET() {
           tip: true,
           opis: true,
           sorta: true,
-          nazivVina: true,
           godiste: true,
           udjeliSorti: {
             select: {
@@ -82,7 +82,6 @@ export async function GET() {
                 id: true,
                 broj: true,
                 sorta: true,
-                nazivVina: true,
                 godiste: true,
                 udjeliSorti: {
                   select: {
@@ -101,6 +100,11 @@ export async function GET() {
           throw error;
         }),
     ]);
+
+    // IME VINA JE IZVEDENO (faza 5) — `Tank.nazivVina` se vise ne pise. Cetiri
+    // upita za cijeli podrum, poslije vala iznad, ne u njemu.
+    const imena = await imenaPodruma(prisma);
+    const nazivVinaZa = (tankId: string) => imena.get(tankId)?.naziv ?? null;
 
     const ukupnoLitara = round(
       tankovi.reduce((sum, t) => sum + Number(t.kolicinaVinaUTanku ?? 0), 0)
@@ -128,7 +132,7 @@ export async function GET() {
         );
 
         const nazivVina =
-          tank.nazivVina?.trim() || tank.sorta?.trim() || "Bez naziva";
+          nazivVinaZa(tank.id)?.trim() || tank.sorta?.trim() || "Bez naziva";
         poNazivuVinaMap.set(
           nazivVina,
           round((poNazivuVinaMap.get(nazivVina) ?? 0) + litara)
@@ -166,7 +170,7 @@ export async function GET() {
         tip: tank.tip,
         opis: tank.opis,
         sorta: tank.sorta,
-        nazivVina: tank.nazivVina,
+        nazivVina: nazivVinaZa(tank.id),
         godiste: tank.godiste,
         udjeliSorti: udjeliZa(tank.id, tank.sorta).map((u) => ({
           nazivSorte: u.nazivSorte,

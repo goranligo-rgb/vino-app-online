@@ -9,6 +9,7 @@ import { zabiljeziIzlaz } from "@/lib/berba-knjiga";
 import { stanjeTanka } from "@/lib/berba-model";
 import { upisiVinoRadnju } from "@/lib/vino-radnja";
 import { isprazniTank } from "@/lib/prazni-tank";
+import { imeVinaSada, imenaPodruma } from "@/lib/ime-vina";
 
 type AuthUser = {
   id: string;
@@ -125,12 +126,16 @@ export async function arhivirajPrazanTank(
 
   if (!tank) return null;
 
+  // Ime u arhivu IZVEDENO (faza 5). Zavrsni izlaz je vec upisan u knjigu, pa je
+  // tank po njoj prazan — `zadnjeVino` vraca ime vina koje je upravo izaslo.
+  const imeArhive = await imeVinaSada(tx, tankId, { zadnjeVino: true });
+
   const arhiva = await tx.arhivaVina.create({
     data: {
       tankId: tank.id,
       brojTanka: tank.broj,
       sorta: tank.sorta,
-      nazivVina: tank.nazivVina,
+      nazivVina: imeArhive.naziv,
       godiste: tank.godiste,
       kolicinaVina: kolicinaPrijePrazenja,
       kapacitetTanka: tank.kapacitet,
@@ -423,7 +428,6 @@ export async function POST(req: Request) {
         id: true,
         broj: true,
         sorta: true,
-        nazivVina: true,
         godiste: true,
         kolicinaVinaUTanku: true,
       },
@@ -710,7 +714,7 @@ export async function GET(req: Request) {
     const limit =
       Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 100;
 
-    const izlazi = await prisma.izlazVina.findMany({
+    const sirovi = await prisma.izlazVina.findMany({
       where,
       orderBy: [{ datum: "desc" }, { createdAt: "desc" }],
       take: limit,
@@ -720,12 +724,21 @@ export async function GET(req: Request) {
             id: true,
             broj: true,
             sorta: true,
-            nazivVina: true,
             godiste: true,
           },
         },
       },
     });
+
+    // IME TANKA JE IZVEDENO (faza 5) — `Tank.nazivVina` se vise ne pise. Pod
+    // istim imenom polja kao do sada, da ekran ne treba mijenjati.
+    const imena = await imenaPodruma(prisma);
+    const izlazi = sirovi.map((row) => ({
+      ...row,
+      tank: row.tank
+        ? { ...row.tank, nazivVina: imena.get(row.tank.id)?.naziv ?? null }
+        : row.tank,
+    }));
 
     const ukupnoLitara = izlazi.reduce(
       (sum, row) => sum + Number(row.kolicinaLitara || 0),
