@@ -1490,12 +1490,19 @@ export default async function TankPregledPage({
           }
         : null,
       datum: izvor?.izmjerenoAt.toISOString() ?? null,
-      // GRAF CRTA POVIJEST VINA, NE POSUDE.
+      // GRAF POCINJE OD GRANICE VINA, kao i sve ostalo na ovoj stranici
+      // (vlasnikova odluka, 11.09.2026).
       //
       // Vlastita mjerenja ovog tanka + mjerenja istog vina iz ranijih posuda,
-      // spojena u jedan niz po vremenu. Tank 15 je cijelu svoju mjerenu
-      // povijest proveo u tanku 8; bez ovoga mu je graf prazan iako podatak
-      // postoji, a kartica iznad ga uredno pokazuje.
+      // spojena u jedan niz po vremenu — ali naslijedena tocka ne smije biti
+      // starija od granice. Tank s berbom od 08.09. crtao je secer od 16.06.:
+      // to je vino koje je tada bilo u toj posudi, ne ovo. Vlastita mjerenja
+      // granicu vec postuju kroz `mjerenjaTrenutnogVina` (s iznimkom pocetnog
+      // mjerenja punjenja, datiranog danom berbe), pa se ovdje ne rezu.
+      //
+      // Posljedica: vino koje je pola zivota provelo u drugoj posudi nema na
+      // grafu tu povijest (tank 15 i tank 32 gube tocku iz tanka 8). Kartica
+      // iznad i dalje pokazuje vrijednost iz knjige, s datumom i posudom.
       //
       // Vlastito ima prednost: kad su oba niza imala isti trenutak, na grafu
       // ostaje redak ovog tanka (ima `jeRucno`, naslijedeni nema).
@@ -1513,6 +1520,7 @@ export default async function TankPregledPage({
           // mostova, ne povijest ovog vina. Ovo NIJE prag na vrijednosti (te se
           // prikazuju bez obzira na pokrivenost) nego na tome sto se CRTA.
           .filter((x) => !x.vlastito && x.postotak >= 50)
+          .filter((x) => !granicaVinaAt || x.izmjerenoAt >= granicaVinaAt)
           .map((x) => ({
             t: x.izmjerenoAt.toISOString(),
             v: x.vrijednost,

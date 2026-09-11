@@ -40,6 +40,7 @@
     "test:ime:vina": "tsx scripts/test-ime-vina.ts",
     "test:imenovanje:baza": "tsx scripts/test-imenovanje-baza.ts",
     "test:berba:ispravak": "tsx scripts/test-berba-ispravak-baza.ts",
+    "test:parametri:vina": "tsx scripts/test-parametri-vina-baza.ts",
     "ime:backfill": "tsx scripts/backfill-ime-vina.ts"
   },
   "prisma": {

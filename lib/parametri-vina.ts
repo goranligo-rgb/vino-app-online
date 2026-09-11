@@ -32,6 +32,14 @@ import { POLJA_MJERENJA } from "@/lib/mjerenja";
  * GORNJA GRANICA JE ODLAZAK. Mjerenja tanka 8 od 03.09. i 08.09. NE ulaze:
  * partija je otisla 18.08., pa je to vec vino koje je u tank 8 doslo poslije.
  *
+ * SAMO STVARNI LANAC (vlasnikova odluka, 11.09.2026). Posuda ulazi samo ako je
+ * vino iz nje doslo ovamo — izravno ili preko drugih posuda. SESTRINSKA posuda
+ * ispada: partija 018/2026 je iz punjenja razdijeljena u T20, T36 i T2, a u
+ * tank 11 je dosla samo iz T36. Bez ove brane T11 je pokazivao alkohol 11,3 i
+ * SO2 40/86 izmjerene u T2 16.06. — na vinu koje je flasirano 25.06., gotovo
+ * tri mjeseca prije nego je partija 018 ubrana. Prozor punjenja (pravilo iznad)
+ * vrijedi i dalje, ali samo za posude iz stvarnog lanca.
+ *
  * PONDER JE LITRA. Kad dvije partije daju razlicitu vrijednost istog polja,
  * racuna se prosjek ponderiran litrama koje SU U OVOM TANKU — nikad obican
  * prosjek. Pokrivenost kaze koliko je litara uopce pokriveno.
@@ -149,6 +157,43 @@ function boravciPartije(redci: RedakZaGranicu[]): Boravak[] {
   return out;
 }
 
+/**
+ * Posude iz kojih je partija STVARNO dosla u tank — izravno ili preko drugih.
+ *
+ * Hod unatrag po prijenosima iste partije: iz tanka do posuda koje su mu je
+ * dale, pa do posuda koje su dale njima, i tako dalje. Svaka posuda nosi
+ * trenutak u kojem je vino iz nje otislo prema tanku, pa se prijenos U nju
+ * poslije tog trenutka ne broji — to vino ovamo nije stiglo.
+ *
+ * Posuda u koju je partija samo usput razdijeljena, a iz nje nista nije doslo
+ * ovamo, ne ulazi.
+ */
+function stvarniLanac(tankId: string, redci: RedakZaGranicu[]): Set<string> {
+  const prijenosi = redci
+    .filter((r) => r.izTankId && r.uTankId)
+    .map((r) => ({ iz: r.izTankId!, u: r.uTankId!, sat: satKretanja(r) }));
+
+  // Najkasniji trenutak u kojem je vino iz posude jos moglo krenuti prema
+  // tanku. Posuda se ponovno obilazi samo kad joj taj trenutak naraste, pa
+  // hod staje i kad knjiga ima kruzni pretok (A -> B -> A).
+  const doKada = new Map<string, number>([[tankId, Infinity]]);
+  const red = [tankId];
+
+  while (red.length > 0) {
+    const posuda = red.shift()!;
+    const granica = doKada.get(posuda)!;
+
+    for (const p of prijenosi) {
+      if (p.u !== posuda || p.sat > granica) continue;
+      if ((doKada.get(p.iz) ?? -Infinity) >= p.sat) continue;
+      doKada.set(p.iz, p.sat);
+      red.push(p.iz);
+    }
+  }
+
+  return new Set(doKada.keys());
+}
+
 export async function parametriVinaIzKnjige(
   db: Klijent,
   tankId: string
@@ -182,7 +227,10 @@ export async function parametriVinaIzKnjige(
   const boravci = new Map<string, Boravak[]>();
   const posude = new Set<string>();
   for (const [berbaId, redci] of poPartiji) {
-    const b = boravciPartije(redci);
+    // Samo boravci u posudama iz stvarnog lanca — sestrinske posude se ne
+    // citaju ni za mjerenja ni za graf.
+    const izvorne = stvarniLanac(tankId, redci);
+    const b = boravciPartije(redci).filter((x) => izvorne.has(x.tankId));
     boravci.set(berbaId, b);
     for (const x of b) posude.add(x.tankId);
   }

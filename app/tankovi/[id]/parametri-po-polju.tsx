@@ -252,18 +252,8 @@ function Graf({ niz, jedinica }: { niz: TockaGrafa[]; jedinica: string }) {
           vectorEffect="non-scaling-stroke"
         />
 
-        {niz.map((t, i) => (
-          <circle
-            key={i}
-            cx={x(t.t)}
-            cy={y(t.v)}
-            r={4}
-            fill={t.rucno ? "#7f1d1d" : "#ffffff"}
-            stroke="#7f1d1d"
-            strokeWidth={2}
-            vectorEffect="non-scaling-stroke"
-          />
-        ))}
+        {/* Bez kruzica na tockama — samo linija (vlasnikova odluka, 11.09.2026).
+            Izmjereno i izracunato razlikuje popis mjerenja ispod grafa. */}
 
         <text x={M.lijevo} y={V - 10} fontSize={11} fill="#6b7280">
           {fDan(niz[0].t)}
@@ -278,16 +268,6 @@ function Graf({ niz, jedinica }: { niz: TockaGrafa[]; jedinica: string }) {
           {fDan(niz[niz.length - 1].t)}
         </text>
       </svg>
-
-      <div style={legendaStil}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <span style={{ ...tockaLegenda, background: "#7f1d1d" }} /> izmjereno
-        </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <span style={{ ...tockaLegenda, background: "#ffffff" }} /> ≈
-          izračunato pri pretoku
-        </span>
-      </div>
     </div>
   );
 }
@@ -752,22 +732,6 @@ const zatvoriStil: React.CSSProperties = {
   cursor: "pointer",
   textTransform: "none",
   letterSpacing: 0,
-};
-
-const legendaStil: React.CSSProperties = {
-  display: "flex",
-  gap: 14,
-  fontSize: 11,
-  color: "#6b7280",
-  marginTop: 6,
-  flexWrap: "wrap",
-};
-
-const tockaLegenda: React.CSSProperties = {
-  width: 9,
-  height: 9,
-  border: "2px solid #7f1d1d",
-  display: "inline-block",
 };
 
 const racunNaslov: React.CSSProperties = {
