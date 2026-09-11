@@ -2249,3 +2249,93 @@ model VinoRadnja {
   @@index([tankId, dogodenoAt])
   @@index([izvornaRadnjaId])
 }
+
+enum IzvorImenaVina {
+  /// Covjek je upisao ime. Jedini izvor koji smije popraviti tipfeler.
+  RUCNO
+  /// Cuvée — spajanjem je nastalo NOVO vino, ime dolazi iz obrasca pretoka.
+  CUVEE
+  /// Vino se preselilo i ponijelo ime sa sobom (obican pretok, ista sorta).
+  PRETOK
+  /// Punjenje iz berbe — prvo imenovanje vina u zivotu.
+  PUNJENJE
+  /// Filtracija i srodni prijenosi: ista posudba imena kao PRETOK.
+  FILTRACIJA
+  /// Rekonstruirano iz onoga sto je vec zapisano (faza 2). Nikad izmisljeno.
+  BACKFILL
+}
+
+/// IME VINA JE CIN, NE SVOJSTVO POSUDE.
+/// ======================================================================
+///
+/// Do danas su ime i sorta stajali na `Tank.nazivVina` i `Tank.sorta` —
+/// posljednji ostatak modela u kojem posuda pamti vino. Posljedice su
+/// izmjerene: od 36 punih tankova njih 14 se ne slaze s knjigom o glavnoj
+/// sorti, ime je prepisano na sedam tablica bez ijednog izvora, a tipfeleri
+/// („Cvee bijeli", „Preševina", „Rajnski riesling" uz „Rajnski rizling")
+/// dokazuju da se prepisivalo rukom iz posude u posudu.
+///
+/// Ovdje se, po uzoru na `Fermentacija`, upisuje SAMO GRANICA: „od ovog
+/// trenutka vino u ovoj posudi zove se X". Sve ostalo se racuna spajanjem po
+/// prozoru — prozor je `lib/granica-vina.ts`, dakle otkad je u tanku vino
+/// koje je u njemu sada.
+///
+/// ADRESA JE TANK + VRIJEME, kao kod mjerenja (faza C). Zapis ne zna koje je
+/// vino imenovao; iz knjige se izvodi koje je vino tada bilo u tanku. Cim
+/// tank prodje kroz prazno, stariji zapisi ispadnu iz prozora sami od sebe i
+/// novo vino krece bezimeno.
+///
+/// DEKLARIRANA SORTA NIJE SASTAV. Ovdje stoji ono sto bi pisalo na etiketi
+/// („Graševina", „Cuvée bijeli"); stvarni sastav se i dalje izvodi iz knjige
+/// (`lib/berba-model.ts`). To su dvije razlicite tvrdnje i SMIJU se
+/// razlikovati — ali gdje se raziđu, ekran mora pokazati obje.
+///
+/// BEZ FK na Tank: zapis o tome kako se vino zvalo mora prezivjeti brisanje
+/// posude — isto pravilo kao `Fermentacija.tankId`.
+model ImeVina {
+  id     String @id @default(uuid())
+  tankId String
+
+  /// Od kada ime vrijedi. Ovo je `dogodenoAt`, ne trenutak upisa: backfill
+  /// pise zapise unatrag (odAt u proslosti, createdAt danas), a i covjek
+  /// smije imenovati vino s datumom ranijim od danasnjeg.
+  ///
+  /// Cita se ISKLJUCIVO po ovome, uz `createdAt` kao razrjesenje neodlucenog:
+  /// dva zapisa u istoj sekundi razrjesava redoslijed upisa.
+  odAt DateTime @db.Timestamptz(6)
+
+  /// Ime vina. NULL znaci da ovaj cin ne tvrdi ime (npr. mijenja se samo
+  /// deklarirana sorta). Zapis kojem su i naziv i sorta NULL se ne pise —
+  /// bezimeno vino nema zapis, a ne zapis s praznim imenom.
+  naziv String?
+
+  /// Ono sto bi pisalo na etiketi. NIJE sastav — vidi biljesku iznad.
+  deklariranaSorta String?
+
+  izvor IzvorImenaVina @default(RUCNO)
+
+  /// Cin kojim je ime nastalo, ako je nastalo strojno. Goli stupci, bez FK.
+  pretokId   String?
+  punjenjeId String?
+
+  /// Tko je imenovao. Ime se ne nagadja unatrag: sto nije zapisano ostaje
+  /// NULL (isto pravilo kao faza 3b).
+  korisnikId String?
+
+  /// ZASTO se ime promijenilo. Obavezan pri rucnoj izmjeni (provjerava ruta,
+  /// ne baza — strojni zapisi ga nemaju jer im je razlog sam izvor).
+  razlog   String?
+  napomena String?
+
+  /// Meko brisanje, ISKLJUCIVO za pogresan unos. Obrisani zapis ne sudjeluje
+  /// u racunu, ali ostaje vidljiv u povijesti imenovanja.
+  obrisano   Boolean   @default(false)
+  obrisanoAt DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([tankId, odAt(sort: Desc)])
+  @@index([odAt])
+  @@index([pretokId])
+}
