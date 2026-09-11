@@ -13,15 +13,20 @@
  *
  * CEMU `jeKvasac` UOPCE SLUZI — I CEMU NE
  * ---------------------------------------
- * Iskljucivo za suzavanje popisa pri otvaranju fermentacije: katalog ima 76
- * preparata, kvasaca je dvadesetak. NIJE klasifikacija preparata i nista drugo
- * ga ne cita — ni doziranje, ni zalihe, ni zadaci. Kriva oznaka zato ne kvari
- * podatke, samo popis; ali popis je ono zbog cega stupac postoji.
+ * Oznaka po kojoj aplikacija prepoznaje kvasac. Citaju je obrazac fermentacije
+ * (ponuda), lanac radnji (prepisuje se u VinoRadnja pri upisu i iz nje nastaju
+ * popis kvasaca i dan fermentacije na stranici tanka i u izvjestaju podruma) i
+ * dopuna po partiji (cita uzivo). Kriva oznaka zato NE kvari samo popis:
+ * pogresno oznacen preparat ulazi u kvasce tanka i u dan fermentacije.
+ *
+ * OVA SKRIPTA NE PRERACUNAVA VinoRadnja. Nakon upisa treba preracunajVinoRadnje
+ * za tankove do kojih su radnje s novo oznacenim preparatima stigle — inace
+ * glavno pravilo i dalje ne vidi kvasac, a dopuna po partiji vidi.
  *
  * NIKAD NE FILTRIRAJ ISPIS PO OVOME. Dnevnik fermentacije mora pokazati SVE
  * sto je islo u most — kvasac, hranu, enzime, zastitne pripravke — citano iz
- * Zadatak/ZadatakStavka BEZ ijednog filtra. Onih 46 preparata koje ova skripta
- * svrstava pod "nije kvasac" ide na ispis jednako kao i kvasci. Filtar po
+ * Zadatak/ZadatakStavka BEZ ijednog filtra. Preparati koje ova skripta
+ * svrstava pod "nije kvasac" idu na ispis jednako kao i kvasci. Filtar po
  * `jeKvasac` na ispisu pojeo bi pola dnevnika.
  *
  * KAKO SE PREPOZNAJE

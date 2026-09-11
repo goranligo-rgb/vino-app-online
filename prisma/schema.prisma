@@ -499,9 +499,21 @@ model Preparation {
   minimalnaKolicina          Float?                  @default(0)
   skladisnaJedinicaId        String?
   aktivan                    Boolean?                @default(true)
-  /// Sluzi SAMO za suzavanje popisa pri otvaranju fermentacije: katalog ima
-  /// 76 preparata, a kvasaca je dvadesetak. Nije klasifikacija preparata,
-  /// nista drugo ga ne cita. false = "nije oznacen kao kvasac".
+  /// JE LI PREPARAT KVASAC — jedina oznaka po kojoj aplikacija prepoznaje kvasac.
+  /// false = "nije oznacen kao kvasac".
+  ///
+  /// Tko je cita:
+  ///   - obrazac fermentacije: koje preparate nudi kao pocetak fermentacije;
+  ///   - lanac radnji (lib/vino-radnja.ts): PREPISUJE je u VinoRadnja.jeKvasac
+  ///     u trenutku upisa i nosi s vinom; iz toga stranica tanka i izvjestaj
+  ///     podruma racunaju popis kvasaca i dan fermentacije (lib/kvasci.ts);
+  ///   - dopuna po partiji (lib/kvasac-partija.ts): cita je UZIVO iz Radnja.
+  ///
+  /// NAKNADNA PROMJENA ne mijenja zatecene VinoRadnja retke — oni nose oznaku
+  /// iz trenutka upisa. Treba preracunajVinoRadnje za sve tankove do kojih je
+  /// radnja s tim preparatom stigla. Dopuna po partiji promjenu vidi odmah, pa
+  /// do preracuna dva pravila govore razlicito. (Primjer 11.09.2026: SIHA THIOL
+  /// FRESH FRUIT oznacen naknadno, preracunat T23.)
   ///
   /// NIKAD NE FILTRIRAJ ISPIS PO OVOME. Dnevnik fermentacije mora pokazati
   /// SVE sto je islo u most — kvasac, hranu, enzime, zastitne pripravke —
