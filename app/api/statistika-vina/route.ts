@@ -4,6 +4,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
+import { sastavSvihTankova } from "@/lib/berba-model";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
 
@@ -20,6 +21,29 @@ export async function GET() {
   }
 
   try {
+    // SASTAV IZ KNJIGE (faza E) — dva upita za cijeli podrum, ne po tanku.
+    // `TankSortaUdio` se vise ne cita; spremljeni udjeli ostaju u bazi, ali
+    // statistika ih ne gleda.
+    const sastavPoTanku = await sastavSvihTankova(prisma);
+
+    /**
+     * Udjeli sorti jednog tanka, u obliku koji ovaj izracun ocekuje.
+     *
+     * Kad knjiga za tank ne zna nista, pada na skalarni `Tank.sorta` — isto
+     * kao i prije, jer je to i dalje jedino sto o takvom tanku postoji.
+     */
+    const udjeliZa = (tankId: string, sorta: string | null) => {
+      const iz = sastavPoTanku.get(tankId) ?? [];
+      if (iz.length > 0) {
+        return iz.map((x) => ({
+          nazivSorte: x.nazivSorte,
+          postotak: x.postotak,
+        }));
+      }
+      const naziv = sorta?.trim();
+      return naziv ? [{ nazivSorte: naziv, postotak: 100 }] : [];
+    };
+
     const [tankovi, izlazi] = await Promise.all([
       prisma.tank.findMany({
         orderBy: { broj: "asc" },
@@ -110,8 +134,10 @@ export async function GET() {
           round((poNazivuVinaMap.get(nazivVina) ?? 0) + litara)
         );
 
-        if (tank.udjeliSorti.length > 0) {
-          for (const udio of tank.udjeliSorti) {
+        const udjeli = udjeliZa(tank.id, tank.sorta);
+
+        if (udjeli.length > 0) {
+          for (const udio of udjeli) {
             const naziv = udio.nazivSorte?.trim() || "Nepoznato";
             const dioLitara = litara * (Number(udio.postotak || 0) / 100);
             poSortamaMap.set(
@@ -142,7 +168,7 @@ export async function GET() {
         sorta: tank.sorta,
         nazivVina: tank.nazivVina,
         godiste: tank.godiste,
-        udjeliSorti: tank.udjeliSorti.map((u) => ({
+        udjeliSorti: udjeliZa(tank.id, tank.sorta).map((u) => ({
           nazivSorte: u.nazivSorte,
           postotak: round(Number(u.postotak ?? 0)),
           litara: round(litara * (Number(u.postotak ?? 0) / 100)),
@@ -156,8 +182,13 @@ export async function GET() {
 
       if (!tank || izlazLitara <= 0) continue;
 
-      if (tank.udjeliSorti && tank.udjeliSorti.length > 0) {
-        for (const udio of tank.udjeliSorti) {
+      // Izlaz se dijeli po sastavu tanka KAKAV JE DANAS — zateceno ogranicenje
+      // koje faza E ne mijenja: prodaja od prije mjesec dana time dobiva
+      // danasnji omjer sorti. Jedina je razlika odakle taj omjer dolazi.
+      const udjeliIzlaza = udjeliZa(tank.id, tank.sorta);
+
+      if (udjeliIzlaza.length > 0) {
+        for (const udio of udjeliIzlaza) {
           const naziv = udio.nazivSorte?.trim() || "Nepoznato";
           const dioLitara = izlazLitara * (Number(udio.postotak || 0) / 100);
 
