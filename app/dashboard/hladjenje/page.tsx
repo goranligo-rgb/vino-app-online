@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
+import { zadnjaOcitanjaPoTanku } from "@/lib/zadnje-ocitanje";
 import { getAuthUser } from "@/lib/putnik-auth";
 import {
   izracunajStatus,
@@ -62,19 +63,10 @@ export default async function HladjenjeDashboard() {
   });
   const ids = tankovi.map((t) => t.id);
 
-  // Zadnje ocitanje po tanku (max mjerenoU).
-  const maxevi = await prisma.ocitanjeTemperature.groupBy({
-    by: ["tankId"],
-    where: { tankId: { in: ids } },
-    _max: { mjerenoU: true },
-  });
-  const parovi = maxevi
-    .filter((m) => m._max.mjerenoU)
-    .map((m) => ({ tankId: m.tankId, mjerenoU: m._max.mjerenoU as Date }));
-  const zadnja = parovi.length
-    ? await prisma.ocitanjeTemperature.findMany({ where: { OR: parovi } })
-    : [];
-  const zadnjaMap = new Map(zadnja.map((o) => [o.tankId, o]));
+  // Zadnje ocitanje po tanku — jedan redak po tanku, vidi lib/zadnje-ocitanje.ts.
+  // Prije `groupBy _max` + `findMany OR`, koji su prolazili kroz cijelu tablicu
+  // ocitanja.
+  const zadnjaMap = await zadnjaOcitanjaPoTanku(prisma, ids);
 
   // Aktivni alarmi.
   const alarmi = await prisma.tankAlarm.findMany({
@@ -191,8 +183,8 @@ export default async function HladjenjeDashboard() {
   // HEARTBEAT_PRAG_MIN, ne javlja se ni jedan tank - dakle stoji gateway, Pi ili
   // mreža, a ne pojedini kontroler. (Servis je jednom stajao tjedan dana a da
   // nitko nije primijetio - zato upozorenje ide na vrh, preko cijele širine.)
-  const zadnjeIkad = parovi.reduce<Date | null>(
-    (max, p) => (max == null || p.mjerenoU > max ? p.mjerenoU : max),
+  const zadnjeIkad = [...zadnjaMap.values()].reduce<Date | null>(
+    (max, o) => (max == null || o.mjerenoU > max ? o.mjerenoU : max),
     null
   );
   const nemaHeartbeata = tiles.length > 0 && gatewayNeJavlja(zadnjeIkad);

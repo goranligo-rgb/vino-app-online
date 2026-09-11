@@ -16,6 +16,7 @@ import { uValovima } from "@/lib/paralelno";
 import { kvasciPoPartiji, type KvasacPartije } from "@/lib/kvasac-partija";
 import { sastavSvihTankova } from "@/lib/berba-model";
 import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
+import { zadnjaOcitanja, type ZadnjeOcitanje } from "@/lib/zadnje-ocitanje";
 
 /** Koliko dana unatrag gledaju traka i graf temperature/secera. */
 export const DANA_GRAF = 10;
@@ -35,15 +36,6 @@ type DanTemperature = {
   min: number;
   max: number;
   hladi: boolean;
-};
-
-type ZadnjeOcitanje = {
-  tankId: string;
-  temperatura: number | null;
-  zadanaTemperatura: number | null;
-  hladjenjeAktivno: boolean;
-  status: string;
-  mjerenoU: Date;
 };
 
 type ZadnjiDolazak = {
@@ -397,21 +389,11 @@ export async function dohvatiPodrum() {
           ORDER BY b."ciljTankId", b."kolicina" DESC
         `,
 
-      // 7. ZADNJE OCITANJE po tanku — `DISTINCT ON` je jedan prolaz po istom
-      // indeksu, umjesto 38 zasebnih `findFirst`.
-      () =>
-        prisma.$queryRaw<ZadnjeOcitanje[]>`
-          SELECT DISTINCT ON ("tankId")
-            "tankId",
-            "temperatura"::float8       AS temperatura,
-            "zadanaTemperatura"::float8 AS "zadanaTemperatura",
-            "hladjenjeAktivno",
-            "status",
-            "mjerenoU"
-          FROM "OcitanjeTemperature"
-          WHERE "tankId" = ANY(${ids}::text[])
-          ORDER BY "tankId", "mjerenoU" DESC
-        `,
+      // 7. ZADNJE OCITANJE po tanku — jedan redak po tanku, jednim upitom
+      // (lib/zadnje-ocitanje.ts). Ovdje je do 11.09.2026. stajao
+      // `DISTINCT ON ("tankId")`, koji je prolazio kroz sva ocitanja punih
+      // tankova (~900.000 redaka, 26,5 s) da uzme po jedno.
+      () => zadnjaOcitanja(prisma, ids),
 
       // 8. ZADNJI DOLAZAK VINA — punjenje ili pretok, sto je novije.
       //

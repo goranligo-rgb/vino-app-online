@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
 import { stvarnaZadana, uBroj } from "@/lib/temperatura";
 import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
+import { zadnjaOcitanjaPoTanku } from "@/lib/zadnje-ocitanje";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -32,19 +33,10 @@ export async function GET() {
 
     const ids = tankovi.map((t) => t.id);
 
-    // Zadnje ocitanje po tanku (max mjerenoU) + aktivni alarmi.
-    const maxevi = await prisma.ocitanjeTemperature.groupBy({
-      by: ["tankId"],
-      where: { tankId: { in: ids } },
-      _max: { mjerenoU: true },
-    });
-    const parovi = maxevi
-      .filter((m) => m._max.mjerenoU)
-      .map((m) => ({ tankId: m.tankId, mjerenoU: m._max.mjerenoU as Date }));
-    const zadnja = parovi.length
-      ? await prisma.ocitanjeTemperature.findMany({ where: { OR: parovi } })
-      : [];
-    const zadnjaMap = new Map(zadnja.map((o) => [o.tankId, o]));
+    // Zadnje ocitanje po tanku — jedan redak po tanku, vidi lib/zadnje-ocitanje.ts.
+    // Prije `groupBy _max` + `findMany OR`, koji su prolazili kroz cijelu
+    // tablicu ocitanja (7 s i sve vise).
+    const zadnjaMap = await zadnjaOcitanjaPoTanku(prisma, ids);
 
     const alarmi = await prisma.tankAlarm.findMany({
       where: { tankId: { in: ids }, aktivan: true },
