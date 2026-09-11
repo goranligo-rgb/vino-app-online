@@ -20,6 +20,7 @@ import { popisKvasacaSDopunom } from "@/lib/kvasci";
 import { kvasciPoPartiji } from "@/lib/kvasac-partija";
 import { granicaVina, odGraniceVina } from "@/lib/granica-vina";
 import { parametriVinaIzKnjige } from "@/lib/parametri-vina";
+import { stanjeVina, razlogSkrivanja } from "@/lib/vino-fermentira";
 import {
   podrijetloTanka,
   sastavIzPodrijetla,
@@ -46,7 +47,10 @@ import {
   type RedakMjerenja,
   DANA_ZA_STARU_PROCJENU,
 } from "@/lib/mjerenja";
-import ParametriPoPolju, { type ParametarPrikaz } from "./parametri-po-polju";
+import ParametriPoPolju, {
+  type ParametarPrikaz,
+  type TockaGrafa,
+} from "./parametri-po-polju";
 import {
   izracunajStatus,
   stilZaStatus,
@@ -570,6 +574,22 @@ function BerbaStavkaKartica({
  * ispod sebe (temperaturu, zadatke, kronologiju).
  */
 const NASLIJEDENO_ODMAH = 6;
+
+/**
+ * Spoji vlastita mjerenja i ona naslijedjena iz ranijih posuda u jedan niz.
+ *
+ * Isti trenutak iz oba izvora je ISTO mjerenje vidjeno dvaput: vlastiti redak
+ * i njegova kopija u arhivi posude kroz koju je vino proslo. Pobjedjuje
+ * vlastiti — on zna je li mjerenje rucno.
+ */
+function spojiNiz(vlastiti: TockaGrafa[], naslijedeni: TockaGrafa[]): TockaGrafa[] {
+  const poVremenu = new Map<string, TockaGrafa>();
+
+  for (const x of naslijedeni) poVremenu.set(x.t, x);
+  for (const x of vlastiti) poVremenu.set(x.t, x);
+
+  return [...poVremenu.values()].sort((a, b) => a.t.localeCompare(b.t));
+}
 
 /**
  * Koliko sastavnica vina stane u jedan redak uz mjerenje prije nego se ostatak
@@ -1350,6 +1370,14 @@ export default async function TankPregledPage({
 
   const poPolju = sloziPoPolju(mjerenjaZaParametre);
 
+  // FERMENTIRA LI VINO — po VLASTITOM seceru ovog tanka, unutar granice vina.
+  // Racuna se jednom, prije mreze parametara. Nema upita: `poPolju` je vec
+  // slozen iz mjerenja procitanih u prvom valu.
+  const stanjeFermentacije = stanjeVina(
+    poPolju.vrijednosti.secer,
+    poPolju.izvorPolja.secer?.izmjerenoAt ?? null
+  );
+
   const OPIS_POLJA: Array<{
     kljuc: keyof typeof poPolju.vrijednosti;
     naziv: string;
@@ -1373,7 +1401,23 @@ export default async function TankPregledPage({
     // TRECI IZVOR, kad prva dva sute: vrijednost izmjerena na OVOM vinu dok
     // je bilo u ranijoj posudi. Nije racun nego mjerenje, pa stoji ispred
     // "nema" — a iza vlastitog i iza blenda, koji su blizi ovom tanku.
-    const izKnjige = parametriVina?.poPolju[o.kljuc] ?? null;
+    const izKnjigeSirovo = parametriVina?.poPolju[o.kljuc] ?? null;
+
+    // FERMENTACIJA GASI NASLIJEDJENU VRIJEDNOST.
+    //
+    // Vino usred fermentacije svaki dan ima drugi alkohol i drugi SO2, pa
+    // vrijednost naslijedjena iz neke ranije posude opisuje vino koje je tada
+    // bilo ondje, a ne ovo. Pravilo i njegova iznimka (svjezija vrijednost
+    // ostaje) stoje u lib/vino-fermentira.ts.
+    //
+    // Gasi SAMO naslijedjeno iz knjige. Vlastito mjerenje i procjena iz blenda
+    // se ne diraju: prvo je mjereno na ovom vinu, drugo je racun nad danasnjim
+    // sastavnicama.
+    const razlogNeprikaza = izKnjigeSirovo
+      ? razlogSkrivanja(o.kljuc, izKnjigeSirovo.najnovijeAt, stanjeFermentacije)
+      : null;
+
+    const izKnjige = razlogNeprikaza ? null : izKnjigeSirovo;
 
     // "preneseno" = vlastiti redak koji je upisao pretok (jeRucno = false).
     // Ni to nitko nije izmjerio, pa ide u isti vizualni razred kao blend.
@@ -1398,6 +1442,7 @@ export default async function TankPregledPage({
           ? vlastita
           : (b?.vrijednost ?? izKnjige?.vrijednost ?? null),
       podrijetlo,
+      neprikazano: razlogNeprikaza,
       izKnjige: izKnjige
         ? {
             mjerenoAt: izKnjige.najnovijeAt.toISOString(),
@@ -1412,11 +1457,36 @@ export default async function TankPregledPage({
           }
         : null,
       datum: izvor?.izmjerenoAt.toISOString() ?? null,
-      niz: nizPolja(mjerenjaZaParametre, o.kljuc).map((t) => ({
-        t: t.izmjerenoAt.toISOString(),
-        v: t.vrijednost,
-        rucno: t.jeRucno,
-      })),
+      // GRAF CRTA POVIJEST VINA, NE POSUDE.
+      //
+      // Vlastita mjerenja ovog tanka + mjerenja istog vina iz ranijih posuda,
+      // spojena u jedan niz po vremenu. Tank 15 je cijelu svoju mjerenu
+      // povijest proveo u tanku 8; bez ovoga mu je graf prazan iako podatak
+      // postoji, a kartica iznad ga uredno pokazuje.
+      //
+      // Vlastito ima prednost: kad su oba niza imala isti trenutak, na grafu
+      // ostaje redak ovog tanka (ima `jeRucno`, naslijedeni nema).
+      niz: spojiNiz(
+        nizPolja(mjerenjaZaParametre, o.kljuc).map((t) => ({
+          t: t.izmjerenoAt.toISOString(),
+          v: t.vrijednost,
+          rucno: t.jeRucno,
+          posuda: null,
+        })),
+        (parametriVina?.niz[o.kljuc] ?? [])
+          // Samo tocke koje opisuju VECINU vina u tanku. Vino je obicno spoj
+          // desetak partija, svaka je prosla svojim putem, pa bi bez ovoga graf
+          // tanka 5 dobio 91 tocku iz 16 posuda — paralelne krivulje tudih
+          // mostova, ne povijest ovog vina. Ovo NIJE prag na vrijednosti (te se
+          // prikazuju bez obzira na pokrivenost) nego na tome sto se CRTA.
+          .filter((x) => !x.vlastito && x.postotak >= 50)
+          .map((x) => ({
+            t: x.izmjerenoAt.toISOString(),
+            v: x.vrijednost,
+            rucno: false,
+            posuda: x.brojTanka != null ? `tank ${x.brojTanka}` : "ranija posuda",
+          }))
+      ),
       blend: b
         ? {
             vrijednost: b.vrijednost,

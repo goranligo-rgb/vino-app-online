@@ -70,8 +70,38 @@ export type PoljeVina = {
   izvori: IzvorVrijednosti[];
 };
 
+/** Jedna tocka na grafu — mjerenje ovog vina, bilo u kojoj posudi. */
+export type TockaVina = {
+  izmjerenoAt: Date;
+  vrijednost: number;
+  brojTanka: number | null;
+  /** Je li mjereno u OVOM tanku ili u nekoj ranijoj posudi. */
+  vlastito: boolean;
+  /**
+   * Koliko litara danasnjeg vina ta tocka opisuje, i koliki je to udio.
+   *
+   * Treba jer vino u tanku obicno nije jedna partija nego desetak, a svaka je
+   * prosla kroz svoju posudu. Bez ove mjere graf tanka 5 dobiva 91 tocku iz
+   * 16 posuda — to nisu koraci istog vina nego paralelne posude u kojima su
+   * mu partije usput boravile, svaka sa svojom krivuljom.
+   */
+  litre: number;
+  postotak: number;
+};
+
 export type ParametriVina = {
   poPolju: Partial<Record<Polje, PoljeVina>>;
+  /**
+   * SVA mjerenja ovog vina kroz SVE posude, po polju, poredana po vremenu.
+   *
+   * Graf je dosad crtao samo mjerenja s ovog tanka — isti rascjep koji je faza
+   * D zatvorila za granicu i za berbu. Vino koje je pola zivota provelo u
+   * drugoj posudi ondje je i mjereno, pa mu krivulja bez tih tocaka pocinje
+   * usred price.
+   *
+   * Tocke nose broj posude, da se vidi gdje je koja izmjerena.
+   */
+  niz: Partial<Record<Polje, TockaVina[]>>;
   ukupnoL: number;
 };
 
@@ -198,6 +228,7 @@ export async function parametriVinaIzKnjige(
     db.mjerenje.findMany({
       where: { tankId: { in: [...posude] }, OR: imaPolje as never },
       select: {
+        id: true,
         tankId: true,
         izmjerenoAt: true,
         alkohol: true,
@@ -213,6 +244,7 @@ export async function parametriVinaIzKnjige(
     db.arhivaVinaMjerenje.findMany({
       where: { tankId: { in: [...posude] }, OR: imaPolje as never },
       select: {
+        id: true,
         tankId: true,
         izmjerenoAt: true,
         alkohol: true,
@@ -258,6 +290,11 @@ export async function parametriVinaIzKnjige(
   };
 
   const skupljeno = new Map<Polje, IzvorVrijednosti[]>();
+
+  // Sve tocke za graf. Kljuc je (mjerenje, polje) jer isto mjerenje pokriva
+  // vise partija koje su dijelile posudu — bez toga bi tocka bila nacrtana
+  // onoliko puta koliko partija je tada bilo unutra.
+  const tocke = new Map<Polje, Map<string, TockaVina>>();
 
   for (const s of stanje) {
     // Po partiji: NAJNOVIJA vrijednost svakog polja kroz sve njezine posude.
@@ -305,6 +342,20 @@ export async function parametriVinaIzKnjige(
           const v = (m as Record<string, unknown>)[polje];
           if (v == null) continue;
 
+          // Ista tocka pokriva sve partije koje su tada dijelile posudu —
+          // litre im se ZBRAJAJU, kao i svugdje drugdje.
+          const zaGraf = tocke.get(polje) ?? new Map<string, TockaVina>();
+          const stara = zaGraf.get(m.id);
+          zaGraf.set(m.id, {
+            izmjerenoAt: m.izmjerenoAt,
+            vrijednost: Number(v),
+            brojTanka: brojPoTanku.get(b.tankId) ?? null,
+            vlastito: b.tankId === tankId,
+            litre: (stara?.litre ?? 0) + s.litre,
+            postotak: 0,
+          });
+          tocke.set(polje, zaGraf);
+
           const prije = najnovije.get(polje);
           if (prije && prije.izmjerenoAt >= m.izmjerenoAt) continue;
 
@@ -327,7 +378,7 @@ export async function parametriVinaIzKnjige(
     }
   }
 
-  if (skupljeno.size === 0) return null;
+  if (skupljeno.size === 0 && tocke.size === 0) return null;
 
   const poPolju: Partial<Record<Polje, PoljeVina>> = {};
 
@@ -353,5 +404,17 @@ export async function parametriVinaIzKnjige(
     };
   }
 
-  return { poPolju, ukupnoL };
+  const niz: Partial<Record<Polje, TockaVina[]>> = {};
+  for (const [polje, mapa] of tocke) {
+    niz[polje] = [...mapa.values()]
+      .map((x) => ({
+        ...x,
+        litre: Number(x.litre.toFixed(3)),
+        postotak:
+          ukupnoL > 0 ? Number(((x.litre / ukupnoL) * 100).toFixed(2)) : 0,
+      }))
+      .sort((a, b) => a.izmjerenoAt.getTime() - b.izmjerenoAt.getTime());
+  }
+
+  return { poPolju, niz, ukupnoL };
 }

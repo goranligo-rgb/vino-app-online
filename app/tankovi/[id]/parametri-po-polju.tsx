@@ -26,6 +26,14 @@ export type TockaGrafa = {
   t: string; // ISO
   v: number;
   rucno: boolean;
+  /**
+   * Posuda u kojoj je tocka izmjerena — "tank 8". `null` za ovaj tank.
+   *
+   * Graf crta povijest VINA, ne posude: vino koje je pola zivota provelo
+   * drugdje ondje je i mjereno. Oznaka kaze gdje, da se krivulja ne cita kao
+   * da je sve mjereno ovdje.
+   */
+  posuda?: string | null;
 };
 
 /**
@@ -62,6 +70,16 @@ export type ParametarPrikaz = {
   /** ISO datum vlastitog mjerenja tog polja; kod blenda null. */
   datum: string | null;
   niz: TockaGrafa[];
+  /**
+   * Zasto se vrijednost NE prikazuje iako postoji.
+   *
+   * Danas samo jedan razlog: vino fermentira, pa naslijedjena vrijednost
+   * starija od dokaza o fermentaciji vise ne opisuje ovo vino. Prazno polje
+   * bez objasnjenja citalo bi se kao "nema podatka", a podatak postoji —
+   * samo je zastario za ovo stanje.
+   */
+  neprikazano?: string | null;
+
   /**
    * Vrijednost nadjena kroz KNJIGU — izmjerena na ovom vinu, u ranijoj posudi.
    * Postoji samo kad tank nema ni vlastito mjerenje ni procjenu iz blenda.
@@ -439,7 +457,9 @@ export default function ParametriPoPolju({
                 }}
               >
                 {prazan
-                  ? "nije mjereno"
+                  ? p.neprikazano
+                    ? "ne prikazuje se — " + p.neprikazano
+                    : "nije mjereno"
                   : p.podrijetlo === "mjereno"
                     ? "izmjereno " + fDanKratko(p.datum)
                     : p.podrijetlo === "knjiga"
@@ -542,13 +562,24 @@ export default function ParametriPoPolju({
                           {fBroj(t.v)}
                           {aktivni.jedinica ? " " + aktivni.jedinica : ""}
                         </span>
+                        {/* Tocka iz ranije posude kaze GDJE je mjerena.
+                            Vino je ondje stvarno bilo — graf crta njegovu
+                            povijest, ne povijest ove posude. */}
                         <span
                           style={{
                             ...popisOznaka,
-                            color: t.rucno ? "#6b7280" : BOJA_RACUN,
+                            color: t.posuda
+                              ? "#6b7280"
+                              : t.rucno
+                                ? "#6b7280"
+                                : BOJA_RACUN,
                           }}
                         >
-                          {t.rucno ? "izmjereno" : "≈ pretok"}
+                          {t.posuda
+                            ? "izmjereno u " + t.posuda
+                            : t.rucno
+                              ? "izmjereno"
+                              : "≈ pretok"}
                         </span>
                       </div>
                     ))}
