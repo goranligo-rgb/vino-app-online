@@ -14,7 +14,13 @@ type Tank = {
   kapacitet: number;
   tip: string | null;
   kolicinaVinaUTanku: number | null;
+  /** Deklarirana sorta iz cina imenovanja (faza 4), ne `Tank.sorta`. */
   sorta: string | null;
+  nazivVina: string | null;
+  /** Vino je u posudi, a nitko ga nije imenovao. Razlicito od prazne posude. */
+  bezimeno: boolean;
+  /** Gotov jednoredni opis sa servera — vidi lib/ime-vina.ts `imeZaPrikaz`. */
+  opisVina: string;
   zadnjaTemp: number | null;
   zadanaTemp: number | null;
   hladjenjeAktivno: boolean | null;
@@ -293,6 +299,25 @@ export default function MonitorPage() {
 
                   <div style={{ fontSize: 12, marginBottom: 3 }}>
                     Vino: {tank.kolicinaVinaUTanku || 0} L
+                  </div>
+
+                  {/* IME, PA SORTA. Do faze 4 je ovdje stajala samo
+                      `Tank.sorta`, stupac koji se s knjigom razilazio na 14 od
+                      36 punih tankova. Sada ide ime vina iz cina imenovanja, a
+                      sorta ispod njega kao DEKLARIRANA — stvarni sastav se
+                      izvodi iz knjige i stoji na stranici tanka.
+
+                      Bezimeno vino se kaze rijecima. Crtica izgleda kao da se
+                      podatak nije ucitao; „bez imena" je tvrdnja. */}
+                  <div style={{ fontSize: 12, marginBottom: 3 }}>
+                    Ime:{" "}
+                    {tank.bezimeno ? (
+                      <span style={{ color: "#9ca3af", fontStyle: "italic" }}>
+                        bez imena
+                      </span>
+                    ) : (
+                      tank.opisVina
+                    )}
                   </div>
 
                   <div style={{ fontSize: 12, marginBottom: 3 }}>

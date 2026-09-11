@@ -15,6 +15,7 @@ import { prisma } from "@/lib/prisma";
 import { uValovima } from "@/lib/paralelno";
 import { kvasciPoPartiji, type KvasacPartije } from "@/lib/kvasac-partija";
 import { sastavSvihTankova } from "@/lib/berba-model";
+import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
 
 /** Koliko dana unatrag gledaju traka i graf temperature/secera. */
 export const DANA_GRAF = 10;
@@ -152,7 +153,7 @@ export async function dohvatiPodrum() {
   const odSO2 = new Date(Date.now() - TJEDANA_SO2 * 7 * 24 * 3600 * 1000);
 
   // --- KRUG 1: tankovi. Svi ostali upiti trebaju popis id-eva. ---
-  const tankovi = await prisma.tank.findMany({
+  const sirovi = await prisma.tank.findMany({
     orderBy: { broj: "asc" },
     select: {
       id: true,
@@ -170,6 +171,26 @@ export async function dohvatiPodrum() {
     },
   });
   brojUpita++;
+
+  // IME VINA SE IZVODI (faza 4). `Tank.nazivVina` i `Tank.sorta` su ostatak
+  // modela u kojem posuda pamti vino; ovdje se uzima zadnji cin imenovanja
+  // koji pada u prozor danasnjeg vina. Jedan poziv za cijeli podrum, kao i
+  // `sastavSvihTankova` nize.
+  const imena = await imenaPodruma(prisma);
+  brojUpita += 4;
+
+  const tankovi = sirovi.map((t) => {
+    const ime = imena.get(t.id);
+    return {
+      ...t,
+      nazivVina: ime?.naziv ?? null,
+      sorta: ime?.deklariranaSorta ?? null,
+      /** Vino je u posudi, a nitko ga nije imenovao — nije prazna posuda. */
+      bezimeno: jeBezImena(ime),
+      /** Gotov jednoredni opis — vidi lib/ime-vina.ts `imeZaPrikaz`. */
+      opisVina: imeZaPrikaz(ime).tekst,
+    };
+  });
 
   const puni = tankovi.filter((t) => Number(t.kolicinaVinaUTanku ?? 0) > 0);
   const prazni = tankovi.filter((t) => !(Number(t.kolicinaVinaUTanku ?? 0) > 0));

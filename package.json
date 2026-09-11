@@ -36,6 +36,7 @@
     "e:provjeri": "tsx scripts/provjeri-fazu-e.ts",
     "kvasac:partija": "tsx scripts/provjeri-kvasac-partija.ts",
     "blend:popravi": "tsx scripts/popravi-blend-izlazima.ts",
+    "ime:provjeri": "tsx scripts/provjeri-fazu-4.ts",
     "test:ime:vina": "tsx scripts/test-ime-vina.ts",
     "ime:backfill": "tsx scripts/backfill-ime-vina.ts"
   },

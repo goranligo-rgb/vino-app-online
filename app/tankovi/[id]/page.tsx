@@ -20,6 +20,7 @@ import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
 import { popisKvasacaSDopunom } from "@/lib/kvasci";
 import { kvasciPoPartiji } from "@/lib/kvasac-partija";
 import { granicaVina, odGraniceVina } from "@/lib/granica-vina";
+import { imeVina, jeBezImena, usporediSaSastavom } from "@/lib/ime-vina";
 import { parametriVinaIzKnjige } from "@/lib/parametri-vina";
 import { stanjeVina, razlogSkrivanja } from "@/lib/vino-fermentira";
 import {
@@ -1025,6 +1026,13 @@ export default async function TankPregledPage({
   const granicaVinaAt = granica.odAt;
   const odGranice = odGraniceVina(granica);
 
+  // IME VINA (faza 4) — cin imenovanja unutar prozora koji je granica upravo
+  // odredila, a ne `Tank.nazivVina`. Cita se TEK OVDJE jer mu treba granica:
+  // zapis stariji od nje pripada vinu kojeg u posudi vise nema.
+  //
+  // Jedan upit, i to tek nakon prvog vala — isti razlog kao podrijetlo nize.
+  const ime = await imeVina(prisma, id, granica);
+
   // Izlazi dolaze ugnijezdjeni iz glavnog upita, prije nego je granica poznata,
   // pa se filtriraju ovdje. Danas je to prazan hod jer arhiviranje brise
   // IzlazVina — ali ostaje tocno ako se to promijeni.
@@ -1329,6 +1337,16 @@ export default async function TankPregledPage({
   // to se mora vidjeti, a ne tiho progutati.
   const razlikaKnjigaTank = podrijetloKnjige.razlikaOdTankaL;
   const razlikeSastava = razlikaSastava(udjeliSorti, sastavKnjige);
+
+  // DEKLARIRANA SORTA NAPRAMA ONOME STO KNJIGA POKAZUJE.
+  //
+  // Dvije razlicite tvrdnje o istom vinu: deklarirana sorta je ono sto bi
+  // pisalo na etiketi i upisuje ju cin imenovanja, a sastav se izvodi iz
+  // knjige pri svakom prikazu. SMIJU se razlikovati — cuvée se zove „Cuvée
+  // bijeli" i to nije greska — pa se obje pokazuju, a nesklad se tvrdi samo
+  // kad je nedvojben (jedna sorta drzi gotovo cijeli tank, a deklarirano je
+  // nesto drugo). Vidi `usporediSaSastavom`.
+  const usporedbaSorte = usporediSaSastavom(ime.deklariranaSorta, sastavKnjige);
 
   // PARAMETRI IZ KNJIGE — zadnja mjerena vrijednost koja pripada OVOM vinu, u
   // kojoj god posudi bila izmjerena.
@@ -2222,9 +2240,50 @@ export default async function TankPregledPage({
         Izvještaj
       </Link>
 
-      {tank.nazivVina?.trim() ? (
-        <div style={nazivVinaStyle}>{tank.nazivVina}</div>
-      ) : null}
+      {/* IME VINA (faza 4) — iz cina imenovanja, ne s `Tank.nazivVina`.
+          ======================================================================
+          Tri retka, svaki s vlastitom tvrdnjom i vlastitim izvorom:
+
+            1. IME — kako se vino zove. Bezimeno se kaze rijecima, jer prazno
+               mjesto izgleda kao podatak koji nedostaje, a rijec je o poslu
+               koji ceka covjeka (osam tankova, faza 5).
+            2. DEKLARIRANA SORTA — ono sto bi pisalo na etiketi.
+            3. NESKLAD — samo kad deklarirano i knjiga nedvojbeno ne govore
+               isto. Ne bira se pobjednik: stoje obje tvrdnje, imenovane.
+
+          Stvarni sastav ima svoju karticu nize i ne ponavlja se ovdje. */}
+      {ime.razlog === "PRAZAN" ? null : (
+        <div style={{ display: "grid", gap: 2 }}>
+          <div style={ime.naziv ? nazivVinaStyle : nazivVinaBezimenoStyle}>
+            {ime.naziv ?? "Bez imena"}
+          </div>
+
+          {ime.deklariranaSorta ? (
+            <div style={deklariranaSortaStyle}>
+              Deklarirana sorta: {ime.deklariranaSorta}
+            </div>
+          ) : null}
+
+          {usporedbaSorte.razilazi &&
+          usporedbaSorte.deklarirana &&
+          usporedbaSorte.glavna ? (
+            <div style={sortaNeskladStyle}>
+              Deklarirano „{usporedbaSorte.deklarirana}”, a knjiga kaže{" "}
+              {usporedbaSorte.glavna}{" "}
+              {formatBroj(usporedbaSorte.glavniPostotak ?? 0, 1)} %.
+            </div>
+          ) : null}
+
+          {/* `jeBezImena`, ne `razlog === "BEZIMENO"`: osam tankova IMA zapis o
+              imenovanju, ali u njemu stoji samo deklarirana sorta. Vino je i
+              dalje bezimeno i to mora pisati. */}
+          {jeBezImena(ime) ? (
+            <div style={sortaNeskladStyle}>
+              Vino je u tanku, ali ga nitko nije imenovao.
+            </div>
+          ) : null}
+        </div>
+      )}
 
       <div style={topParamsGridStyle}>
         <ParamTop
@@ -3612,13 +3671,48 @@ const headerActionsStyle: React.CSSProperties = {
 
 const nazivVinaStyle: React.CSSProperties = {
   marginTop: 12,
-  marginBottom: 10,
+  marginBottom: 2,
   textAlign: "center",
   fontSize: 24,
   fontWeight: 800,
   color: "#7f1d1d",
   lineHeight: 1.15,
   letterSpacing: 0.2,
+};
+
+/**
+ * Bezimeno vino — isto mjesto i ista velicina kao ime, ali sivo i u kurzivu.
+ *
+ * NAMJERNO ZAUZIMA MJESTO IMENA. Prazan prostor bi izgledao kao da se podatak
+ * nije ucitao; ovako se vidi da vino postoji i da mu ime tek treba dati.
+ */
+const nazivVinaBezimenoStyle: React.CSSProperties = {
+  ...nazivVinaStyle,
+  fontWeight: 500,
+  fontStyle: "italic",
+  color: "#9ca3af",
+};
+
+/** „Ono sto bi pisalo na etiketi" — stoji pod imenom, ne umjesto sastava. */
+const deklariranaSortaStyle: React.CSSProperties = {
+  textAlign: "center",
+  fontSize: 12,
+  color: "#6b7280",
+  marginBottom: 2,
+};
+
+/**
+ * Nesklad deklarirane sorte i knjige, i biljeska o bezimenom vinu.
+ *
+ * Nije greska nego dvije tvrdnje koje se ne poklapaju — boja je zato jantarna
+ * (paznja), a ne crvena (kvar). Odluku donosi covjek.
+ */
+const sortaNeskladStyle: React.CSSProperties = {
+  textAlign: "center",
+  fontSize: 12,
+  color: "#92400e",
+  marginBottom: 10,
+  lineHeight: 1.3,
 };
 
 const topParamsGridStyle: React.CSSProperties = {

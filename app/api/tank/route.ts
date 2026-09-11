@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
 import { jeL12 } from "@/lib/auth-role";
 import { razlikaPolja, zabiljeziIzmjene } from "@/lib/dnevnik-izmjena";
-import { zabiljeziImenovanje } from "@/lib/ime-vina";
+import { imeZaPrikaz, imenaPodruma, jeBezImena, zabiljeziImenovanje } from "@/lib/ime-vina";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
@@ -27,7 +27,35 @@ const POLJA_DNEVNIKA_TANKA = {
   nazivVina: true,
 } as const;
 
-// GET - dohvat svih tankova
+/**
+ * GET - dohvat svih tankova.
+ *
+ * `nazivVina` I `sorta` SE OD FAZE 4 IZVODE, NE CITAJU SE SA STUPCA.
+ * ======================================================================
+ *
+ * Ime vina je cin (`ImeVina`), a ne svojstvo posude. Ovdje se za svaki tank
+ * uzme zadnji cin imenovanja koji pada u prozor danasnjeg vina — dakle iza
+ * `granicaVina` — i njegov naziv i deklarirana sorta idu van pod istim
+ * imenima polja pod kojima su dosad isli stupci.
+ *
+ * ZASTO POD ISTIM IMENIMA, a ne kao nova polja: ovu rutu cita devet stranica
+ * (dodavanje, izlaz-vina, mjerenje, pretok, punjenje, tankovi, tank-switcher,
+ * zadaci) i svaka od njih vec zna sto je `t.nazivVina`. Novo polje znacilo bi
+ * devet odvojenih izmjena i devet prilika da se ekrani razidju; ovako se sve
+ * prebacuju odjednom, a znacenje polja ostaje isto — „kako se zove vino koje
+ * je sada u ovoj posudi".
+ *
+ * MJERENO PRIJE PREBACIVANJA: od 38 punih tankova izvedeno ime se slaze s
+ * `Tank.nazivVina` na svih 38. Nijedan ekran se danas ne mijenja — mijenja se
+ * samo odakle podatak dolazi, i to je i bila svrha.
+ *
+ * STUPCI IDU UZ, POD `tankNazivVina` i `tankSorta`. Faza 4 ih jos pise (gasi
+ * ih faza 5), pa tko ih treba — a to je za sada samo obrazac na /tankovi —
+ * ima ih. Kad se ugase, ostaje samo izvedeno.
+ *
+ * PRAZAN TANK NEMA IME. Ne nasljedjuje ga od vina koje je otislo: granica se
+ * pomakne i stariji zapisi ispadnu iz prozora sami od sebe.
+ */
 export async function GET() {
   const user = await getAuthUser();
 
@@ -40,7 +68,30 @@ export async function GET() {
       orderBy: { broj: "asc" },
     });
 
-    return NextResponse.json(tankovi);
+    const imena = await imenaPodruma(prisma);
+
+    const sIzvedenimImenom = tankovi.map((t) => {
+      const ime = imena.get(t.id);
+      return {
+        ...t,
+        nazivVina: ime?.naziv ?? null,
+        sorta: ime?.deklariranaSorta ?? null,
+        /** Zatecene vrijednosti sa stupaca — vidi biljesku iznad. */
+        tankNazivVina: t.nazivVina ?? null,
+        tankSorta: t.sorta ?? null,
+        /**
+         * „Vino je u posudi, ali ga nitko nije imenovao" — razlicito od
+         * „posuda je prazna". Ekran to mora moci razlikovati, pa ne ide kroz
+         * `nazivVina === null`.
+         */
+        bezimeno: jeBezImena(ime),
+        /** Gotov jednoredni opis — „Graševina" ili „bez imena · Muškat žuti". */
+        opisVina: imeZaPrikaz(ime).tekst,
+        imenovanoAt: ime?.odAt ?? null,
+      };
+    });
+
+    return NextResponse.json(sIzvedenimImenom);
   } catch (error) {
     console.error("Greška kod dohvaćanja tankova:", error);
     return NextResponse.json(

@@ -137,13 +137,34 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
       <header className="zaglavlje">
         <div className="tank-broj">T{k.broj}</div>
         <div className="zaglavlje-tekst">
-          {/* JEDNO ime, ne dva. `nazivVina` kad postoji, inace `sorta`. Ime se
-              NE izvodi iz sastava — kartica pokazuje ono sto u bazi pise, isto
-              sto i monitor i stranica tanka. Sastav ima svoj redak nize. */}
-          <div className="naziv-vina">{k.nazivVina || k.sorta || "—"}</div>
+          {/* JEDNO ime, ne dva. `nazivVina` kad postoji, inace deklarirana
+              `sorta`. Oboje dolazi iz CINA IMENOVANJA (faza 4), ne sa stupca
+              na tanku. Ime se i dalje NE izvodi iz sastava — sastav ima svoj
+              redak nize, a gdje se to dvoje razilazi stoji biljeska ispod.
+
+              Bezimeno vino se kaze rijecima: crtica izgleda kao da podatak
+              nedostaje, a ovdje je rijec o poslu koji ceka covjeka. */}
+          <div className="naziv-vina">
+            {k.bezimeno ? (
+              <span className="bezimeno">{k.opisVina}</span>
+            ) : (
+              k.opisVina
+            )}
+          </div>
           <div className="podnaslov">
             {k.grana ? <span className="grana">grana {k.grana}</span> : null}
           </div>
+
+          {/* DEKLARIRANO NAPRAMA STVARNOM. Pise se samo kad je nesklad
+              nedvojben — jedna sorta drzi gotovo cijeli tank, a deklarirano je
+              nesto drugo. Obje tvrdnje stoje jedna uz drugu i obje su
+              imenovane; ne bira se pobjednik. */}
+          {k.sortaNesklad ? (
+            <div className="sorta-nesklad">
+              deklarirano „{k.sortaNesklad.deklarirana}”, a knjiga kaže{" "}
+              {k.sortaNesklad.glavna} {broj(k.sortaNesklad.postotak, 1)} %
+            </div>
+          ) : null}
         </div>
         <div className="kolicina">
           <strong>{broj(k.kolicina, 0)}</strong> / {broj(k.kapacitet, 0)} L
@@ -544,6 +565,15 @@ const CSS = `
 .zaglavlje-tekst { flex: 1; min-width: 0; }
 .naziv-vina {
   font-size: 13px; font-weight: 700; line-height: 1.15;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Bezimeno vino: lakse i u kurzivu, da se na prvi pogled razlikuje od imena.
+   Ostaje citljivo i na tisku — ovo je izvjestaj koji se nosi u podrum. */
+.bezimeno { font-weight: 400; font-style: italic; color: #8a8a85; }
+/* Nesklad deklarirane sorte i knjige. Tiho, ali vidljivo: nije greska nego
+   dvije tvrdnje koje se ne poklapaju, i covjek odlucuje koja vrijedi. */
+.sorta-nesklad {
+  font-size: 8.5px; line-height: 1.2; color: #8a5a1f;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .podnaslov { font-size: 9px; color: #52514e; display: flex; gap: 3mm; }

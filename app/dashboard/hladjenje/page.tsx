@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
 import { getAuthUser } from "@/lib/putnik-auth";
 import {
   izracunajStatus,
@@ -117,9 +118,15 @@ export default async function HladjenjeDashboard() {
     return null;
   }
 
+  // IME VINA SE IZVODI (faza 4), ne cita se sa `Tank.nazivVina`. Jedan poziv
+  // za cijeli podrum — ne po tanku, jer pooler drzi 15 veza za cijelu
+  // aplikaciju (lib/paralelno.ts).
+  const imena = await imenaPodruma(prisma);
+
   // Pripremi pločice + sažetak.
   const tiles: TankTile[] = tankovi.map((t) => {
     const o = zadnjaMap.get(t.id);
+    const ime = imena.get(t.id);
     const zadanaTemp = uBroj(t.zadanaTemp);
     // Glavna vrijednost je ona s kontrolera (zadnje očitanje); Tank.zadanaTemp je
     // samo želja koja može zaostati ako komanda propadne. Zato se i "hlađenje
@@ -140,8 +147,12 @@ export default async function HladjenjeDashboard() {
     return {
       id: t.id,
       broj: t.broj,
-      sorta: t.sorta,
-      nazivVina: t.nazivVina,
+      sorta: ime?.deklariranaSorta ?? null,
+      nazivVina: ime?.naziv ?? null,
+      /** Vino je u posudi, a nitko ga nije imenovao — nije prazna posuda. */
+      bezimeno: jeBezImena(ime),
+      /** Gotov jednoredni opis — vidi lib/ime-vina.ts `imeZaPrikaz`. */
+      opisVina: imeZaPrikaz(ime).tekst,
       zadnjaTemp: o ? uBroj(o.temperatura) : null,
       zadanaTemp,
       zadanaNaKontroleru,

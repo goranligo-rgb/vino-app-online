@@ -22,8 +22,14 @@ export type TankIzbor = {
   broj: number;
   kapacitet: number;
   kolicinaVinaUTanku: number | null;
+  /** Ime iz cina imenovanja (faza 4), ne `Tank.nazivVina`. */
   nazivVina: string | null;
+  /** DEKLARIRANA sorta — ono sto bi pisalo na etiketi. Nije sastav. */
   sorta: string | null;
+  /** Vino je u posudi, a nitko ga nije imenovao. Razlicito od prazne posude. */
+  bezimeno: boolean;
+  /** Gotov jednoredni opis sa servera — vidi lib/ime-vina.ts `imeZaPrikaz`. */
+  opisVina: string;
   godiste: number | null;
 };
 
@@ -242,11 +248,11 @@ export default function FiltracijaForma({
             </div>
             <div style={prigusenoStyle}>
               Tank {zadatak.izvorTank.broj}
-              {zadatak.izvorTank.nazivVina
-                ? ` — ${zadatak.izvorTank.nazivVina}`
-                : zadatak.izvorTank.sorta
-                  ? ` — ${zadatak.izvorTank.sorta}`
-                  : ""}
+              {zadatak.izvorTank.bezimeno ||
+              zadatak.izvorTank.nazivVina ||
+              zadatak.izvorTank.sorta
+                ? ` — ${zadatak.izvorTank.opisVina}`
+                : ""}
               {" · "}u tanku {formatL(uTankuL)} L
             </div>
           </div>
@@ -289,7 +295,13 @@ export default function FiltracijaForma({
                   {moguciCiljevi.map((t) => (
                     <option key={t.id} value={t.id}>
                       Tank {t.broj}
-                      {t.nazivVina ? ` — ${t.nazivVina}` : t.sorta ? ` — ${t.sorta}` : " — prazan"}
+                      {/* „bez imena" je razlicito od „prazan": u prvom slucaju
+                          vino JEST unutra, samo ga nitko nije imenovao. Zamjena
+                          tih dvaju znacenja vodi izlijevanju u zauzet tank.
+                          Opis slaze posluzitelj — vidi `imeZaPrikaz`. */}
+                      {t.bezimeno || t.nazivVina || t.sorta
+                        ? ` — ${t.opisVina}`
+                        : " — prazan"}
                     </option>
                   ))}
                 </select>

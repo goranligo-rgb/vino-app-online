@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { granicaVina } from "@/lib/granica-vina";
+import { imeVina, jeBezImena, usporediSaSastavom } from "@/lib/ime-vina";
 import { nazivVrste } from "@/lib/vrste-prijenosa";
 import { podrijetloTanka, sastavIzPodrijetla } from "@/lib/berba-model";
 
@@ -435,6 +437,13 @@ export default async function TankIzvjestajPage({
   const podrijetloKnjige = await podrijetloTanka(prisma, id);
   const sastavKnjige = sastavIzPodrijetla(podrijetloKnjige);
 
+  // IME VINA (faza 4) — iz cina imenovanja unutar prozora danasnjeg vina, ne
+  // sa stupca na tanku. Izvjestaj se tiska i nosi u podrum, pa mora reci isto
+  // sto i stranica tanka.
+  const granica = await granicaVina(prisma, id);
+  const ime = await imeVina(prisma, id, granica);
+  const usporedbaSorte = usporediSaSastavom(ime.deklariranaSorta, sastavKnjige);
+
   const poznateSorte = sastavKnjige.filter((x) => !x.nepoznata);
   const oznakaSastava =
     sastavKnjige.length === 0
@@ -517,9 +526,29 @@ export default async function TankIzvjestajPage({
             />
             <Row label="Kapacitet" value={`${formatBroj(tank.kapacitet)} L`} />
             <Row label="Slobodno" value={`${formatBroj(slobodno)} L`} />
-            <Row label="Naziv vina" value={tank.nazivVina ?? "—"} />
+            {/* Bezimeno vino se kaze rijecima — na tiskanom listu crtica
+                izgleda kao propust u ispisu, a ne kao stanje stvari. */}
+            <Row
+              label="Naziv vina"
+              value={
+                ime.naziv ?? (jeBezImena(ime) ? "nije imenovano" : "—")
+              }
+            />
+            <Row label="Deklarirana sorta" value={ime.deklariranaSorta ?? "—"} />
             <Row label="Godište" value={tank.godiste ?? "—"} />
             <Row label="Oznaka sastava" value={oznakaSastava} />
+            {/* Deklarirano i knjiga stoje jedno uz drugo, oboje imenovano.
+                Redak se pojavljuje SAMO kad je nesklad nedvojben. */}
+            {usporedbaSorte.razilazi &&
+            usporedbaSorte.deklarirana &&
+            usporedbaSorte.glavna ? (
+              <Row
+                label="Sorta se ne slaže"
+                value={`deklarirano „${usporedbaSorte.deklarirana}”, knjiga kaže ${
+                  usporedbaSorte.glavna
+                } ${formatBroj(usporedbaSorte.glavniPostotak ?? 0, 1)} %`}
+              />
+            ) : null}
           </div>
         </Section>
 

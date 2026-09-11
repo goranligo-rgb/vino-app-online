@@ -30,8 +30,13 @@ export type KomandaStanje = { status: string; greska: string | null } | null;
 export type TankTile = {
   id: string;
   broj: number;
+  /** DEKLARIRANA sorta iz cina imenovanja (faza 4), ne `Tank.sorta`. */
   sorta: string | null;
   nazivVina: string | null;
+  /** Vino je u posudi, a nitko ga nije imenovao. Razlicito od prazne posude. */
+  bezimeno: boolean;
+  /** Gotov jednoredni opis sa servera — vidi lib/ime-vina.ts `imeZaPrikaz`. */
+  opisVina: string;
   zadnjaTemp: number | null;
   // Zelja iz baze (upisana kod slanja komande). Moze zaostati za kontrolerom.
   zadanaTemp: number | null;
@@ -281,7 +286,17 @@ export default function TankKontrole({
               whiteSpace: "nowrap",
             }}
           >
-            {tank.nazivVina || tank.sorta || "—"}
+            {/* Bezimeno vino se kaze rijecima — crtica izgleda kao podatak
+                koji nedostaje, a ovo je posao koji ceka covjeka (faza 4).
+                Tekst slaze posluzitelj (`imeZaPrikaz`), da svi uski prikazi
+                govore isto: „bez imena · Muškat žuti" kad sorta postoji. */}
+            {tank.bezimeno ? (
+              <span style={{ fontStyle: "italic", color: "#9ca3af" }}>
+                {tank.opisVina}
+              </span>
+            ) : (
+              tank.opisVina
+            )}
           </div>
         </div>
         {/* Desni stupac zaglavlja se SMIJE stisnuti i prelomiti: status

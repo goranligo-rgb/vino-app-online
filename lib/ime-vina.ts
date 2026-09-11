@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import type { GranicaVina } from "@/lib/granica-vina";
+import { granicaSvihTankova, type GranicaVina } from "@/lib/granica-vina";
 
 /**
  * IME VINA — izvedeno iz cinova imenovanja, ne iz posude.
@@ -189,6 +189,129 @@ export async function imenaSvihTankova(
   }
 
   return mapa;
+}
+
+/**
+ * IMENA CIJELOG PODRUMA — jedan poziv, cetiri upita.
+ *
+ * Ovo je ulaz za sve citace faze 4: dvije API rute (`/api/tank`,
+ * `/api/tank/monitor`) i poslužiteljske stranice koje citaju `Tank` izravno.
+ * Postoji da nijedan od njih ne mora znati da se ime racuna iz DVA izvora
+ * (granica iz knjige + zapisi o imenovanju) ni da ih mora spojiti sam.
+ *
+ * Cetiri upita za cijeli podrum, ne cetiri po tanku — `lib/paralelno.ts`
+ * zabranjuje neograniceno grananje jer pooler drzi 15 veza za cijelu
+ * aplikaciju.
+ */
+export async function imenaPodruma(
+  db: Klijent & Parameters<typeof granicaSvihTankova>[0]
+): Promise<Map<string, ImeVina>> {
+  const granice = await granicaSvihTankova(db);
+  return imenaSvihTankova(db, granice);
+}
+
+/**
+ * Sto pisati na ekran umjesto imena.
+ *
+ * BEZIMENO SE VIDI, NE OSTAJE PRAZNO. Osam tankova danas nema ime (T20, T22,
+ * T27, T28, T33, T34, T40, T45) i backfill im ga po dogovoru nije izmislio.
+ * Prazno polje izgleda kao da podatak nedostaje ili se nije ucitao; „Bez
+ * imena" je tvrdnja — ovo vino nitko jos nije imenovao, i to je posao koji
+ * ceka covjeka.
+ *
+ * Kad imena nema, ali ima DEKLARIRANE SORTE, ona nastupa kao ime — tako se
+ * ponasao i stari lanac `nazivVina || sorta`, pa se ekran ne osiromasuje.
+ */
+export const BEZ_IMENA_TEKST = "bez imena";
+
+/**
+ * BEZIMENO ZNACI „NEMA IMENA", NE „NEMA NIJEDNOG ZAPISA".
+ *
+ * Osam tankova ima zapis o imenovanju koji nosi SAMO deklariranu sortu —
+ * punjenje je upisalo sortu, a ime nitko nije dao. Da se bezimenost vezala uz
+ * `razlog === "BEZIMENO"` (dakle uz izostanak zapisa), ti bi tankovi tiho
+ * pokazivali sortu na mjestu imena i nitko ne bi vidio da ime nedostaje —
+ * tocno ono sto se trazilo da se vidi.
+ *
+ * Prazna posuda NIJE bezimena: ondje nema vina o kojem bi se govorilo.
+ */
+export function jeBezImena(ime: ImeVina | null | undefined): boolean {
+  if (!ime || ime.razlog === "PRAZAN") return false;
+  return ocisti(ime.naziv) == null;
+}
+
+/**
+ * Jedan redak za uske prikaze — monitor, kartica hladjenja, kartica podruma.
+ *
+ * Kad imena nema, a deklarirana sorta postoji, ispisuje se OBOJE:
+ * „bez imena · Muškat žuti". Sama sorta bi se citala kao ime (a nije), sam
+ * „bez imena" bi izgubio podatak koji ekran danas pokazuje.
+ */
+export function imeZaPrikaz(ime: ImeVina | null | undefined): {
+  tekst: string;
+  bezimeno: boolean;
+} {
+  if (!ime || ime.razlog === "PRAZAN") return { tekst: "—", bezimeno: false };
+
+  const naziv = ocisti(ime.naziv);
+  if (naziv) return { tekst: naziv, bezimeno: false };
+
+  const sorta = ocisti(ime.deklariranaSorta);
+  return {
+    tekst: sorta ? `${BEZ_IMENA_TEKST} · ${sorta}` : BEZ_IMENA_TEKST,
+    bezimeno: true,
+  };
+}
+
+/**
+ * DEKLARIRANA SORTA NAPRAMA STVARNOM SASTAVU — dvije tvrdnje o istom vinu.
+ *
+ * Deklarirana sorta je ono sto bi pisalo na etiketi i upisuje ju covjek ili
+ * cin koji je vino premjestio. Stvarni sastav se IZVODI iz knjige pri svakom
+ * prikazu. Smiju se razlikovati — cuvée se zove „Cuvée bijeli" i to nije
+ * greska — pa ekran mora pokazati OBOJE, a ne birati jedno.
+ *
+ * RAZILAZENJE SE TVRDI SAMO KAD JE NEDVOSMISLENO: kad je vino po knjizi
+ * praktički jednosortno (jedna sorta drzi bar `PRAG_JEDNOSORTNO` posto), a
+ * deklarirana sorta imenuje nesto drugo. Za pravi blend se nista ne tvrdi —
+ * „Cuvée" naprama cetiri sorte nije nesklad nego opis.
+ *
+ * Usporedjuje se bez obzira na velicina slova, ali se NE normaliziraju
+ * tipfeleri ni obrnut red rijeci („Rajnski riesling" naprama „Rajnski
+ * rizling", „Zeleni veltlinac" naprama „Veltlinac zeleni"). To je odluka
+ * vlasnika: takvi se popravljaju rukom, a dotle je posteno da se vide.
+ */
+export const PRAG_JEDNOSORTNO = 95;
+
+export type UsporedbaSorte = {
+  deklarirana: string | null;
+  /** Sorta koja u knjizi drzi najveci udio, ako je vino jednosortno. */
+  glavna: string | null;
+  glavniPostotak: number | null;
+  /** `true` samo kad je nesklad nedvojben — vidi biljesku iznad. */
+  razilazi: boolean;
+};
+
+export function usporediSaSastavom(
+  deklarirana: string | null | undefined,
+  sastav: ReadonlyArray<{ nazivSorte: string; postotak: number; nepoznata?: boolean }>
+): UsporedbaSorte {
+  const d = ocisti(deklarirana);
+  const poznate = sastav.filter((s) => !s.nepoznata);
+  const najveca = [...poznate].sort((a, b) => b.postotak - a.postotak)[0];
+
+  if (!najveca || najveca.postotak < PRAG_JEDNOSORTNO) {
+    return { deklarirana: d, glavna: null, glavniPostotak: null, razilazi: false };
+  }
+
+  return {
+    deklarirana: d,
+    glavna: najveca.nazivSorte,
+    glavniPostotak: najveca.postotak,
+    razilazi:
+      d != null &&
+      d.toLowerCase() !== najveca.nazivSorte.toLowerCase(),
+  };
 }
 
 /**

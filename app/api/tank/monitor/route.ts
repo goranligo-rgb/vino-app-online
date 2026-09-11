@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
 import { stvarnaZadana, uBroj } from "@/lib/temperatura";
+import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -51,15 +52,30 @@ export async function GET() {
     });
     const alarmSet = new Set(alarmi.map((a) => a.tankId));
 
+    // IME VINA SE IZVODI (faza 4), ne cita se s `Tank.sorta`.
+    //
+    // Monitor je pokazivao „Sorta: {tank.sorta}" — stupac koji se s knjigom
+    // razilazio na 14 od 36 punih tankova (T26 je stajao „Zeleni veltlinac" uz
+    // knjigu koja kaze Chardonnay 100 %). Ovdje ide DEKLARIRANA sorta iz cina
+    // imenovanja; stvarni sastav se izvodi iz knjige i pokazuje na stranici
+    // tanka, gdje ima mjesta za oboje.
+    const imena = await imenaPodruma(prisma);
+
     const rezultat = tankovi.map((t) => {
       const o = zadnjaMap.get(t.id);
+      const ime = imena.get(t.id);
       return {
         id: t.id,
         broj: t.broj,
         kapacitet: t.kapacitet,
         tip: t.tip,
         kolicinaVinaUTanku: t.kolicinaVinaUTanku ?? 0,
-        sorta: t.sorta ?? null,
+        sorta: ime?.deklariranaSorta ?? null,
+        nazivVina: ime?.naziv ?? null,
+        /** Vino je u posudi, a nitko ga nije imenovao — nije isto sto i prazna posuda. */
+        bezimeno: jeBezImena(ime),
+        /** Gotov jednoredni opis — vidi lib/ime-vina.ts `imeZaPrikaz`. */
+        opisVina: imeZaPrikaz(ime).tekst,
         brojZadataka: t.zadaci.length,
         // Nadzor temperature
         zadnjaTemp: o ? uBroj(o.temperatura) : null,

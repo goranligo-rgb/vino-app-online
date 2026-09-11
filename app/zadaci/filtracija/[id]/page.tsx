@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
 import { getAuthUser, smijeRaditiUPodrumu } from "@/lib/zadatak-auth";
 import FiltracijaForma, { type TankIzbor } from "./filtracija-forma";
 import { jePrijenosVina, nazivVrste } from "@/lib/vrste-prijenosa";
@@ -99,7 +100,7 @@ export default async function FiltracijaIzvrsenjePage({
     );
   }
 
-  const tankovi: TankIzbor[] = await prisma.tank.findMany({
+  const sviTankovi = await prisma.tank.findMany({
     orderBy: { broj: "asc" },
     select: {
       id: true,
@@ -111,6 +112,27 @@ export default async function FiltracijaIzvrsenjePage({
       godiste: true,
     },
   });
+
+  // IME VINA SE IZVODI (faza 4). Vazno bas ovdje: obrazac filtracije nudi
+  // ciljne tankove opisane imenom vina koje je u njima, a po tom se opisu
+  // odlucuje gdje vino ide. Stupac `Tank.nazivVina` se s knjigom razilazio na
+  // 14 od 36 punih tankova — kriv opis ovdje znaci krivo izliveno vino.
+  const imena = await imenaPodruma(prisma);
+
+  const sIzvedenim = <T extends { id: string }>(t: T) => {
+    const ime = imena.get(t.id);
+    return {
+      ...t,
+      nazivVina: ime?.naziv ?? null,
+      sorta: ime?.deklariranaSorta ?? null,
+      bezimeno: jeBezImena(ime),
+      /** Gotov jednoredni opis — vidi lib/ime-vina.ts `imeZaPrikaz`. */
+      opisVina: imeZaPrikaz(ime).tekst,
+    };
+  };
+
+  const tankovi: TankIzbor[] = sviTankovi.map(sIzvedenim);
+  const izvorTank = sIzvedenim(zadatak.tank);
 
   return (
     <main style={{ paddingTop: 8 }}>
@@ -129,7 +151,7 @@ export default async function FiltracijaIzvrsenjePage({
           zadanoAt: zadatak.zadanoAt.toISOString(),
           kolicinaIzlaz:
             zadatak.kolicinaIzlaz != null ? Number(zadatak.kolicinaIzlaz) : null,
-          izvorTank: zadatak.tank,
+          izvorTank,
           planiraneStavke: zadatak.tankStavke.map((s) => ({
             ciljTankId: s.ciljTankId,
             kolicina: Number(s.kolicina),

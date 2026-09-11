@@ -14,6 +14,7 @@ import {
   type PodrumPodaci,
 } from "./podaci";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
+import { usporediSaSastavom } from "@/lib/ime-vina";
 import { stvarnaZadana, uBroj } from "@/lib/temperatura";
 import { popisKvasacaSDopunom, type StavkaKvasca } from "@/lib/kvasci";
 
@@ -97,8 +98,20 @@ export type Stavka = {
 export type Kartica = {
   id: string;
   broj: number;
+  /** Ime iz cina imenovanja (faza 4), ne `Tank.nazivVina`. */
   nazivVina: string | null;
+  /** DEKLARIRANA sorta — ono sto bi pisalo na etiketi. Nije sastav. */
   sorta: string | null;
+  /** Vino je u posudi, a nitko ga nije imenovao. Nije isto sto i prazna posuda. */
+  bezimeno: boolean;
+  /** Gotov jednoredni opis — vidi lib/ime-vina.ts `imeZaPrikaz`. */
+  opisVina: string;
+  /**
+   * Kad deklarirana sorta imenuje nesto drugo nego sto knjiga pokazuje kao
+   * gotovo jedinu sortu. `null` kad nesklada nema ili kad je vino pravi blend,
+   * pa se o njemu nista ne tvrdi. Vidi `usporediSaSastavom`.
+   */
+  sortaNesklad: { deklarirana: string; glavna: string; postotak: number } | null;
   kolicina: number;
   kapacitet: number;
   grana: string | null;
@@ -438,11 +451,34 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
       };
     };
 
+    // DEKLARIRANA SORTA NAPRAMA ONOME STO KNJIGA POKAZUJE.
+    //
+    // `udjeli` su izvedeni iz knjige (faza E); `t.sorta` je ono sto bi pisalo
+    // na etiketi. Tvrdi se samo nedvojben nesklad — jedna sorta drzi gotovo
+    // sve, a deklarirano je nesto drugo. Za pravi blend se ne tvrdi nista.
+    const usporedba = usporediSaSastavom(
+      t.sorta,
+      udjeli.map((u) => ({
+        nazivSorte: u.nazivSorte,
+        postotak: Number(u.postotak),
+      }))
+    );
+
     return {
       id: t.id,
       broj: t.broj,
       nazivVina: t.nazivVina,
       sorta: t.sorta,
+      bezimeno: t.bezimeno,
+      opisVina: t.opisVina,
+      sortaNesklad:
+        usporedba.razilazi && usporedba.deklarirana && usporedba.glavna
+          ? {
+              deklarirana: usporedba.deklarirana,
+              glavna: usporedba.glavna,
+              postotak: usporedba.glavniPostotak ?? 0,
+            }
+          : null,
       kolicina: Number(t.kolicinaVinaUTanku ?? 0),
       kapacitet: Number(t.kapacitet ?? 0),
       grana: t.grana,
