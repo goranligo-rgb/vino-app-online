@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import BerbeTraka from "./berbe-traka";
 import {
   tekstIliNull,
   brojIliNull,
@@ -105,19 +106,6 @@ type TekstualnoPoljeStavke = Exclude<
   "godinaRucno" | "maceracija" | "vlastitaBerba" | "tankovi"
 >;
 
-type ZadnjePunjenje = {
-  id: string;
-  nazivVina: string | null;
-  datumPunjenja: string;
-  ukupnoLitara: number;
-  ukupnoKgGrozdja: number;
-  tank: {
-    id: string;
-    broj: number;
-    tip: string | null;
-  };
-};
-
 const SORTE_HR: Sorta[] = [
   { id: "grasevina", naziv: "Graševina" },
   { id: "sauvignon", naziv: "Sauvignon" },
@@ -217,9 +205,10 @@ export default function PunjenjePage() {
 
   const [tankovi, setTankovi] = useState<Tank[]>([]);
   const [sorte] = useState<Sorta[]>(SORTE_HR);
-  const [zadnjaPunjenja, setZadnjaPunjenja] = useState<ZadnjePunjenje[]>([]);
+  // Mijenja se nakon svakog spremljenog punjenja; bocna traka po njemu zna
+  // da treba ponovno procitati berbe.
+  const [spremljenoBrojac, setSpremljenoBrojac] = useState(0);
   const [loadingTankovi, setLoadingTankovi] = useState(true);
-  const [loadingPunjenja, setLoadingPunjenja] = useState(true);
   const [loadingSorte] = useState(false);
   const [saving, setSaving] = useState(false);
   const [poruka, setPoruka] = useState("");
@@ -245,7 +234,6 @@ export default function PunjenjePage() {
 
   useEffect(() => {
     ucitajTankove();
-    ucitajZadnjaPunjenja();
   }, []);
 
   async function ucitajTankove() {
@@ -264,20 +252,7 @@ export default function PunjenjePage() {
     }
   }
 
-  async function ucitajZadnjaPunjenja() {
-    try {
-      setLoadingPunjenja(true);
-      const res = await fetch("/api/punjenje", { cache: "no-store" });
-      const data = await res.json();
-      const lista = Array.isArray(data) ? data : [];
-      setZadnjaPunjenja(lista.slice(0, 20));
-    } catch (error) {
-      console.error(error);
-      setZadnjaPunjenja([]);
-    } finally {
-      setLoadingPunjenja(false);
-    }
-  }
+
 
   function resetForm() {
     setTankId("");
@@ -1074,7 +1049,7 @@ export default function PunjenjePage() {
 
       resetForm();
       await ucitajTankove();
-      await ucitajZadnjaPunjenja();
+      setSpremljenoBrojac((n) => n + 1);
 
       setTimeout(() => {
         const form = formRef.current;
@@ -1950,60 +1925,12 @@ export default function PunjenjePage() {
               top: isMobile ? undefined : 18,
             }}
           >
-            <div
-              style={{
-                borderBottom: "1px solid #ead7db",
-                paddingBottom: 10,
-                marginBottom: 14,
-              }}
-            >
-              <div style={asideTitleStyle}>Zadnja punjenja</div>
-              <div style={asideSubStyle}>Zadnjih 15–20 spremljenih unosa</div>
-            </div>
-
-            {loadingPunjenja ? (
-              <div style={sideInfoText}>Učitavanje...</div>
-            ) : zadnjaPunjenja.length === 0 ? (
-              <div style={sideInfoText}>Nema još evidentiranih punjenja.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {zadnjaPunjenja.map((punjenje) => (
-                  <Link
-                    key={punjenje.id}
-                    href={`/punjenje/${punjenje.id}`}
-                    style={{ textDecoration: "none", color: "inherit" }}
-                  >
-                    <div style={sideCardStyle}>
-                      <div
-                        style={{
-                          ...sideCardTopRow,
-                          flexDirection: isMobile ? "column" : "row",
-                          alignItems: isMobile ? "flex-start" : "start",
-                        }}
-                      >
-                        <div style={sideCardTitleStyle}>
-                          {punjenje.nazivVina || "Bez naziva"}
-                        </div>
-                        <div style={sideCardTankStyle}>
-                          Tank {punjenje.tank.broj}
-                        </div>
-                      </div>
-
-                      <div style={sideCardDateStyle}>
-                        {formatDatumVrijeme(punjenje.datumPunjenja)}
-                      </div>
-
-                      <div style={sideCardMetaStyle}>
-                        <div>Mošt: {formatBroj(punjenje.ukupnoLitara)} L</div>
-                        <div>
-                          Grožđe: {formatBroj(punjenje.ukupnoKgGrozdja)} kg
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
+            {/* BERBE, ne punjenja. Do 11.09.2026. je ovdje stajao popis
+                `PunjenjeTanka` kojem je svima pisalo "Bez naziva" i "Kg: 0" —
+                i to je bila istina o tim retcima, ne kvar dohvata: to su
+                dolijevanja, a prave berbe je arhiviranje odavno obrisalo iz
+                `PunjenjeTanka`. Vidi biljesku u berbe-traka.tsx. */}
+            <BerbeTraka osvjezi={spremljenoBrojac} />
           </aside>
         </div>
       </div>
@@ -2371,59 +2298,11 @@ const sortaVrijednostStyle: React.CSSProperties = {
   color: "#5b1e28",
 };
 
-const asideTitleStyle: React.CSSProperties = {
-  fontSize: 20,
-  fontWeight: 700,
-  color: "#7f1d1d",
-};
 
-const asideSubStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: "#7b5560",
-  marginTop: 4,
-};
 
-const sideCardStyle: React.CSSProperties = {
-  border: "1px solid #ead8dc",
-  background: "rgba(255,255,255,0.84)",
-  padding: 12,
-};
 
-const sideCardTopRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 8,
-  alignItems: "start",
-};
 
-const sideCardTitleStyle: React.CSSProperties = {
-  fontWeight: 700,
-  color: "#5b1e28",
-  lineHeight: 1.3,
-};
 
-const sideCardTankStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "#7b5560",
-  whiteSpace: "nowrap",
-};
 
-const sideCardDateStyle: React.CSSProperties = {
-  marginTop: 6,
-  fontSize: 13,
-  color: "#7b5560",
-  lineHeight: 1.45,
-};
 
-const sideCardMetaStyle: React.CSSProperties = {
-  marginTop: 8,
-  display: "grid",
-  gap: 4,
-  fontSize: 13,
-  color: "#5b1e28",
-};
 
-const sideInfoText: React.CSSProperties = {
-  fontSize: 14,
-  color: "#7b5560",
-};

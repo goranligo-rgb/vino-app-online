@@ -171,6 +171,13 @@ export async function GET() {
         ispravljenoAt: b.ispravljenoAt,
         razlogIspravka: b.razlogIspravka,
 
+        // BRANJE. Trajanje se NE salje — izvodi se iz dva trenutka, kao i
+        // svugdje drugdje; spremljena izvedenica moze odlutati od sastojaka.
+        vlastitaBerba: b.vlastitaBerba,
+        pocetakBranja: b.pocetakBranja,
+        krajBranja: b.krajBranja,
+        brojBeraca: b.brojBeraca,
+
         // "Jedan od", ne "jedini" — berba smije uci u vise tankova. Ostaje
         // radi zatecenih citatelja; pun popis je `tankovi` nize.
         prviTankId: b.prviTankId,
