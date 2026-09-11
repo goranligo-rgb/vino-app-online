@@ -8,6 +8,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import TankSwitcher from "./tank-switcher";
 import { Card } from "./kartica";
 import BerbaPrekidac from "./berba-prekidac";
+import PovijestPrekidac from "./povijest-prekidac";
 import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
 import TankRoleActions from "./tank-role-actions";
 import TankRoleSastavModal from "./tank-role-sastav-modal";
@@ -2183,7 +2184,20 @@ export default async function TankPregledPage({
           <div style={headerBadgesWrapStyle}>
             <div style={headerBadgeStyle}>Sastav: {oznakaSastava}</div>
             <div style={headerBadgeStyle}>Tip: {tank.tip ?? "-"}</div>
-ARRAY(0xa0003a308)
+            {/* KNJIGA PROTIV TANKA. `Tank.kolicinaVinaUTanku` je od faze E
+                predmemorija, pa uz nju stoji sto knjiga kaze. Razlika je
+                uredno nula; kad nije, mora se vidjeti. */}
+            <div style={headerBadgeStyle}>
+              {Math.abs(razlikaKnjigaTank) > 0.5
+                ? "Knjiga: " +
+                  formatBroj(podrijetloKnjige.ukupnoL, 0) +
+                  " L (razlika " +
+                  formatBroj(razlikaKnjigaTank, 0) +
+                  " L)"
+                : "Knjiga se slaže: " +
+                  formatBroj(podrijetloKnjige.ukupnoL, 0) +
+                  " L"}
+            </div>
           </div>
 
           <div style={headerActionsStyle}>
@@ -2234,6 +2248,18 @@ ARRAY(0xa0003a308)
         </div>
       ) : null}
 
+      {/* KVACICA "POVIJEST VINA".
+
+          Gornji blok (`uvijek`) odgovara na pitanje STO JE U TANKU SADA i
+          uvijek se vidi. Donji odgovara KAKO JE DOSLO DOVDE i kvacica ga
+          skuplja: kad se vino slije u veliki tank pa razdijeli u male, svi
+          mali imaju istu povijest pa ona prestaje razlikovati tankove.
+
+          Grafovi u Parametrima ostaju u gornjem bloku — zatvoreni su dok se
+          plocica ne klikne, pa ne trose ekran. */}
+      <PovijestPrekidac
+        uvijek={
+          <>
       <Card
         title="Parametri vina"
         pod={
@@ -2783,8 +2809,12 @@ ARRAY(0xa0003a308)
         </div>
       </Card>
 
-      {/* --- BERBA: fiksni podaci o grozdju koje je uslo u tank. Stoje GORE,
-              otvoreno, i ne mijesaju se s tekucim mjerenjima. --- */}
+          </>
+        }
+      >
+      {/* --- BERBA: fiksni podaci o grozdju koje je uslo u tank. Kvacica za
+              berbu OSTAJE unutar ove — berba se zna gledati i kad je ostalo
+              skriveno. --- */}
       {prikaziBerbu ? (
         <BerbaPrekidac
           broj={stavkeBerbe.length + naslijedenoStavki}
@@ -3521,6 +3551,7 @@ ARRAY(0xa0003a308)
           </div>
         )}
       </Card>
+      </PovijestPrekidac>
     </div>
   );
 }
