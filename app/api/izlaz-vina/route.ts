@@ -7,7 +7,8 @@ import { citajGranicuArhive, odGranice } from "@/lib/granica-arhive";
 import { uLitre, uMl, podijeliMl } from "@/lib/filtracija";
 import { zabiljeziIzlaz } from "@/lib/berba-knjiga";
 import { stanjeTanka } from "@/lib/berba-model";
-import { upisiVinoRadnju, ocistiVinoRadnje } from "@/lib/vino-radnja";
+import { upisiVinoRadnju } from "@/lib/vino-radnja";
+import { isprazniTank } from "@/lib/prazni-tank";
 
 type AuthUser = {
   id: string;
@@ -334,41 +335,31 @@ export async function arhivirajPrazanTank(
     });
   }
 
-  await tx.document.deleteMany({ where: { tankId } });
-  await tx.tankSortaUdio.deleteMany({ where: { tankId } });
-  await tx.mjerenje.deleteMany({ where: { tankId } });
-  await tx.zadatak.deleteMany({ where: { tankId } });
-  await tx.blendIzvor.deleteMany({ where: { ciljTankId: tankId } });
+  // FAZA F — ORIGINALI SE VISE NE BRISU.
+  //
+  // Ovo JEST pravi kraj vina (boca ili rinfuza) i arhiva se upisuje kao i
+  // dosad — ona je zapis o vinu koje je otislo iz podruma. Ali brisanje
+  // originala bilo je posljedica starog modela, u kojem je arhiva bila jedino
+  // mjesto gdje povijest smije stajati.
+  //
+  // Sto se i dalje brise: samo ono sto opisuje vino kojeg u posudi vise nema
+  // (sastav, porijeklo, udjeli radnji, identitet). To radi `isprazniTank`,
+  // ISTA funkcija koju zove i pretok — jedno pravilo na jednom mjestu.
+  //
+  // Sto vise NE: mjerenja, zadaci, dokumenti i punjenja ostaju na tanku.
+  // Ekran ih rezuje granicom vina (lib/granica-vina.ts), a arhiva ionako ima
+  // svoju kopiju — dvije kopije su bolje od jedne kopije i rupe.
+  //
+  // `tankContent` se i dalje brise: to je trenutni sadrzaj posude, ne povijest.
   await tx.tankContent.deleteMany({ where: { tankId } });
 
-  // Vino koje je nosilo ove radnje je otislo. Zaostali redci bi se zalijepili
-  // na sljedece vino koje u tank udje — isti razlog zbog kojeg postoji granica
-  // arhive. Povijest nije izgubljena: `Radnja` ostaje, i vec je prepisana u
-  // `ArhivaVinaRadnja` nekoliko redaka iznad.
-  await ocistiVinoRadnje(tx, tankId);
+  await isprazniTank(tx, tankId, kolicinaPrijePrazenja);
 
-  await tx.punjenjeStavka.deleteMany({
-    where: {
-      punjenje: {
-        tankId,
-      },
-    },
-  });
-
-  await tx.punjenjeTanka.deleteMany({ where: { tankId } });
-
-  // `izlazVina.deleteMany` je maknut — vidi isto obrazloženje u
-  // app/api/pretok/route.ts. Izlazi sada idu u arhivu, originali ostaju.
-
+  // `opis` nije dio `isprazniTank` jer ga pretok ne dira — a ovdje se posuda
+  // oslobadja do kraja.
   await tx.tank.update({
     where: { id: tankId },
-    data: {
-      kolicinaVinaUTanku: 0,
-      sorta: null,
-      nazivVina: null,
-      godiste: null,
-      opis: null,
-    },
+    data: { opis: null },
   });
 
   return arhiva;

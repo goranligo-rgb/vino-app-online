@@ -400,20 +400,25 @@ async function provjeriArhivu(
   const izlaziOriginali = await tx.izlazVina.count({ where: { tankId: s.tank.id } });
   jednako(izlaziOriginali, 2, `${imeFunkcije}: originalni izlazi NISU obrisani`);
 
-  // A veza radnja→zadatak JEST otisla na NULL, jer su zadaci obrisani. Zato se
-  // par i sprema u arhivu — da se ova rupa moze zakrpati pri ponistavanju.
+  // ZADACI: dvije funkcije se od faze F razlikuju, i to je namjerno.
+  //
+  // `arhivirajPotroseniTank` jos brise zadatke (zove ga samo rucno
+  // arhiviranje), pa originalu `zadatakId` odlazi na NULL — zato se par i
+  // sprema u arhivu. `arhivirajPrazanTank` (boca i rinfuza) od faze F vise ne
+  // brise nista osim sadrzaja posude, pa veza ostaje citava.
+  const briseZadatke = imeFunkcije !== "izlaz-vina";
   const originalSaZadatkom = radnjeOriginali.find(
     (r) => r.id === s.radnjaSaZadatkom.id
   );
   jednako(
     originalSaZadatkom?.zadatakId,
-    null,
-    `${imeFunkcije}: originalu je zadatakId otisao na NULL (zato par ide u arhivu)`
+    briseZadatke ? null : s.zadatak.id,
+    `${imeFunkcije}: veza radnja→zadatak ${briseZadatke ? "otisla na NULL" : "je ostala citava"}`
   );
   jednako(
     await tx.zadatak.count({ where: { tankId: s.tank.id } }),
-    0,
-    `${imeFunkcije}: zadaci su obrisani (postoje samo u arhivi)`
+    briseZadatke ? 0 : 1,
+    `${imeFunkcije}: zadaci ${briseZadatke ? "su obrisani (postoje samo u arhivi)" : "OSTAJU na tanku"}`
   );
 }
 
