@@ -1,0 +1,357 @@
+import type { Prisma } from "@prisma/client";
+import { satKretanja } from "@/lib/sat-knjige";
+import { izracunajGranicuVina, type RedakZaGranicu } from "@/lib/granica-vina";
+import { stanjeTanka } from "@/lib/berba-model";
+import { POLJA_MJERENJA } from "@/lib/mjerenja";
+
+/**
+ * PARAMETRI VINA IZ KNJIGE — zadnja mjerena vrijednost koja pripada vinu
+ * koje je u tanku SADA, ma u kojoj posudi bila izmjerena.
+ * ======================================================================
+ *
+ * ZASTO POSTOJI. Tank 15 i tank 32 nisu imali ni alkohol ni kiseline, a
+ * vlasnik tvrdi da su ta vina mjerena — i jest: `ArhivaVinaMjerenje` tanka 8
+ * od 18.06.2026. nosi alkohol 11,3 i kiseline 6,3. Nijedan dosadasnji citac
+ * do toga nije mogao doci:
+ *
+ *   - `vrijednostiTankaPoPolju` gleda SAMO ovaj tank, od granice vina nadalje;
+ *   - `parametriBlenda` ide po `BlendIzvor` pokazivacima, a oni na T15 vode na
+ *     tank 5, ne na arhivu tanka 8.
+ *
+ * Knjiga zna ono sto ni jedno ni drugo: da je bas to vino bilo u tanku 8 do
+ * 18.08., kad je preslo ovamo.
+ *
+ * PRAVILO KOJE SE OVDJE PROVODI (vlasnikova odluka, 11.09.2026):
+ * mjerenje POSUDE u kojoj je partija bila vrijedi za tu partiju — i kad je
+ * posuda uz nju drzala jos vina. Prozor je zato PUNJENJE posude, ne samo
+ * vrijeme u kojem je bas ta partija bila unutra: tank 8 je mjeren 18.06., a
+ * partija koja danas stoji u tanku 15 pridruzila mu se kasnije, unutar istog
+ * punjenja. Uze pravilo to mjerenje ne bi naslo, a ono opisuje tijelo vina u
+ * koje se partija ulila.
+ *
+ * GORNJA GRANICA JE ODLAZAK. Mjerenja tanka 8 od 03.09. i 08.09. NE ulaze:
+ * partija je otisla 18.08., pa je to vec vino koje je u tank 8 doslo poslije.
+ *
+ * PONDER JE LITRA. Kad dvije partije daju razlicitu vrijednost istog polja,
+ * racuna se prosjek ponderiran litrama koje SU U OVOM TANKU — nikad obican
+ * prosjek. Pokrivenost kaze koliko je litara uopce pokriveno.
+ *
+ * STO OVO NIJE: nije mjerenje ovog tanka i ne predstavlja se kao takvo.
+ * Prikaz uz svaku vrijednost nosi datum i posudu u kojoj je mjerena.
+ */
+
+// Cijeli transakcijski klijent: `stanjeTanka` trazi `$queryRaw`, a ovdje se
+// citaju cetiri tablice. `PrismaClient` mu je pridruziv, pa stranica salje
+// obicni `prisma`.
+type Klijent = Prisma.TransactionClient;
+
+type Polje = (typeof POLJA_MJERENJA)[number];
+
+/** Odakle jedna vrijednost dolazi — posuda i trenutak. */
+export type IzvorVrijednosti = {
+  tankId: string;
+  brojTanka: number | null;
+  izmjerenoAt: Date;
+  vrijednost: number;
+  /** Je li nadjena u arhivi ili u zivoj tablici mjerenja. */
+  izArhive: boolean;
+  /** Litre partije kojoj ta vrijednost pripada, u OVOM tanku. */
+  litre: number;
+};
+
+export type PoljeVina = {
+  /** Prosjek ponderiran litrama u ovom tanku. */
+  vrijednost: number;
+  pokrivenoL: number;
+  ukupnoL: number;
+  postotak: number;
+  /** Najnoviji trenutak medju doprinosima. */
+  najnovijeAt: Date;
+  izvori: IzvorVrijednosti[];
+};
+
+export type ParametriVina = {
+  poPolju: Partial<Record<Polje, PoljeVina>>;
+  ukupnoL: number;
+};
+
+/** Jedan boravak partije u jednoj posudi. */
+type Boravak = { tankId: string; odMs: number; doMs: number };
+
+/**
+ * Gdje je sve partija bila i kad — iz knjige, bez ijednog pokazivaca.
+ *
+ * Prati se stanje po posudama: kad u posudi prvi put ima nesto, boravak
+ * pocinje; kad padne na nulu, zavrsava. Partija koja je jos u posudi ima
+ * otvoren boravak do sada.
+ */
+function boravciPartije(redci: RedakZaGranicu[]): Boravak[] {
+  const poredani = redci
+    .map((r) => ({ ...r, sat: satKretanja(r) }))
+    .sort((a, b) => a.sat - b.sat);
+
+  const ml = new Map<string, number>();
+  const otvoreni = new Map<string, number>();
+  const out: Boravak[] = [];
+  const uMl = (l: number) => Math.round(Number(l) * 1000);
+
+  for (const r of poredani) {
+    if (r.uTankId) {
+      const prije = ml.get(r.uTankId) ?? 0;
+      ml.set(r.uTankId, prije + uMl(r.litre));
+      if (prije <= 0) otvoreni.set(r.uTankId, r.sat);
+    }
+    if (r.izTankId) {
+      const prije = ml.get(r.izTankId) ?? 0;
+      const sad = prije - uMl(r.litre);
+      ml.set(r.izTankId, sad);
+      if (sad <= 0 && otvoreni.has(r.izTankId)) {
+        out.push({ tankId: r.izTankId, odMs: otvoreni.get(r.izTankId)!, doMs: r.sat });
+        otvoreni.delete(r.izTankId);
+      }
+    }
+  }
+
+  for (const [tankId, odMs] of otvoreni) {
+    out.push({ tankId, odMs, doMs: Date.now() });
+  }
+
+  return out;
+}
+
+export async function parametriVinaIzKnjige(
+  db: Klijent,
+  tankId: string
+): Promise<ParametriVina | null> {
+  const stanje = await stanjeTanka(db, tankId);
+  if (stanje.length === 0) return null;
+
+  const ukupnoL = Number(stanje.reduce((z, s) => z + s.litre, 0).toFixed(3));
+  const berbaIds = stanje.map((s) => s.berbaId);
+
+  // Kretanja SVIH partija koje su danas ovdje — jedan upit.
+  const kretanjaPartija = await db.berbaKretanje.findMany({
+    where: { berbaId: { in: berbaIds } },
+    select: {
+      berbaId: true,
+      uTankId: true,
+      izTankId: true,
+      litre: true,
+      dogodenoAt: true,
+      createdAt: true,
+    },
+  });
+
+  const poPartiji = new Map<string, RedakZaGranicu[]>();
+  for (const k of kretanjaPartija) {
+    const popis = poPartiji.get(k.berbaId) ?? [];
+    popis.push(k);
+    poPartiji.set(k.berbaId, popis);
+  }
+
+  const boravci = new Map<string, Boravak[]>();
+  const posude = new Set<string>();
+  for (const [berbaId, redci] of poPartiji) {
+    const b = boravciPartije(redci);
+    boravci.set(berbaId, b);
+    for (const x of b) posude.add(x.tankId);
+  }
+
+  if (posude.size === 0) return null;
+
+  // Kretanja SVIH tih posuda — treba za pocetak punjenja (granicu vina).
+  // Jedan upit, ne jedan po posudi.
+  const kretanjaPosuda = await db.berbaKretanje.findMany({
+    where: {
+      OR: [
+        { uTankId: { in: [...posude] } },
+        { izTankId: { in: [...posude] } },
+      ],
+    },
+    select: {
+      uTankId: true,
+      izTankId: true,
+      litre: true,
+      dogodenoAt: true,
+      createdAt: true,
+      punjenjeId: true,
+    },
+  });
+
+  const punjenjaIds = [
+    ...new Set(kretanjaPosuda.map((k) => k.punjenjeId).filter(Boolean)),
+  ] as string[];
+  const datumiPunjenja = new Map<string, Date>(
+    punjenjaIds.length > 0
+      ? (
+          await db.punjenjeTanka.findMany({
+            where: { id: { in: punjenjaIds } },
+            select: { id: true, datumPunjenja: true },
+          })
+        ).map((p) => [p.id, p.datumPunjenja])
+      : []
+  );
+
+  // Mjerenja svih posuda odjednom — dva upita, ne dva po boravku.
+  const imaPolje = POLJA_MJERENJA.map((p) => ({ [p]: { not: null } }));
+  const [ziva, arhivska] = await Promise.all([
+    db.mjerenje.findMany({
+      where: { tankId: { in: [...posude] }, OR: imaPolje as never },
+      select: {
+        tankId: true,
+        izmjerenoAt: true,
+        alkohol: true,
+        ukupneKiseline: true,
+        hlapiveKiseline: true,
+        slobodniSO2: true,
+        ukupniSO2: true,
+        secer: true,
+        ph: true,
+        temperatura: true,
+      },
+    }),
+    db.arhivaVinaMjerenje.findMany({
+      where: { tankId: { in: [...posude] }, OR: imaPolje as never },
+      select: {
+        tankId: true,
+        izmjerenoAt: true,
+        alkohol: true,
+        ukupneKiseline: true,
+        hlapiveKiseline: true,
+        slobodniSO2: true,
+        ukupniSO2: true,
+        secer: true,
+        ph: true,
+        temperatura: true,
+      },
+    }),
+  ]);
+
+  const svaMjerenja = [
+    ...ziva.map((m) => ({ ...m, izArhive: false })),
+    ...arhivska.map((m) => ({ ...m, izArhive: true })),
+  ];
+
+  // Brojevi posuda — prikaz uz vrijednost kaze GDJE je mjereno.
+  const brojPoTanku = new Map<string, number | null>(
+    (
+      await db.tank.findMany({
+        where: { id: { in: [...posude] } },
+        select: { id: true, broj: true },
+      })
+    ).map((t) => [t.id, t.broj])
+  );
+
+  // Pocetak punjenja posude u trenutku kad je partija bila u njoj.
+  const pocetakPunjenja = (tankIdPosude: string, uTrenutku: number) => {
+    const redci = kretanjaPosuda.filter(
+      (k) => k.uTankId === tankIdPosude || k.izTankId === tankIdPosude
+    );
+    const g = izracunajGranicuVina(
+      tankIdPosude,
+      redci,
+      datumiPunjenja,
+      new Date(uTrenutku),
+      true
+    );
+    return g.odAt ? g.odAt.getTime() : null;
+  };
+
+  const skupljeno = new Map<Polje, IzvorVrijednosti[]>();
+
+  for (const s of stanje) {
+    // Po partiji: NAJNOVIJA vrijednost svakog polja kroz sve njezine posude.
+    const najnovije = new Map<Polje, IzvorVrijednosti>();
+
+    // SAMO ONO STO JE BILO PRIJE DOLASKA OVAMO.
+    //
+    // Ista partija (jedan zapis berbe) danas stoji u vise tankova i JOS SE
+    // SELI: dio onoga sto je bilo u tanku 8 otisao je 18.08. u tank 15, a
+    // drugi dio je 03.09. i 08.09. putovao dalje. Zato se ne moze gledati
+    // "je li boravak zatvoren" — boravak u tanku 8 je i danas otvoren.
+    //
+    // Rez je VRIJEME DOLASKA OVAMO: sve izmjereno poslije toga opisuje vino
+    // koje je u toj posudi ostalo ili u nju doslo kasnije, a ne ovo ovdje.
+    const sviBoravci = boravci.get(s.berbaId) ?? [];
+    const ovdje = sviBoravci.filter((b) => b.tankId === tankId).slice(-1)[0];
+    if (!ovdje) continue;
+
+    // Dopustenje od sekunde: izlazak iz prethodne posude i ulazak ovamo dva su
+    // retka istog cina i znaju se razlikovati u milisekundama.
+    const dolazak = ovdje.odMs + 1000;
+
+    const lanac = sviBoravci
+      .filter((b) => b.odMs <= dolazak)
+      .map((b) =>
+        b.tankId === tankId && b.odMs === ovdje.odMs
+          ? b
+          : { ...b, doMs: Math.min(b.doMs, dolazak) }
+      );
+
+    for (const b of lanac) {
+     // Donja granica: pocetak PUNJENJA te posude (vlasnikovo pravilo), a ne
+      // tek trenutak kad je bas ova partija usla.
+      const odMs = pocetakPunjenja(b.tankId, b.odMs) ?? b.odMs;
+      // Gornja granica: kad je partija otisla. Kasnija mjerenja te posude vec
+      // opisuju vino koje je u nju doslo poslije.
+      const doMs = b.doMs;
+
+      for (const m of svaMjerenja) {
+        if (m.tankId !== b.tankId) continue;
+        const kad = m.izmjerenoAt.getTime();
+        if (kad < odMs || kad > doMs) continue;
+
+        for (const polje of POLJA_MJERENJA) {
+          const v = (m as Record<string, unknown>)[polje];
+          if (v == null) continue;
+
+          const prije = najnovije.get(polje);
+          if (prije && prije.izmjerenoAt >= m.izmjerenoAt) continue;
+
+          najnovije.set(polje, {
+            tankId: b.tankId,
+            brojTanka: brojPoTanku.get(b.tankId) ?? null,
+            izmjerenoAt: m.izmjerenoAt,
+            vrijednost: Number(v),
+            izArhive: m.izArhive,
+            litre: s.litre,
+          });
+        }
+      }
+    }
+
+    for (const [polje, x] of najnovije) {
+      const popis = skupljeno.get(polje) ?? [];
+      popis.push(x);
+      skupljeno.set(polje, popis);
+    }
+  }
+
+  if (skupljeno.size === 0) return null;
+
+  const poPolju: Partial<Record<Polje, PoljeVina>> = {};
+
+  for (const [polje, izvori] of skupljeno) {
+    const pokrivenoL = izvori.reduce((z, x) => z + x.litre, 0);
+    if (pokrivenoL <= 0) continue;
+
+    const vrijednost =
+      izvori.reduce((z, x) => z + x.vrijednost * x.litre, 0) / pokrivenoL;
+
+    const najnovijeAt = izvori
+      .map((x) => x.izmjerenoAt)
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+
+    poPolju[polje] = {
+      vrijednost: Number(vrijednost.toFixed(3)),
+      pokrivenoL: Number(pokrivenoL.toFixed(3)),
+      ukupnoL,
+      postotak:
+        ukupnoL > 0 ? Number(((pokrivenoL / ukupnoL) * 100).toFixed(2)) : 0,
+      najnovijeAt,
+      izvori: izvori.sort((a, b) => b.litre - a.litre),
+    };
+  }
+
+  return { poPolju, ukupnoL };
+}

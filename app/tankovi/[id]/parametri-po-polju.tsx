@@ -28,8 +28,20 @@ export type TockaGrafa = {
   rucno: boolean;
 };
 
-/** Odakle broj na plocici dolazi. */
-export type Podrijetlo = "mjereno" | "preneseno" | "blend" | "nema";
+/**
+ * Odakle broj na plocici dolazi.
+ *
+ * `knjiga` je dodan 11.09.2026: vrijednost izmjerena na VINU koje je danas u
+ * ovom tanku, ali u nekoj ranijoj posudi — nadjena kroz knjigu kretanja. Nije
+ * mjerenje ovog tanka i ne predstavlja se kao takvo: podnozje kaze datum i
+ * broj posude.
+ */
+export type Podrijetlo =
+  | "mjereno"
+  | "preneseno"
+  | "blend"
+  | "knjiga"
+  | "nema";
 
 /** Jedna sastavnica koja je za OVO polje usla u prosjek. */
 export type DoprinosPrikaz = {
@@ -50,6 +62,18 @@ export type ParametarPrikaz = {
   /** ISO datum vlastitog mjerenja tog polja; kod blenda null. */
   datum: string | null;
   niz: TockaGrafa[];
+  /**
+   * Vrijednost nadjena kroz KNJIGU — izmjerena na ovom vinu, u ranijoj posudi.
+   * Postoji samo kad tank nema ni vlastito mjerenje ni procjenu iz blenda.
+   */
+  izKnjige?: {
+    mjerenoAt: string | null;
+    /** "T8" — gdje je mjereno. Vise posuda kad partije nisu iz istog mjesta. */
+    posude: string[];
+    /** Koliko je litara vina u tanku time pokriveno. */
+    postotak: number;
+  } | null;
+
   /** Sto blend kaze za ovo polje — i kad se prikazuje vlastito mjerenje. */
   blend: {
     vrijednost: number | null;
@@ -128,6 +152,8 @@ function fDanVrijeme(iso: string) {
   });
 }
 
+// `knjiga` je MJERENA vrijednost, samo u drugoj posudi — nije racun, pa ne ide
+// u isti vizualni razred kao procjena iz blenda.
 const jeIzracunato = (p: Podrijetlo) => p === "blend" || p === "preneseno";
 
 /** Inline SVG, bez vanjske biblioteke — isti pristup kao hladjenje-graf.tsx. */
@@ -416,6 +442,12 @@ export default function ParametriPoPolju({
                   ? "nije mjereno"
                   : p.podrijetlo === "mjereno"
                     ? "izmjereno " + fDanKratko(p.datum)
+                    : p.podrijetlo === "knjiga"
+                      ? "izmjereno " +
+                        fDanKratko(p.izKnjige?.mjerenoAt ?? null) +
+                        (p.izKnjige?.posude.length
+                          ? " u " + p.izKnjige.posude.join(", ")
+                          : "")
                     : p.podrijetlo === "preneseno"
                       ? "procjena · pretok " + fDanKratko(p.datum)
                       : p.blend && p.blend.postotak >= 99.5

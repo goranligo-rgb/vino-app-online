@@ -19,6 +19,7 @@ import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
 import { popisKvasacaSDopunom } from "@/lib/kvasci";
 import { kvasciPoPartiji } from "@/lib/kvasac-partija";
 import { granicaVina, odGraniceVina } from "@/lib/granica-vina";
+import { parametriVinaIzKnjige } from "@/lib/parametri-vina";
 import {
   podrijetloTanka,
   sastavIzPodrijetla,
@@ -27,6 +28,7 @@ import {
   vinoUTrenucima,
   type VinoUTrenutku,
   type ZapisPodrijetla,
+  SORTA_NEPOZNATA,
 } from "@/lib/berba-model";
 import { opisGubitka } from "@/lib/pretok-gubitak";
 import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
@@ -645,13 +647,14 @@ function VinoUTrenutkuRedak({ vino }: { vino: VinoUTrenutku | undefined }) {
  * Zato ovdje nema ni `sumnjiv`, ni puta, ni dubine — nema sto biti sumnjivo
  * kad se ne pogadja nego cita.
  *
+ * Dobiva SAMO prave zapise berbe. Zateceno vino nema berbu i ne prolazi ovuda
+ * — ono se prikazuje jednim retkom s kolicinom (vidi `zatecenoRedakStyle`).
+ *
  * LITRE SU DVIJE I OBJE SE PISU: `uTankuL` je koliko te partije ima OVDJE
  * (pravi broj, zbrojiv), `kolicinaLitara` koliko je cijela partija imala.
  * Kilogrami stoje uz drugu, neskalirani — vidi pravilo u lib/berba-model.ts.
  */
 function PartijaIzKnjige({ x }: { x: ZapisPodrijetla }) {
-  const zateceno = x.vrstaUnosa === "ZATECENO";
-
   return (
     <BerbaStavkaKartica
       s={{
@@ -675,17 +678,12 @@ function PartijaIzKnjige({ x }: { x: ZapisPodrijetla }) {
         maceracija: x.maceracija,
         maceracijaSati: x.maceracijaSati,
       }}
-      rub={zateceno ? "#9ca3af" : undefined}
       podnaslov={
         <>
           {formatBroj(x.postotak)} % ovog tanka
           {x.kolicinaLitara > 0 && Math.abs(x.kolicinaLitara - x.uTankuL) > 0.5
             ? ` · od ${formatBroj(x.kolicinaLitara, 0)} L cijele partije`
             : ""}
-          {/* ZATECENO se ne skriva. To je 30 od 52 zapisa u knjizi i istina je:
-              vino je zateceno u podrumu kad je knjiga pocela, pa mu se
-              podrijetlo ne izmislja. */}
-          {zateceno ? " · zatečeno, podrijetlo se ne zna" : ""}
         </>
       }
     />
@@ -1300,6 +1298,18 @@ export default async function TankPregledPage({
   const nepoznatoUKnjizi = nepoznatiDio(sastavKnjige);
   const razlikeSastava = razlikaSastava(udjeliSorti, sastavKnjige);
 
+  // PARAMETRI IZ KNJIGE — zadnja mjerena vrijednost koja pripada OVOM vinu, u
+  // kojoj god posudi bila izmjerena.
+  //
+  // Zadnja mreza ispod vlastitog mjerenja i procjene iz blenda. Tankovi 15 i
+  // 32 nisu imali ni alkohol ni kiseline iako su ta vina mjerena: vrijednost
+  // stoji u arhivi tanka 8 od 18.06., a do nje ne dolazi ni citac ovog tanka
+  // (gleda samo ovaj tank) ni blend (pokazivaci vode na tank 5). Knjiga zna da
+  // je bas to vino bilo u tanku 8 do 18.08.
+  //
+  // Cita se TEK OVDJE, u nizu — isti razlog kao podrijetlo iznad.
+  const parametriVina = await parametriVinaIzKnjige(prisma, id);
+
   // Spoj sastavnice iz `parametriBlenda` na redak u popisu izvora. Ovdje je
   // sortirano po kolicini, ondje po vremenu upisa — pa ide po id-u.
   // Sumnjiv izvor koji NEMA nijedno polje ne ulazi u prosjek, pa nema o cemu
@@ -1360,8 +1370,14 @@ export default async function TankPregledPage({
     const vlastita = poPolju.vrijednosti[o.kljuc];
     const b = blend?.poPolju[o.kljuc] ?? null;
 
+    // TRECI IZVOR, kad prva dva sute: vrijednost izmjerena na OVOM vinu dok
+    // je bilo u ranijoj posudi. Nije racun nego mjerenje, pa stoji ispred
+    // "nema" — a iza vlastitog i iza blenda, koji su blizi ovom tanku.
+    const izKnjige = parametriVina?.poPolju[o.kljuc] ?? null;
+
     // "preneseno" = vlastiti redak koji je upisao pretok (jeRucno = false).
     // Ni to nitko nije izmjerio, pa ide u isti vizualni razred kao blend.
+
     const podrijetlo: ParametarPrikaz["podrijetlo"] =
       vlastita != null
         ? izvor?.jeRucno === false
@@ -1369,14 +1385,32 @@ export default async function TankPregledPage({
           : "mjereno"
         : b?.vrijednost != null
           ? "blend"
-          : "nema";
+          : izKnjige != null
+            ? "knjiga"
+            : "nema";
 
     return {
       kljuc: o.kljuc,
       naziv: o.naziv,
       jedinica: o.jedinica,
-      vrijednost: vlastita != null ? vlastita : (b?.vrijednost ?? null),
+      vrijednost:
+        vlastita != null
+          ? vlastita
+          : (b?.vrijednost ?? izKnjige?.vrijednost ?? null),
       podrijetlo,
+      izKnjige: izKnjige
+        ? {
+            mjerenoAt: izKnjige.najnovijeAt.toISOString(),
+            posude: [
+              ...new Set(
+                izKnjige.izvori.map((x) =>
+                  x.brojTanka != null ? `tank ${x.brojTanka}` : "nepoznatoj posudi"
+                )
+              ),
+            ],
+            postotak: izKnjige.postotak,
+          }
+        : null,
       datum: izvor?.izmjerenoAt.toISOString() ?? null,
       niz: nizPolja(mjerenjaZaParametre, o.kljuc).map((t) => ({
         t: t.izmjerenoAt.toISOString(),
@@ -1469,8 +1503,37 @@ export default async function TankPregledPage({
   // Partije koje su u tanku SADA, po knjizi. Vlastita punjenja stoje GORE i
   // odgovaraju na drugo pitanje („sto je u ovaj tank usuto"), pa se ne mijesaju
   // u isti popis.
-  const partijeKnjige = podrijetloKnjige.stavke;
-  const naslijedenoStavki = partijeKnjige.length;
+  //
+  // ZATECENO VINO NEMA BERBU — i ne smije je glumiti.
+  //
+  // Vino zateceno u podrumu kad je knjiga pocela (2025. i ranije) nema nijedan
+  // zapis berbe: ni datum, ni parcelu, ni kilograme — sve je prazno. Sest
+  // praznih kartica na tanku 6 nije podatak nego suma. Zato zatecene partije
+  // ne dobivaju karticu berbe nego JEDAN redak s kolicinom.
+  const NISTA = 0.5;
+
+  // Partija ispod pola litre se ne prikazuje: to je zaostatak zaokruzivanja
+  // pretoka, a ne vino o kojem se ima sto reci.
+  const svePartije = podrijetloKnjige.stavke.filter((x) => x.uTankuL >= NISTA);
+
+  // Zapis berbe ima samo ono sto je u podrum stvarno uslo kao grozdje.
+  const partijeKnjige = svePartije.filter((x) => x.vrstaUnosa === "BERBA");
+  const zateceneP = svePartije.filter((x) => x.vrstaUnosa !== "BERBA");
+  const zatecenoL = Number(
+    zateceneP.reduce((z, x) => z + x.uTankuL, 0).toFixed(3)
+  );
+
+  // Dio zatecenog vina ipak ima poznatu sortu (netko ju je upisao pri
+  // pocetnom popisu); to je jedino sto se o njemu zna i vrijedi reci.
+  const sorteZatecenog = [
+    ...new Set(
+      zateceneP
+        .filter((x) => x.nazivSorte !== SORTA_NEPOZNATA)
+        .map((x) => x.nazivSorte)
+    ),
+  ];
+
+  const naslijedenoStavki = partijeKnjige.length + (zatecenoL > 0 ? 1 : 0);
 
   // Kartica se prikazuje i kad tank NEMA nijedno svoje punjenje — to je i bio
   // cijeli problem: tank napunjen pretokom nije pokazivao nikakvu berbu.
@@ -2727,7 +2790,7 @@ export default async function TankPregledPage({
                 obzira kojim putem je doslo). Litre su stvarne i zbrojive; kg
                 grozdja i secer opisuju cijelu berbenu partiju i ne zbrajaju
                 se — iz svake je ovamo doslo samo onoliko koliko pise uz nju. */}
-            {partijeKnjige.length > 0 ? (
+            {partijeKnjige.length > 0 || zatecenoL > 0 ? (
               <>
                 <div style={naslijedenoZaglavljeStyle}>Iz knjige kretanja</div>
 
@@ -2740,9 +2803,9 @@ export default async function TankPregledPage({
                     {partijeKnjige.length}{" "}
                     {hrvatskiOblik(
                       partijeKnjige.length,
-                      "partija",
-                      "partije",
-                      "partija"
+                      "zapis berbe",
+                      "zapisa berbe",
+                      "zapisa berbe"
                     )}
                   </strong>{" "}
                   · u tanku{" "}
@@ -2764,6 +2827,21 @@ export default async function TankPregledPage({
                   <strong>ne zbrajaju se</strong>: ovamo je iz svake došlo samo
                   onoliko koliko piše uz nju.
                 </div>
+
+                {/* ZATECENO — jedan redak, bez kartice berbe. */}
+                {zatecenoL > 0 ? (
+                  <div style={zatecenoRedakStyle}>
+                    <strong>Zatečeno vino — {formatBroj(zatecenoL, 0)} L</strong>
+                    {zateceneP.length > 1 ? ` · ${zateceneP.length} partije` : ""}
+                    <div style={{ ...mutedTextStyle, marginTop: 2 }}>
+                      Podrijetlo se ne zna — vino je bilo u podrumu prije nego je
+                      knjiga počela, pa za njega nema zapisa berbe.
+                      {sorteZatecenog.length > 0 ? (
+                        <> Poznato je samo: {sorteZatecenog.join(", ")}.</>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
 
                 {partijeKnjige.slice(0, NASLIJEDENO_ODMAH).map((x) => (
                   <PartijaIzKnjige key={x.berbaId} x={x} />
@@ -3547,6 +3625,17 @@ const izKnjigeRedStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 10,
+  fontSize: 13,
+  color: "#2f2f2f",
+};
+
+/* Zateceno vino — jedan redak umjesto praznih kartica berbe. Sivo, jer je to
+   ono sto se NE zna. */
+const zatecenoRedakStyle: React.CSSProperties = {
+  border: "1px solid #ececec",
+  borderLeft: "3px solid #9ca3af",
+  background: "#fafafa",
+  padding: "8px 10px",
   fontSize: 13,
   color: "#2f2f2f",
 };
