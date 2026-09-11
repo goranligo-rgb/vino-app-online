@@ -406,11 +406,20 @@ async function main() {
       );
       jednako((await redci(tx, cilj.id)).length, 1, "cilj je preuzeo radnju");
 
-      // Arhiviranje je radnju svejedno prepisalo u ArhivaVinaRadnja.
-      const uArhivi = await tx.arhivaVinaRadnja.count({
-        where: { tankId: izvor.id },
-      });
-      jednako(uArhivi, 1, "povijest je u arhivi, nije izgubljena");
+      // POVIJEST OSTAJE NA TANKU (faza D). Prije je pretok izvor arhivirao i
+      // radnju prepisivao u `ArhivaVinaRadnja`; sada se ne arhivira nista, a
+      // sam `Radnja` redak nikad se ni prije nije brisao. Ono sto se cisti su
+      // samo UDJELI (`VinoRadnja`), jer oni opisuju vino koje je otislo.
+      jednako(
+        await tx.arhivaVinaRadnja.count({ where: { tankId: izvor.id } }),
+        0,
+        "pretok ne stvara arhivu radnje — ne arhivira se"
+      );
+      jednako(
+        await tx.radnja.count({ where: { tankId: izvor.id } }),
+        1,
+        "sama radnja je i dalje na tanku, nije izgubljena"
+      );
     }
   );
 

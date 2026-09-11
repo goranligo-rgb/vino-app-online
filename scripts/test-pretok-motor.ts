@@ -880,6 +880,12 @@ async function main() {
 
       const arhivaPrije = await tx.arhivaVina.count();
 
+      // Mjerenje na izvoru koji ce se isprazniti — dokaz da povijest ostaje.
+      await tx.mjerenje.create({
+        data: { tankId: i1.id, alkohol: 12.1, jeRucno: true },
+      });
+      const mjerenjaPrije = await tx.mjerenje.count({ where: { tankId: i1.id } });
+
       await izvrsiPretok(tx, {
         izvori: [
           { tankId: i1.id, kolicina: 600 },
@@ -892,37 +898,54 @@ async function main() {
         noviIdentitet: { nazivVina: "TEST cuvée", sorta: "Cuvée", godiste: 2025 },
       });
 
-      // --- 1) ARHIVIRANJE ---
-      const arhive = await tx.arhivaVina.findMany({ where: { tankId: i1.id } });
-      jednako(await tx.arhivaVina.count(), arhivaPrije + 1, "nastala je TOCNO jedna arhiva");
-      jednako(arhive.length, 1, "arhiva pripada ispraznjenom izvoru");
-      jednako(arhive[0]?.brojTanka, i1.broj, "arhiva nosi broj tog tanka");
-      jednako(arhive[0]?.kolicinaVina, 600, "arhiva nosi kolicinu prije praznjenja");
-      jednako(arhive[0]?.nazivVina, "Grasevina 2025", "arhiva nosi naziv vina");
+      // --- 1) PRAZNJENJE BEZ ARHIVIRANJA (faza D) ---
+      //
+      // Do faze D je ovdje nastajala arhiva. Vlasnikovo pravilo: vino se
+      // arhivira samo kad ode u bocu ili rinfuzu — pretok nije kraj vina.
       jednako(
-        (await tx.arhivaVina.count({ where: { tankId: i2.id } })),
-        0,
-        "izvor koji je ostao pun NIJE arhiviran"
+        await tx.arhivaVina.count(),
+        arhivaPrije,
+        "pretok NE stvara arhivu, ni kad izvor padne na nulu"
       );
 
       const i1Poslije = await stanje(tx, i1.id);
-      jednako(i1Poslije.litara, 0, "arhivirani izvor je prazan");
-      jednako(i1Poslije.nazivVina, null, "arhivirani izvor izgubio identitet");
-      jednako(i1Poslije.blendRedaka, 0, "arhivirani izvor nema blend");
+      jednako(i1Poslije.litara, 0, "ispraznjeni izvor je prazan");
+      jednako(i1Poslije.nazivVina, null, "ispraznjeni izvor izgubio identitet");
+      jednako(i1Poslije.blendRedaka, 0, "ispraznjeni izvor nema blend");
+      jednako(
+        (await tx.tankSortaUdio.count({ where: { tankId: i1.id } })),
+        0,
+        "ispraznjeni izvor nema sastav"
+      );
 
-      // --- 2) PREUSMJERAVANJE POKAZIVACA ---
-      const naIspraznjeni = await tx.blendIzvor.count({ where: { izvorTankId: i1.id } });
-      jednako(naIspraznjeni, 0, "NIJEDAN blend redak ne pokazuje na ispraznjeni tank");
+      // POVIJEST OSTAJE NA TANKU. Prije ju je arhiviranje prepisivalo pa
+      // brisalo; sada ostaje gdje jest, a ekran je rezuje granicom vina.
+      jednako(
+        (await tx.mjerenje.count({ where: { tankId: i1.id } })),
+        mjerenjaPrije,
+        "mjerenja ispraznjenog izvora NISU obrisana"
+      );
 
-      const naArhivu = await tx.blendIzvor.count({
-        where: { ciljTankId: cilj.id, izvorArhivaVinaId: arhive[0]!.id },
-      });
-      jednako(naArhivu, 1, "blend cilja pokazuje na novonastalu arhivu");
+      // --- 2) POKAZIVACI OSTAJU NA TANKU ---
+      //
+      // Preusmjeravanja na arhivu vise nema jer arhive nema. Pokazivac na
+      // tank je tocan sam po sebi: `parametriBlenda` ga cita NA DATUM kad je
+      // vino doslo, pa dobiva vino kakvo je tada bilo.
+      jednako(
+        (await tx.blendIzvor.count({ where: { ciljTankId: cilj.id, izvorTankId: i1.id } })),
+        1,
+        "blend cilja pokazuje na ispraznjeni izvorni tank"
+      );
+      jednako(
+        (await tx.blendIzvor.count({ where: { ciljTankId: cilj.id, izvorArhivaVinaId: { not: null } } })),
+        0,
+        "nijedan redak ne pokazuje na arhivu — nije je ni bilo"
+      );
 
       const naPuniIzvor = await tx.blendIzvor.count({
         where: { ciljTankId: cilj.id, izvorTankId: i2.id },
       });
-      jednako(naPuniIzvor, 1, "blend cilja i dalje pokazuje na izvor koji nije arhiviran");
+      jednako(naPuniIzvor, 1, "blend cilja i dalje pokazuje na izvor koji je ostao pun");
 
       // --- 3) IDENTITET I SASTAV CUVÉEA ---
       const c = await stanje(tx, cilj.id);

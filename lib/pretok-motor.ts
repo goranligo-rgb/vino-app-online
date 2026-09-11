@@ -68,10 +68,7 @@ import {
   type TankSaSastavom,
   type Tx,
 } from "@/lib/filtracija";
-import {
-  arhivirajPotroseniTank,
-  preusmjeriNaArhivu,
-} from "@/lib/pretok-arhiviranje";
+import { isprazniTank } from "@/lib/prazni-tank";
 import {
   planPrijenosa,
   zabiljeziIzlaz,
@@ -551,10 +548,13 @@ export async function izvrsiPretok(
 
   // 7) IZVORI — umanji kolicinu i proporcionalno smanji blend.
   //
-  //    Izvor koji padne na nulu se arhivira; `arhiveIzvora` pamti koja je
-  //    arhiva nastala iz kojeg tanka, da se blend pokazivaci ciljeva mogu
-  //    preusmjeriti na nju umjesto na tank koji je od sada slobodan za novo vino.
-  const arhiveIzvora = new Map<string, string>();
+  //    Izvor koji padne na nulu se PRAZNI, ne arhivira (faza D). Vino se
+  //    arhivira kad ode u bocu ili rinfuzu; pretok nije kraj vina nego njegov
+  //    put dalje. `isprazniTank` skida sastav, porijeklo, udjele radnji i
+  //    identitet — a mjerenja, zadatke, punjenja i dokumente OSTAVLJA, jer oni
+  //    pripadaju vinu i ekran ih rezuje granicom vina, ne brisanjem.
+  /** Tankovi koje je ovaj pretok ispraznio — treba ih korak 9 (ispravak knjige). */
+  const ispraznjeni = new Set<string>();
   const rezultatIzvori: RezultatPretoka["izvori"] = [];
 
   for (const i of provjeren.izvori) {
@@ -569,34 +569,10 @@ export async function izvrsiPretok(
     });
 
     if (paoNaNulu) {
-      // ARHIVIRANJE. Zove se ISTA funkcija koju je zvala stara grana — ne
-      // kopija. Ona sama ocisti tank (kolicina 0, identitet i blend van) i u
-      // arhivu prenese mjerenja, zadatke, dokumente, punjenja, radnje i izlaze.
-      //
-      // Mora se dogoditi PRIJE nego se upisu blendovi ciljeva, jer tek tada
-      // postoji arhiva na koju se pokazivaci mogu preusmjeriti. Isti redoslijed
-      // koji je faza 1 uspostavila u staroj grani.
-      const dodatni = await tx.tank.findUniqueOrThrow({
-        where: { id: t.id },
-        select: { tip: true },
-      });
-
-      const arhiva = await arhivirajPotroseniTank(
-        tx,
-        {
-          id: t.id,
-          broj: t.broj,
-          sorta: t.sorta ?? null,
-          nazivVina: t.nazivVina ?? null,
-          godiste: t.godiste ?? null,
-          kapacitet: t.kapacitet,
-          tip: dodatni.tip ?? null,
-        },
-        uLitre(prijeMl),
-        `Automatski arhivirano jer je vino pretokom izašlo iz tanka ${t.broj}.`
-      );
-
-      arhiveIzvora.set(t.id, arhiva.id);
+      // PRAZNJENJE, ne arhiviranje. Posuda se oslobadja za sljedece vino, a
+      // povijest ostaje na njoj i rezuje se granicom vina pri prikazu.
+      await isprazniTank(tx, t.id, uLitre(prijeMl));
+      ispraznjeni.add(t.id);
     } else {
       await upisiBlend(tx, t.id, blendKojiOstaje(t, ostatakMl, prijeMl));
     }
@@ -680,15 +656,15 @@ export async function izvrsiPretok(
       .map((b, j) => ({ ...b, kolicinaMl: udjeliBlendaPoCilju[k][j], postotak: 0 }))
       .filter((b) => b.kolicinaMl > 0);
 
-    // PREUSMJERAVANJE POKAZIVACA. Ide PRIJE normalizacije da se stari i novi
-    // redak istog porijekla spoje u jedan umjesto da ostanu dva. Prolazi i kroz
-    // zatecen blend cilja: ondje moze stajati stariji redak koji pokazuje na
-    // isti tank, i on je od ovog trenutka jednako kriv.
-    let spojeniBlend = [...blendCilja, ...dolazeciBlend];
-
-    for (const [izvorId, arhivaId] of arhiveIzvora) {
-      spojeniBlend = preusmjeriNaArhivu(spojeniBlend, izvorId, arhivaId);
-    }
+    // PREUSMJERAVANJA VISE NEMA (faza D).
+    //
+    // Dok je pretok arhivirao ispraznjen izvor, pokazivac je morao prijeci s
+    // tanka na arhivu — inace bi „Porijeklo vina" pokazivalo na posudu koja
+    // je odmah dobila tude vino. Sada arhive nema, a pokazivac na tank je
+    // tocan sam po sebi: `parametriBlenda` ga cita NA DATUM kad je vino doslo
+    // (faza D2a), pa dobiva vino kakvo je tada bilo, bez obzira sto je u toj
+    // posudi danas.
+    const spojeniBlend = [...blendCilja, ...dolazeciBlend];
 
     await upisiBlend(tx, t.id, normalizirajBlend(spojeniBlend));
 
@@ -772,13 +748,13 @@ export async function izvrsiPretok(
         "Vino zateceno u tanku pri pretoku: tank ga je imao, a knjiga ne zna odakle je doslo.",
     });
 
-    // Izvor koji je pao na nulu je arhiviran — tank je od sada prazan. Ako je
+    // Izvor koji je pao na nulu je ispraznjen — tank je od sada prazan. Ako je
     // knjiga u njemu i dalje imala vise nego tank, taj visak bi ostao visjeti
     // na tanku koji je vec dobio novo vino. Zato se dopisuje kao ISPRAVAK:
     // "tih litara ondje zapravo nije ni bilo".
     const ostatciArhive: Array<{ tankId: string; litre: number }> = [];
 
-    for (const izvorId of arhiveIzvora.keys()) {
+    for (const izvorId of ispraznjeni) {
       const ostatakMl = (await stanjeTanka(tx, izvorId)).reduce(
         (z, x) => z + x.ml,
         0
@@ -793,7 +769,7 @@ export async function izvrsiPretok(
         veza: { pretokId: ulaz.pretokId },
         korisnikId: ulaz.korisnikId,
         napomena:
-          "Ispravak pri arhiviranju: tank je pretokom ispraznjen, a knjiga je u njemu tvrdila jos vina.",
+          "Ispravak pri praznjenju: tank je pretokom ispraznjen, a knjiga je u njemu tvrdila jos vina.",
       });
 
       ostatciArhive.push({ tankId: izvorId, litre: uLitre(ostatakMl) });
