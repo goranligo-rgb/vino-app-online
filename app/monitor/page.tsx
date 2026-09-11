@@ -179,12 +179,33 @@ export default function MonitorPage() {
           </Link>
         </div>
 
+        {/* KUTIJA OBJASNJENJA — smije se stisnuti, nikad ne smije izaci.
+            ==================================================================
+            Prije je imala tvrdi `minWidth: 220`. Dok zaglavlje nije imalo
+            `flexWrap`, to je gurALO cijelu stranicu u sirinu (vidi biljesku uz
+            zaglavlje). Sada se red prelama, pa kutija dobije svoj red — ali
+            tvrdih 220 px i dalje znaci da ispod ~268 px viewporta (zum 400 %)
+            probija desni rub, jer se ne smije suziti.
+
+            `flex: 0 1 220px` cuva istu zeljenu sirinu, ali dopusta stiskanje.
+            NULA za rast je namjerna: s `1` bi se kutija na sirokom ekranu
+            razvukla preko pola zaglavlja umjesto da ostane uredna oznaka.
+            `minWidth: 0` uklanja zapreku koju element flexa ima po zadanom, a
+            `maxWidth: 100%` je tvrda brana da nikad ne prijede redak.
+
+            PORAVNANJE: zaglavlje ima `justify-content: space-between`. Kad su
+            oba elementa u istom redu, kutija ide desno; kad se prelomi, ostaje
+            sama u redu i `space-between` je stavlja na POCETAK, dakle lijevo
+            ispod naslova. Izmjereno na 12 sirina od 265 do 1265 px. */}
         <div
           style={{
             border: "1px solid #cfcfcf",
             background: "#f8f9fa",
             padding: "10px 12px",
-            minWidth: 220,
+            flex: "0 1 220px",
+            minWidth: 0,
+            maxWidth: "100%",
+            boxSizing: "border-box",
             fontSize: 12,
           }}
         >
