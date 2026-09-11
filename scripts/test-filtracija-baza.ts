@@ -759,17 +759,40 @@ async function main() {
 
       jednako(ciljPoslije.kolicinaVinaUTanku, 1000, "cilj ima 1000 L");
       jednako(ciljPoslije.nazivVina, "TEST mjesavina", "cilj je preimenovan");
+
+      // SASTAV SE CITA IZ POVRATNE VRIJEDNOSTI, NE S TANKA.
+      //
+      // Tvrdnje su iste kao prije — obje sorte, zbroj 100,00 — mijenja se samo
+      // ODAKLE se citaju. Do faze E je sastav stajao u `TankSortaUdio`, ali
+      // `upisiSastav` je od nje prazan (spremljeno stanje je umjelo odlutati
+      // od knjige), pa je tvrdnja provjeravala redak koji vise nitko ne pise i
+      // stajala crvena. Motor pretoka je isti prelazak vec prosao.
+      const sastav = rezultat.ciljevi[0].sastav;
+
+      jednako(sastav.length, 2, "sastav cilja ima obje sorte");
       jednako(
-        ciljPoslije.udjeliSorti.length,
-        2,
-        "sastav cilja ima obje sorte"
+        sastav
+          .map((s) => s.nazivSorte)
+          .sort()
+          .join(", "),
+        "Grasevina, Sauvignon",
+        "sastav imenuje bas te dvije sorte"
       );
       jednako(
-        Number(
-          ciljPoslije.udjeliSorti.reduce((z, u) => z + Number(u.postotak), 0).toFixed(2)
-        ),
+        Number(sastav.reduce((z, u) => z + Number(u.postotak), 0).toFixed(2)),
         100,
         "sastav zbraja 100,00"
+      );
+      // 500 L Sauvignona zateceno + 500 L Grasevine doslo = pola-pola. Broj je
+      // ovdje namjerno ispisan, a ne izveden iz istog racuna koji se provjerava.
+      jednako(
+        Number(
+          Number(
+            sastav.find((s) => s.nazivSorte === "Grasevina")?.postotak ?? 0
+          ).toFixed(2)
+        ),
+        50,
+        "Grasevina drzi tocno pola — 500 L od 1000 L"
       );
 
       // CIN IMENOVANJA (faza 3). Filtracija ne stvara vino nego ga seli, ali

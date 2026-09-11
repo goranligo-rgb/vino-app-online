@@ -983,6 +983,20 @@ export type RezultatIzvrsenja = {
     kolicinaLitara: number;
     biloDrugoVino: boolean;
     noviNazivVina: string | null;
+    /**
+     * Sastav cilja po sortama nakon prijenosa, u postotcima.
+     *
+     * VRACA SE JER SE VISE NE UPISUJE. Od faze E `upisiSastav` je prazan
+     * (`TankSortaUdio` je bio spremljeno stanje koje je umjelo odlutati), pa
+     * je racun koji ovdje i dalje postoji postao nevidljiv izvana — a s njim i
+     * svaka tvrdnja o njemu. Motor pretoka je isti korak vec napravio
+     * (`RezultatPretoka.ciljevi[].sastav`); filtracija je bila zaostala, i
+     * zbog toga je `test-filtracija-baza` DOKAZ 6 stajao crven.
+     *
+     * Ovo NIJE procitano stanje tanka nego ono sto je prijenos izracunao:
+     * zateceno u cilju + ono sto je doslo, ponderirano po mililitrima.
+     */
+    sastav: SortaUdio[];
   }>;
 };
 
@@ -1357,7 +1371,13 @@ export async function izvrsiFiltraciju(
       korisnikId: args.izvrsioKorisnikId,
     });
 
-    await upisiSastav(tx, cilj.tank.id, udjeliIzMape(mapa));
+    // Racuna se JEDNOM i odavde ide na oba mjesta — u (prazan) upis i u
+    // povratnu vrijednost. Dva odvojena poziva `udjeliIzMape(mapa)` bila bi
+    // dva racuna koja se mogu razici, a tvrdnja bi tada provjeravala onaj koji
+    // nitko ne koristi.
+    const sastavCilja = udjeliIzMape(mapa);
+
+    await upisiSastav(tx, cilj.tank.id, sastavCilja);
     await upisiBlend(tx, cilj.tank.id, blend);
 
     // RADNJE PUTUJU S VINOM. Filtracija ima tocno jedan izvor, pa je razdioba
@@ -1432,6 +1452,7 @@ export async function izvrsiFiltraciju(
       kolicinaLitara: uLitre(cilj.kolicinaMl),
       biloDrugoVino,
       noviNazivVina,
+      sastav: sastavCilja,
     });
   }
 

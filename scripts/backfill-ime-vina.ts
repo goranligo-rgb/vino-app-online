@@ -54,6 +54,16 @@
  * napomeni koja pocinje BILJEG-om i brisu se prije novog upisa. Rucni zapisi
  * i oni koje su napisale rute se NE DIRAJU.
  *
+ * I NE UDVAJAJU SE. Od faze 3 pretok, punjenje i filtracija sami upisuju cin u
+ * trenutku kad ga rade — a taj isti cin stoji i u knjizi, pa bi ga backfill
+ * izveo po drugi put. Zato se prije spajanja procitaju svi zapisi KOJI NISU
+ * backfillovi i cin se preskoci ako ga medju njima vec ima (po `pretokId` ili
+ * `punjenjeId`, a kad ih nema — po tanku i trenutku).
+ *
+ * Ovo nije teorija: 11.09. je backfill pokrenut u 11:00, a u 11:17 i 11:19 su
+ * u podrum usla cetiri punjenja i jedan cuvée. Cim faza 3 ode na posluzitelj,
+ * svako sljedece pokretanje zatekne i vlastite i tudje zapise.
+ *
  * STO OSTAJE RAZLICITO — I ZASTO SE NE POPRAVLJA
  * ----------------------------------------------
  * T20 je jedini tank kojem se DEKLARIRANA SORTA razilazi: iz dokaza ispada
@@ -191,6 +201,20 @@ async function main() {
   const arhive = await prisma.arhivaVina.findMany({
     select: { tankId: true, nazivVina: true, sorta: true, arhiviranoAt: true },
   });
+
+  // Zapisi koje backfill NIJE napisao — vidi „I NE UDVAJAJU SE" u zaglavlju.
+  const tudji = await prisma.imeVina.findMany({
+    where: { NOT: { napomena: { startsWith: BILJEG } } },
+    select: { tankId: true, odAt: true, pretokId: true, punjenjeId: true },
+  });
+
+  const vecZapisano = new Set<string>();
+  for (const z of tudji) {
+    if (z.pretokId) vecZapisano.add(`p:${z.pretokId}:${z.tankId}`);
+    if (z.punjenjeId) vecZapisano.add(`u:${z.punjenjeId}:${z.tankId}`);
+    if (!z.pretokId && !z.punjenjeId)
+      vecZapisano.add(`t:${z.tankId}:${z.odAt.getTime()}`);
+  }
 
   const tipPretoka = new Map(pretoci.map((p) => [p.id, p.tip]));
   const datumPretoka = new Map(pretoci.map((p) => [p.id, p.datum]));
@@ -348,6 +372,15 @@ async function main() {
   const upisi: Upis[] = [];
   let cinovaUkupno = 0;
   let cinovaBezDokaza = 0;
+  let cinovaVecZapisanih = 0;
+
+  /** Je li ovaj cin vec zapisala ruta (faza 3). Vidi zaglavlje. */
+  const zapisaoNetkoDrugi = (tankId: string, c: Cin) =>
+    (c.pretokId && vecZapisano.has(`p:${c.pretokId}:${tankId}`)) ||
+    (c.punjenjeId && vecZapisano.has(`u:${c.punjenjeId}:${tankId}`)) ||
+    (!c.pretokId &&
+      !c.punjenjeId &&
+      vecZapisano.has(`t:${tankId}:${c.at.getTime()}`));
 
   for (const t of tankovi) {
     const cinovi = [...(poTankuCin.get(t.id)?.values() ?? [])].sort(
@@ -389,6 +422,15 @@ async function main() {
       zadnjaSorta = sorta;
       imaZadnji = true;
 
+      // CIN KOJI JE VEC ZAPISALA RUTA (faza 3) se preskace TEK OVDJE, a ne
+      // prije racuna: tekuce ime se mora osvjeziti i za njega, inace bi
+      // sljedeci cin usporedivao s imenom od prije dva cina i ili upisao zapis
+      // koji ne treba, ili izostavio onaj koji treba.
+      if (zapisaoNetkoDrugi(t.id, c)) {
+        cinovaVecZapisanih++;
+        continue;
+      }
+
       // Ime se upisuje kad se PROMIJENI — ili kad u praznu posudu ude novo
       // vino, jer tada stariji zapisi ispadaju iz prozora i bez novog bi vino
       // ostalo bezimeno.
@@ -410,7 +452,7 @@ async function main() {
   }
 
   console.log(
-    `cinova iz knjige: ${cinovaUkupno}, bez ijednog promatranja: ${cinovaBezDokaza}`
+    `cinova iz knjige: ${cinovaUkupno}, bez ijednog promatranja: ${cinovaBezDokaza}, vec zapisanih rutom: ${cinovaVecZapisanih}`
   );
   console.log(`zapisa za upis: ${upisi.length}\n`);
 
