@@ -240,7 +240,15 @@ export async function vrijednostiTankaPoPolju(
   // i imala je dvije rupe — filtracija prazni tank bez arhiviranja, a tank
   // koji je nakon praznjenja odmah napunjen zadrzavao je mjerenja prethodnog
   // vina do sljedeceg arhiviranja. Vidi lib/granica-vina.ts.
-  const granica = await granicaVina(db, tankId);
+  // Granica se racuna NA `doDatuma` kad je zadan: sastavnica blenda ne pita
+  // "sto je u tanku 5 sada" nego "kakvo je bilo vino koje je iz tanka 5
+  // doslo ovamo". To je vino koje je ondje bilo u trenutku pretoka.
+  const granica = await granicaVina(db, tankId, {
+    doTrenutka: opts?.doDatuma ?? null,
+    // Kad se cita na datum, izvor je tada cesto vec bio ispraznjen tim istim
+    // pretokom — trazi se vino koje je upravo otislo, ne prazna posuda.
+    zadnjeVino: opts?.doDatuma != null,
+  });
   const granicaArhive = granica.odAt;
 
   const uvjetVremena: Prisma.DateTimeFilter = {};
@@ -533,7 +541,17 @@ export async function parametriBlenda(
         bentotest = a.bentotest;
       } else if (b.izvorTankId) {
         naziv = `tank ${b.izvorTank?.broj ?? "?"}`;
-        const t = await vrijednostiTankaPoPolju(db, b.izvorTankId);
+
+        // KAKVO JE VINO BILO KAD JE OTISLO, ne kakav je tank danas.
+        //
+        // `BlendIzvor.createdAt` je trenutak kad je to vino uslo ovamo, pa se
+        // izvor cita na taj datum i s granicom kakva je tada bila. Bez toga
+        // sastavnica cita sljedece vino istog tanka (zato je 13 od 16 zivih
+        // pokazivaca bilo oznaceno kao sumnjivo) ili nista, ako je tank
+        // u meduvremenu ispraznjen.
+        const t = await vrijednostiTankaPoPolju(db, b.izvorTankId, {
+          doDatuma: b.createdAt ?? undefined,
+        });
         vrijednosti = t.vrijednosti;
         izvorPolja = t.izvorPolja;
         bentotest = t.bentotest;

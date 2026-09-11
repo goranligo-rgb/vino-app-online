@@ -63,7 +63,7 @@ export type GranicaVina = {
    * Oba slucaja prikaz mora razlikovati, pa uz granicu ide i `razlog`.
    */
   odAt: Date | null;
-  razlog: "PUNJENJE" | "PRAZAN" | "NEMA_KNJIGE";
+  razlog: "PUNJENJE" | "PRAZAN" | "OTISLO" | "NEMA_KNJIGE";
   /** Koliko je vina u tanku po knjizi, u litrama. */
   litre: number;
 };
@@ -111,7 +111,25 @@ export type DatumiPunjenja = Map<string, Date>;
 export function izracunajGranicuVina(
   tankId: string,
   redci: RedakZaGranicu[],
-  datumiPunjenja?: DatumiPunjenja
+  datumiPunjenja?: DatumiPunjenja,
+  /**
+   * Racunaj granicu kakva je bila U TOM TRENUTKU, ne danas.
+   *
+   * Treba onome tko cita tudi tank kao sastavnicu blenda: pitanje nije „sto je
+   * u tanku 5 sada" nego „kakvo je bilo vino koje je iz tanka 5 doslo ovamo",
+   * a to je vino koje je ondje bilo u trenutku pretoka. Bez ovoga bi
+   * sastavnica citala sljedece vino tog tanka, ili nista ako je tank prazan.
+   */
+  doTrenutka?: Date | null,
+  /**
+   * Kad je tank u tom trenutku PRAZAN, opisi vino koje je upravo otislo
+   * umjesto da kazes da vina nema.
+   *
+   * Treba sastavnici blenda: redak nastaje u trenutku pretoka, a pretok je
+   * izvor do tada vec ispraznio. Bez ovoga bi sastavnica citala prazan tank i
+   * ne bi dala nijedno polje — izmjereno, devet od sesnaest zivih pokazivaca.
+   */
+  zadnjeVino?: boolean
 ): GranicaVina {
   if (redci.length === 0) {
     return { odAt: null, razlog: "NEMA_KNJIGE", litre: 0 };
@@ -139,8 +157,15 @@ export function izracunajGranicuVina(
 
   let ml = 0;
   let pocetakMs: number | null = null;
+  /** Pocetak zadnjeg punjenja koje je ZAVRSILO praznjenjem. Vidi `zadnjeVino`. */
+  let pocetakOtislog: number | null = null;
+  const granicaMs = doTrenutka ? doTrenutka.getTime() : null;
 
   for (const r of poredani) {
+    // Ukljucivo, kao i `doTrenutkaSQL`: ono sto se dogodilo u istoj sekundi
+    // dio je onoga sto se tada citalo.
+    if (granicaMs !== null && r.poredak > granicaMs) break;
+
     const prijeMl = ml;
     ml += r.ml;
 
@@ -151,6 +176,7 @@ export function izracunajGranicuVina(
 
     // Tank se ispraznio — sve do sada pripada vinu kojeg vise nema.
     if (ml < PRAZNO_ML) {
+      if (pocetakMs !== null) pocetakOtislog = pocetakMs;
       pocetakMs = null;
     }
   }
@@ -158,6 +184,16 @@ export function izracunajGranicuVina(
   const litre = Math.round(ml) / 1000;
 
   if (ml < PRAZNO_ML || pocetakMs === null) {
+    // Prazan tank NEMA vino — osim kad se izricito pita za ono koje je upravo
+    // otislo. Tada se vraca granica tog, zadnjeg punjenja.
+    if (zadnjeVino && pocetakOtislog !== null) {
+      return {
+        odAt: pocetakDana(pocetakOtislog),
+        razlog: "OTISLO",
+        litre: Math.max(0, litre),
+      };
+    }
+
     return { odAt: null, razlog: "PRAZAN", litre: Math.max(0, litre) };
   }
 
@@ -201,7 +237,8 @@ async function citajDatumePunjenja(
 /** Granica vina za jedan tank. Dva upita. */
 export async function granicaVina(
   db: Klijent,
-  tankId: string
+  tankId: string,
+  opts?: { doTrenutka?: Date | null; zadnjeVino?: boolean }
 ): Promise<GranicaVina> {
   const redci = await db.berbaKretanje.findMany({
     where: { OR: [{ uTankId: tankId }, { izTankId: tankId }] },
@@ -218,7 +255,9 @@ export async function granicaVina(
   return izracunajGranicuVina(
     tankId,
     redci,
-    await citajDatumePunjenja(db, redci)
+    await citajDatumePunjenja(db, redci),
+    opts?.doTrenutka,
+    opts?.zadnjeVino
   );
 }
 
