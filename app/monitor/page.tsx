@@ -107,6 +107,18 @@ export default function MonitorPage() {
         color: "#222",
       }}
     >
+      {/* ZAGLAVLJE SE MORA PRELOMITI, INACE GURA CIJELU STRANICU.
+          ======================================================================
+          Desno u zaglavlju stoji kutija OBJASNJENJE s `minWidth: 220`. Bez
+          `flexWrap` red se ne smije prelomiti, pa na uskom prozoru zbroj
+          (naslov + razmak + 220) premasi sirinu — dokument se rasiri, stranica
+          dobije vodoravni klizac, a mreza tankova (koja sama uredno stane)
+          izgleda odsjecena s obje strane cim se otklizi u stranu.
+
+          IZMJERENO na produkciji, prozor 360 px: prelijev 31 px, krivac bas ta
+          kutija. Redom pokusa: bez retka „Ime:" -> i dalje 31 px; bez
+          `minWidth: 0` na karticama -> i dalje 31 px; bez kutije -> 0 px; sa
+          `flexWrap: "wrap"` -> 0 px. Dakle zatečeno, ne od faze 4. */}
       <div
         style={{
           display: "flex",
@@ -114,6 +126,7 @@ export default function MonitorPage() {
           alignItems: "flex-start",
           marginBottom: 20,
           gap: 20,
+          flexWrap: "wrap",
         }}
       >
         <div>
@@ -249,7 +262,16 @@ export default function MonitorPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+          // `auto-fit`, ne `auto-fill`: kad kartica ima MANJE nego sto stane
+          // stupaca, `auto-fill` ostavi prazne staze i kartice se ne rasire, a
+          // `auto-fit` ih skupi pa red ostane popunjen. Uz 48 tankova to danas
+          // ne mijenja nista (nijedna staza nije prazna) — bitno je tek kad se
+          // popis suzi ili na vrlo sirokom ekranu.
+          //
+          // `minmax(200px, 1fr)` ostaje netaknut: on je taj koji mijenja broj
+          // stupaca sa sirinom (izmjereno na produkciji: 1 stupac na 360 px,
+          // 2 na 500, 3 na 853, 4 na 1024, 5 na 1280).
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
           gap: 12,
         }}
       >
