@@ -7,6 +7,8 @@ import {
   tekstIliNull,
   brojIliNull,
   datumIliNull,
+  vrijemeIliNull,
+  krajSPrelaskomPonoci,
   danasZaDateInput,
   godinaIzDatuma,
   pocetnoMjerenjeIzStavki,
@@ -65,6 +67,21 @@ type StavkaPunjenja = {
   // "izricito ne". Vidi prisma/schema.prisma.
   maceracija: boolean | null;
   maceracijaSati: string;
+
+  /**
+   * BRANJE — cije je grozdje i koliko je trebalo da se ubere.
+   *
+   * `vlastitaBerba` je zadano `true`: od 22 ovogodisnje berbe svih 22 je s
+   * vlastitih polozaja. Kad se iskljuci, tri polja ispod se ne salju —
+   * kooperantsko grozdje nisu brali nasi ljudi.
+   *
+   * Sve troje je NEOBAVEZNO i nikad ne blokira spremanje: grozdje stize u
+   * podrum prije nego itko stigne zbrojiti sate.
+   */
+  vlastitaBerba: boolean;
+  pocetakBranja: string;
+  krajBranja: string;
+  brojBeraca: string;
   /**
    * PODJELA U VISE TANKOVA.
    *
@@ -85,7 +102,7 @@ type StavkaPunjenja = {
 // Polja stavke koja su obicni tekstualni inputi — sva idu kroz istu izmjenu.
 type TekstualnoPoljeStavke = Exclude<
   keyof StavkaPunjenja,
-  "godinaRucno" | "maceracija" | "tankovi"
+  "godinaRucno" | "maceracija" | "vlastitaBerba" | "tankovi"
 >;
 
 type ZadnjePunjenje = {
@@ -157,6 +174,10 @@ const praznaStavka = (): StavkaPunjenja => ({
   napomenaBerbe: "",
   maceracija: null,
   maceracijaSati: "",
+  vlastitaBerba: true,
+  pocetakBranja: "",
+  krajBranja: "",
+  brojBeraca: "",
   tankovi: [],
   godinaRucno: false,
 });
@@ -274,6 +295,31 @@ export default function PunjenjePage() {
     setStavke((prev) =>
       prev.map((stavka, i) =>
         i === index ? { ...stavka, [field]: value } : stavka
+      )
+    );
+  }
+
+  /**
+   * Kvacica "Vlastiti vinograd".
+   *
+   * Iskljucivanje BRISE vrijeme i berace: kooperantsko grozdje nisu brali nasi
+   * ljudi, pa ostavljeni brojevi ne bi opisivali nista. Isto pravilo kao sati
+   * maceracije bez maceracije.
+   */
+  function promijeniVlastituBerbu(index: number, vlastita: boolean) {
+    setStavke((prev) =>
+      prev.map((stavka, i) =>
+        i === index
+          ? vlastita
+            ? { ...stavka, vlastitaBerba: true }
+            : {
+                ...stavka,
+                vlastitaBerba: false,
+                pocetakBranja: "",
+                krajBranja: "",
+                brojBeraca: "",
+              }
+          : stavka
       )
     );
   }
@@ -868,6 +914,19 @@ export default function PunjenjePage() {
         // tvrdnje da je maceracije uopce bilo.
         maceracijaSati:
           s.maceracija === true ? brojIliNull(s.maceracijaSati) : null,
+        // BRANJE. Vrijeme i beraci idu samo uz vlastitu berbu; posluzitelj to
+        // svejedno jos jednom provjerava.
+        vlastitaBerba: s.vlastitaBerba,
+        pocetakBranja: s.vlastitaBerba
+          ? vrijemeIliNull(s.datumBerbe, s.pocetakBranja)
+          : null,
+        krajBranja: s.vlastitaBerba
+          ? krajSPrelaskomPonoci(
+              vrijemeIliNull(s.datumBerbe, s.pocetakBranja),
+              vrijemeIliNull(s.datumBerbe, s.krajBranja)
+            )
+          : null,
+        brojBeraca: s.vlastitaBerba ? brojIliNull(s.brojBeraca) : null,
         // PODJELA se salje SAMO kad postoji. Prazan popis znaci "cijela stavka
         // u tank odabran gore" — tada kljuc ne ide uopce i API prolazi
         // zatecenim putem, isto kao prije ove promjene.
@@ -1476,6 +1535,84 @@ export default function PunjenjePage() {
                               style={inputStyle}
                               disabled={saving || stavka.maceracija !== true}
                               inputMode="decimal"
+                            />
+                          </label>
+
+                          {/* --- BRANJE ---
+                              Kvacica prva: dok je iskljucena, tri polja ispod
+                              nemaju smisla (kooperantsko grozdje nisu brali
+                              nasi ljudi) pa su zakljucana. Sve troje je
+                              NEOBAVEZNO — punjenje se sprema i bez njih, jer
+                              grozdje stize prije nego itko zbroji sate. */}
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Berba</span>
+                            <span style={maceracijaKvacicaStyle}>
+                              <input
+                                type="checkbox"
+                                checked={stavka.vlastitaBerba}
+                                onChange={(e) =>
+                                  promijeniVlastituBerbu(
+                                    index,
+                                    e.target.checked
+                                  )
+                                }
+                                style={{ width: 18, height: 18 }}
+                                disabled={saving}
+                              />
+                              <span>Vlastiti vinograd</span>
+                            </span>
+                          </label>
+
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Branje od</span>
+                            <input
+                              type="time"
+                              value={stavka.pocetakBranja}
+                              onChange={(e) =>
+                                promijeniStavku(
+                                  index,
+                                  "pocetakBranja",
+                                  e.target.value
+                                )
+                              }
+                              style={inputStyle}
+                              disabled={saving || !stavka.vlastitaBerba}
+                            />
+                          </label>
+
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Branje do</span>
+                            <input
+                              type="time"
+                              value={stavka.krajBranja}
+                              onChange={(e) =>
+                                promijeniStavku(
+                                  index,
+                                  "krajBranja",
+                                  e.target.value
+                                )
+                              }
+                              style={inputStyle}
+                              disabled={saving || !stavka.vlastitaBerba}
+                            />
+                          </label>
+
+                          <label style={labelStyle}>
+                            <span style={labelMini}>Berača</span>
+                            <input
+                              value={stavka.brojBeraca}
+                              onChange={(e) =>
+                                promijeniStavku(
+                                  index,
+                                  "brojBeraca",
+                                  e.target.value
+                                )
+                              }
+                              onKeyDown={handleEnterMoveNext}
+                              placeholder="npr. 8"
+                              style={inputStyle}
+                              disabled={saving || !stavka.vlastitaBerba}
+                              inputMode="numeric"
                             />
                           </label>
 

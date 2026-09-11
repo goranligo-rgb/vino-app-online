@@ -160,6 +160,15 @@ export type CistaStavka = {
   napomenaBerbe: string | null;
   maceracija: boolean | null;
   maceracijaSati: number | null;
+
+  /**
+   * BRANJE. Sve neobavezno i NIKAD ne blokira punjenje — grozdje stize u
+   * podrum prije nego itko stigne zbrojiti sate.
+   */
+  vlastitaBerba: boolean | null;
+  pocetakBranja: Date | null;
+  krajBranja: Date | null;
+  brojBeraca: number | null;
 };
 
 /** Greska u zahtjevu koja ima poruku pisanu za korisnika. */
@@ -349,6 +358,15 @@ export async function POST(req: Request) {
       const kiseline = brojIliNull(s.kiseline);
       const ph = brojIliNull(s.ph);
 
+      // BRANJE. `vlastitaBerba` je jedino sto ima smisla i bez ostalog:
+      // kaze cije je grozdje. Vrijeme i beraci vrijede samo za vlastitu —
+      // kooperantsko nisu brali nasi ljudi, pa se ne upisuju ni ako stignu.
+      const vlastitaBerba = booleanIliNull(s.vlastitaBerba);
+      const jeVlastita = vlastitaBerba === true;
+      const pocetakBranja = jeVlastita ? datumIliNull(s.pocetakBranja) : null;
+      const krajBranja = jeVlastita ? datumIliNull(s.krajBranja) : null;
+      const brojBeraca = jeVlastita ? brojIliNull(s.brojBeraca) : null;
+
       const maceracija = booleanIliNull(s.maceracija);
       // Sati bez potvrdjene maceracije nisu podatak nego smece: broj bez
       // tvrdnje uz koju pripada. Forma ih vec ne salje, ovo je drugi pojas.
@@ -410,6 +428,10 @@ export async function POST(req: Request) {
         napomenaBerbe,
         maceracija,
         maceracijaSati,
+        vlastitaBerba,
+        pocetakBranja,
+        krajBranja,
+        brojBeraca,
       });
     }
 
@@ -850,6 +872,12 @@ export async function POST(req: Request) {
             ph: s.ph,
             maceracija: s.maceracija,
             maceracijaSati: s.maceracijaSati,
+            // Ponavljaju se na svakom zapisu iste berbe, kao i kilogrami —
+            // citac ih zbraja po grupi, ne po retku.
+            vlastitaBerba: s.vlastitaBerba,
+            pocetakBranja: s.pocetakBranja,
+            krajBranja: s.krajBranja,
+            brojBeraca: s.brojBeraca,
             napomena: s.napomenaBerbe,
             korisnikId,
             // Zatecena veza, @unique, pa ju moze nositi samo JEDAN redak — onaj

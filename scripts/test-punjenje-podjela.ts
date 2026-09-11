@@ -86,6 +86,11 @@ function stavka(
     napomenaBerbe: null,
     maceracija: null,
     maceracijaSati: null,
+    // Branje ne utjece na podjelu po tankovima; stoji radi tipa.
+    vlastitaBerba: null,
+    pocetakBranja: null,
+    krajBranja: null,
+    brojBeraca: null,
   };
 }
 

@@ -379,3 +379,47 @@ export function stanjePodjele(
     ponovljen: new Set(odabrani).size !== odabrani.length,
   };
 }
+
+/**
+ * Datum berbe + sat iz `<input type="time">` u jedan ISO trenutak.
+ *
+ * Cisto vrijeme branja upisuje se kao dva sata istog dana, a dan je vec u
+ * `datumBerbe` — dvostruki unos datuma bio bi dvije prilike za tipfeler.
+ *
+ * BEZ DATUMA NEMA VREMENA: sat bez dana ne opisuje nista, pa se vraca `null`
+ * umjesto da se pogodi danasnji. Isto vrijedi za prazan ili neispravan sat.
+ *
+ * KRAJ PRIJE POCETKA znaci prelazak ponoci — bere se i po mraku u berbi, pa se
+ * kraju doda dan. Pozivatelj to ne mora znati; ovdje se rjesava jednom.
+ */
+export function vrijemeIliNull(
+  datum: string | null | undefined,
+  sat: string | null | undefined
+): string | null {
+  const dan = datumIliNull(datum);
+  const vrijeme = tekstIliNull(sat);
+  if (dan === null || vrijeme === null) return null;
+  if (!/^\d{2}:\d{2}$/.test(vrijeme)) return null;
+
+  const t = new Date(`${dan}T${vrijeme}:00`);
+  return Number.isFinite(t.getTime()) ? t.toISOString() : null;
+}
+
+/**
+ * Kraj branja, s prelaskom ponoci.
+ *
+ * Poziva se nakon `vrijemeIliNull` za oba sata: kad je kraj prije pocetka,
+ * bralo se preko ponoci pa se kraju doda dan.
+ */
+export function krajSPrelaskomPonoci(
+  pocetakIso: string | null,
+  krajIso: string | null
+): string | null {
+  if (!pocetakIso || !krajIso) return krajIso;
+
+  const p = new Date(pocetakIso).getTime();
+  const k = new Date(krajIso).getTime();
+  if (!Number.isFinite(p) || !Number.isFinite(k) || k > p) return krajIso;
+
+  return new Date(k + 86_400_000).toISOString();
+}

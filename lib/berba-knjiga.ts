@@ -357,6 +357,22 @@ export type UlazBerbe = {
   maceracija?: boolean | null;
   maceracijaSati?: number | null;
 
+  /**
+   * BRANJE — cije je grozdje i koliko je trebalo da se ubere.
+   *
+   * Sve neobavezno i nikad ne blokira upis: punjenje se upisuje dok grozdje
+   * stize u podrum. Trajanje se ne prima nego izvodi iz dva vremena.
+   *
+   * Kad jedna berba ide u vise punjenja, ove vrijednosti se PONAVLJAJU na
+   * svakom zapisu, kao i kilogrami — citac ih zato ne smije zbrajati po retku
+   * nego po grupi (datum, sorta, parcela). Vidi `izracunajBrzinu` u
+   * app/berba/page.tsx.
+   */
+  vlastitaBerba?: boolean | null;
+  pocetakBranja?: Date | null;
+  krajBranja?: Date | null;
+  brojBeraca?: number | null;
+
   napomena?: string | null;
   korisnikId?: string | null;
 
@@ -487,6 +503,10 @@ async function upisiUlaz(
       ph: ulaz.ph ?? null,
       maceracija: ulaz.maceracija ?? null,
       maceracijaSati: ulaz.maceracijaSati ?? null,
+      vlastitaBerba: ulaz.vlastitaBerba ?? null,
+      pocetakBranja: ulaz.pocetakBranja ?? null,
+      krajBranja: ulaz.krajBranja ?? null,
+      brojBeraca: ulaz.brojBeraca ?? null,
       napomena: ulaz.napomena ?? null,
       korisnikId: ulaz.korisnikId ?? null,
       // Prvi tank s popisa. Kad ih je vise, ovo je "jedan od", ne "jedini" —
