@@ -268,6 +268,11 @@ export default function MonitorPage() {
               style={{
                 textDecoration: "none",
                 color: "inherit",
+                // ELEMENT REŠETKE IMA `min-width: auto`, pa se ne smije
+                // stisnuti ispod min-content sirine svog sadrzaja — dovoljno
+                // je jedno dugo ime pa da staza naraste i kartice izadju iz
+                // ekrana. `min-width: 0` to vraca na "stani u stazu".
+                minWidth: 0,
               }}
             >
               <div
@@ -309,7 +314,16 @@ export default function MonitorPage() {
 
                       Bezimeno vino se kaze rijecima. Crtica izgleda kao da se
                       podatak nije ucitao; „bez imena" je tvrdnja. */}
-                  <div style={{ fontSize: 12, marginBottom: 3 }}>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      marginBottom: 3,
+                      // Ime vina zna biti dugacko („Bijeli pinot, sivi pinot,
+                      // zeleni silvanac"), a staza je najuze 200 px. Neka se
+                      // prelomi bilo gdje prije nego sto gurne karticu.
+                      overflowWrap: "anywhere",
+                    }}
+                  >
                     Ime:{" "}
                     {tank.bezimeno ? (
                       <span style={{ color: "#9ca3af", fontStyle: "italic" }}>
@@ -320,7 +334,18 @@ export default function MonitorPage() {
                     )}
                   </div>
 
-                  <div style={{ fontSize: 12, marginBottom: 3 }}>
+                  {/* Isti oprez kao na retku iznad. Ovaj je redak i prije
+                      faze 4 znao prijeci u dva na najuzoj stazi („Sorta:
+                      Bijeli pinot, sivi pinot, zeleni silvanac" — izmjereno
+                      30 px visine na 176 px sirine); sada se barem ne moze
+                      dogoditi da gurne karticu. */}
+                  <div
+                    style={{
+                      fontSize: 12,
+                      marginBottom: 3,
+                      overflowWrap: "anywhere",
+                    }}
+                  >
                     Sorta: {tank.sorta || "-"}
                   </div>
 

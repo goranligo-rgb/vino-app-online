@@ -284,6 +284,10 @@ export default function TankKontrole({
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
+              // Ellipsis reze samo kad se element smije stisnuti. `.hlad-naslov`
+              // ima `min-width: 0`, ali guard se drzi i ovdje da pravilo ne
+              // ovisi o susjedu — dugo ime inace gura zaglavlje kartice.
+              minWidth: 0,
             }}
           >
             {/* Bezimeno vino se kaze rijecima — crtica izgleda kao podatak

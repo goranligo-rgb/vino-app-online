@@ -571,10 +571,21 @@ const CSS = `
    Ostaje citljivo i na tisku — ovo je izvjestaj koji se nosi u podrum. */
 .bezimeno { font-weight: 400; font-style: italic; color: #8a8a85; }
 /* Nesklad deklarirane sorte i knjige. Tiho, ali vidljivo: nije greska nego
-   dvije tvrdnje koje se ne poklapaju, i covjek odlucuje koja vrijedi. */
+   dvije tvrdnje koje se ne poklapaju, i covjek odlucuje koja vrijedi.
+
+   PRELAMA SE, NE REZE SE. Prva verzija je imala white-space: nowrap uz
+   ellipsis, po uzoru na .naziv-vina iznad — ali ondje se rezao NAZIV, koji je
+   i skracen prepoznatljiv, a ovdje je recenica: "deklarirano Zeleni velt..."
+   ne znaci nista. Uz to nowrap unutar rešetke daje min-content sirinu cijelog
+   niza, pa je stupac mogao gurati karticu; .zaglavlje-tekst ima min-width: 0
+   pa se to ovdje ne dogadja, ali pravilo se oslanjalo na susjeda.
+
+   OVAJ CSS ZIVI U JS PREDLOSKU (template literal) — u komentarima NEMA
+   obrnutih navodnika. Jedan je ovdje 11.09.2026. prekinuo literal i srusio
+   build. */
 .sorta-nesklad {
   font-size: 8.5px; line-height: 1.2; color: #8a5a1f;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .podnaslov { font-size: 9px; color: #52514e; display: flex; gap: 3mm; }
 .grana { color: #8a8a85; }

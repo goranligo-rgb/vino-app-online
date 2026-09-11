@@ -2253,7 +2253,10 @@ export default async function TankPregledPage({
 
           Stvarni sastav ima svoju karticu nize i ne ponavlja se ovdje. */}
       {ime.razlog === "PRAZAN" ? null : (
-        <div style={{ display: "grid", gap: 2 }}>
+        // `minWidth: 0` iz istog razloga kao na kartici monitora: element
+        // rešetke se inace ne smije stisnuti ispod min-content sirine svog
+        // sadrzaja, a ovdje sadrzaj ukljucuje i recenicu o neskladu.
+        <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
           <div style={ime.naziv ? nazivVinaStyle : nazivVinaBezimenoStyle}>
             {ime.naziv ?? "Bez imena"}
           </div>
@@ -3678,6 +3681,9 @@ const nazivVinaStyle: React.CSSProperties = {
   color: "#7f1d1d",
   lineHeight: 1.15,
   letterSpacing: 0.2,
+  // 24 px i dugacko ime („Bijeli pinot, sivi pinot, zeleni silvanac") na uskom
+  // prozoru ili uz zum od 150 % lako premase sirinu — neka se prelomi.
+  overflowWrap: "anywhere",
 };
 
 /**
@@ -3713,6 +3719,9 @@ const sortaNeskladStyle: React.CSSProperties = {
   color: "#92400e",
   marginBottom: 10,
   lineHeight: 1.3,
+  // Ovo je RECENICA, ne naziv — smije se prelomiti u dva retka, ali ne smije
+  // gurati sirinu. Nazivi sorti znaju biti dugacki i bez razmaka za prijelom.
+  overflowWrap: "anywhere",
 };
 
 const topParamsGridStyle: React.CSSProperties = {
