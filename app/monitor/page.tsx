@@ -259,19 +259,28 @@ export default function MonitorPage() {
         </div>
       </div>
 
+      {/* MREZA JE FLEX, NE GRID — zbog ZADNJEG REDA.
+          ======================================================================
+          Rešetka (`grid` s `repeat(auto-fit, minmax(200px, 1fr))`) centrira
+          spremnik, ali ne i posljednji red: broj tankova rijetko je djeljiv s
+          brojem stupaca, pa zadnji red ostane pri lijevom rubu. Izmjereno na
+          produkciji, zum 100 % i 5 stupaca: zadnja tri tanka lijevo, a desno
+          zjapi 516 px. Na 125/150/200 % se 48 dijeli tocno (4, 3, 2) pa se to
+          ne vidi — zato je izgledalo kao da ovisi o zumu.
+
+          `justify-content: center` na rešetki ne pomaze: on pomice CIJELI skup
+          staza, koji je za sve redove isti, pa zadnji red i dalje ostaje uz
+          lijevi rub svojih staza. Flex s `flex-wrap: wrap` centrira SVAKI red
+          zasebno, ukljucujuci nepotpun zadnji.
+
+          `flex: 1 1 200px` drzi isto ponasanje kao `minmax(200px, 1fr)` —
+          kartica je najmanje 200 px i rasteze se da popuni red; `maxWidth`
+          sprjecava da se u nepotpunom zadnjem redu razvuku preko mjere. */}
       <div
         style={{
-          display: "grid",
-          // `auto-fit`, ne `auto-fill`: kad kartica ima MANJE nego sto stane
-          // stupaca, `auto-fill` ostavi prazne staze i kartice se ne rasire, a
-          // `auto-fit` ih skupi pa red ostane popunjen. Uz 48 tankova to danas
-          // ne mijenja nista (nijedna staza nije prazna) — bitno je tek kad se
-          // popis suzi ili na vrlo sirokom ekranu.
-          //
-          // `minmax(200px, 1fr)` ostaje netaknut: on je taj koji mijenja broj
-          // stupaca sa sirinom (izmjereno na produkciji: 1 stupac na 360 px,
-          // 2 na 500, 3 na 853, 4 na 1024, 5 na 1280).
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          display: "flex",
+          flexWrap: "wrap",
+          justifyContent: "center",
           gap: 12,
         }}
       >
@@ -290,10 +299,14 @@ export default function MonitorPage() {
               style={{
                 textDecoration: "none",
                 color: "inherit",
-                // ELEMENT REŠETKE IMA `min-width: auto`, pa se ne smije
-                // stisnuti ispod min-content sirine svog sadrzaja — dovoljno
-                // je jedno dugo ime pa da staza naraste i kartice izadju iz
-                // ekrana. `min-width: 0` to vraca na "stani u stazu".
+                // Zamjena za `minmax(200px, 1fr)` iz rešetke: najmanje 200 px,
+                // rasteze se da popuni red. `maxWidth` je ograda za NEPOTPUN
+                // zadnji red — bez nje bi se tri preostale kartice razvukle
+                // preko cijele sirine i bile dvostruko vece od ostalih.
+                flex: "1 1 200px",
+                maxWidth: 280,
+                // Element flexa ima `min-width: auto` kao i element rešetke —
+                // bez ovoga ga dugo ime moze napuhati preko `flex-basis`.
                 minWidth: 0,
               }}
             >
