@@ -39,6 +39,7 @@
     "ime:provjeri": "tsx scripts/provjeri-fazu-4.ts",
     "test:ime:vina": "tsx scripts/test-ime-vina.ts",
     "test:imenovanje:baza": "tsx scripts/test-imenovanje-baza.ts",
+    "test:berba:ispravak": "tsx scripts/test-berba-ispravak-baza.ts",
     "ime:backfill": "tsx scripts/backfill-ime-vina.ts"
   },
   "prisma": {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type React from "react";
+import { BEZ_DATUMA, danGrupe, kljucGrupeBerbe } from "@/lib/berba-kljuc";
 
 /**
  * BOCNA TRAKA: BERBE, ne punjenja.
@@ -74,13 +75,13 @@ type Dan = { dan: string; oznaka: string; berbe: Berba[]; kg: number; litre: num
 const f = (n: number, d = 0) =>
   n.toLocaleString("hr-HR", { minimumFractionDigits: d, maximumFractionDigits: d });
 
+/** Dan grupe — isto pravilo kao ruta za ispravak berbe (lib/berba-kljuc.ts). */
 function datumKljuc(b: BerbaZapis): string {
-  const iso = b.datumBerbe ?? b.datumUlaska;
-  return iso ? iso.slice(0, 10) : "bez-datuma";
+  return danGrupe(b);
 }
 
 function hrDatum(dan: string): string {
-  if (dan === "bez-datuma") return "Bez datuma berbe";
+  if (dan === BEZ_DATUMA) return "Bez datuma berbe";
   const [g, m, d] = dan.split("-");
   return `${d}.${m}.${g}.`;
 }
@@ -173,11 +174,7 @@ export default function BerbeTraka({
     const grupe = new Map<string, Berba>();
 
     for (const z of odabrani) {
-      const kljuc = [
-        datumKljuc(z),
-        z.nazivSorte.trim().toLocaleLowerCase("hr"),
-        (z.parcela ?? "").trim().toLocaleLowerCase("hr"),
-      ].join("|");
+      const kljuc = kljucGrupeBerbe(z);
 
       const prije = grupe.get(kljuc);
 
@@ -313,8 +310,10 @@ function KarticaBerbe({ b }: { b: Berba }) {
     .join(" · ");
 
   return (
+    // Klik vodi na ISPRAVAK te berbe (cijele grupe). /punjenje otvaraju samo
+    // L1/L2, a ispravak je njihov — ruta i ekran svejedno sami provjeravaju rolu.
     <Link
-      href={`/berba?sorta=${encodeURIComponent(b.glava.nazivSorte)}`}
+      href={`/berba/${b.glava.id}/uredi`}
       style={{ textDecoration: "none", color: "inherit" }}
     >
       <div style={karticaStyle}>
