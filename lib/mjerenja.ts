@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { izvorJeSumnjiv } from "@/lib/berba-lanac";
 import { uValovima } from "@/lib/paralelno";
-import { granicaVina } from "@/lib/granica-vina";
+import { granicaVina, odGraniceVina } from "@/lib/granica-vina";
 
 /**
  * Osam mjerenih polja — jedini popis u aplikaciji.
@@ -240,10 +240,15 @@ export async function vrijednostiTankaPoPolju(
   // i imala je dvije rupe — filtracija prazni tank bez arhiviranja, a tank
   // koji je nakon praznjenja odmah napunjen zadrzavao je mjerenja prethodnog
   // vina do sljedeceg arhiviranja. Vidi lib/granica-vina.ts.
-  const granicaArhive = (await granicaVina(db, tankId)).odAt;
+  const granica = await granicaVina(db, tankId);
+  const granicaArhive = granica.odAt;
 
   const uvjetVremena: Prisma.DateTimeFilter = {};
-  if (granicaArhive) uvjetVremena.gte = granicaArhive;
+
+  // `odGraniceVina` zna i za PRAZAN tank — ondje `odAt` je `null` a filtar
+  // ipak mora rezati sve, jer prazan tank nema vino o kojem bi govorio.
+  const odKad = odGraniceVina(granica);
+  if (odKad) uvjetVremena.gte = odKad.gte;
   if (opts?.doDatuma) uvjetVremena.lte = opts.doDatuma;
 
   const mjerenja = (await db.mjerenje.findMany({

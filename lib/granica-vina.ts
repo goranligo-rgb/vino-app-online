@@ -273,5 +273,25 @@ export async function granicaSvihTankova(
 export function odGraniceVina(
   g: GranicaVina | null | undefined
 ): { gte: Date } | undefined {
-  return g?.odAt ? { gte: g.odAt } : undefined;
+  if (g?.odAt) return { gte: g.odAt };
+
+  // PRAZAN TANK NE POKAZUJE NICIJU POVIJEST.
+  //
+  // Ovdje `null` ne smije znaciti „nema uvjeta". Prazan tank nema vino o
+  // kojem bi govorio, a sve sto na njemu stoji pripada vinu koje je otislo.
+  // Dok arhiviranje te zapise brise, razlika se ne vidi — ali faza D upravo
+  // to brisanje ukida, pa bi bez ovoga ispraznjen tank pokazao mjerenja
+  // prethodnog vina kao svoja.
+  //
+  // `NEMA_KNJIGE` je drugi slucaj i ostaje bez uvjeta: ondje knjiga nema sto
+  // reci, pa se ne smije praviti da zna da nema nicega.
+  if (g?.razlog === "PRAZAN") return { gte: KRAJ_VREMENA };
+
+  return undefined;
 }
+
+/**
+ * Datum iza svega sto u bazi moze postojati — filtar koji ne propusta nista.
+ * Godina 9999 je unutar raspona Postgresova `timestamptz`.
+ */
+export const KRAJ_VREMENA = new Date("9999-12-31T00:00:00.000Z");
