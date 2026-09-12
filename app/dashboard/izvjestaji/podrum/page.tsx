@@ -19,6 +19,7 @@ import {
   type Kartica,
   type Sastavnica,
   type Stavka,
+  type StavkaDodatka,
 } from "./model";
 import { GrafSO2, GrafSecerITemperature } from "./grafovi";
 
@@ -119,6 +120,41 @@ function PopisStavki({ naslov, stavke }: { naslov: string; stavke: Stavka[] }) {
         ))
       )}
     </div>
+  );
+}
+
+/**
+ * SVA DODAVANJA PREPARATA u vino, kronoloski: datum, naziv, kolicina.
+ *
+ * Zamjenjuje stupac "Zadnji dodaci", koji je pokazivao tri retka. Bez opisa i
+ * bez izvora — jedino sto se dopisuje je broj tanka uz NASLIJEDENO dodavanje,
+ * iste prigusene boje kao oznaka tanka uz kvasac.
+ *
+ * Puna sirina u tri stupca, jer popis zna biti dug (11.09.2026: T5 32 retka,
+ * T7 26): u trecini kartice bio bi visok kao pola stranice. Stupci se pune
+ * odozgo prema dolje, pa se kronologija cita kao tekst.
+ */
+function PopisDodataka({ dodaci }: { dodaci: StavkaDodatka[] }) {
+  return (
+    <section className="dodaci">
+      <div className="stupac-naslov">Dodaci preparata</div>
+      {dodaci.length === 0 ? (
+        <div className="prazno">—</div>
+      ) : (
+        <div className="dodaci-popis">
+          {dodaci.map((d, i) => (
+            <div key={i} className="dodatak">
+              <span className="stavka-datum">{datum(d.datum)}</span>
+              <span className="stavka-naslov">{d.naziv}</span>
+              {d.kolicina ? <span className="stavka-detalj">{d.kolicina}</span> : null}
+              {d.izTanka !== null ? (
+                <span className="kvasac-tank">T{d.izTanka}</span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -236,6 +272,12 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
           <section className="blok">
             <h3>Trenutni parametri</h3>
             <div className="parametri">
+              {/* ALKOHOL SAMO GDJE POSTOJI. Mjeri se rijetko (11.09.2026: 2 od
+                  38 punih tankova), pa bi stalni redak s crticom na ostalih 36
+                  kartica dodao visinu samo da kaze "nema". */}
+              {k.alkohol != null ? (
+                <Param oznaka="Alkohol" vrijednost={k.alkohol} jedinica="% vol" />
+              ) : null}
               {/* Zaostali secer u g/L. NIKAD u istom stupcu sa °Oe iz berbe. */}
               <Param oznaka="Zaostali šećer" vrijednost={k.secerGL} jedinica="g/L" />
               <Param oznaka="Uk. kiselina" vrijednost={k.ukupneKiseline} jedinica="g/L" />
@@ -243,7 +285,17 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
               <Param oznaka="SO₂ slobodni" vrijednost={k.slobodniSO2} jedinica="mg/L" />
               <Param oznaka="SO₂ ukupni" vrijednost={k.ukupniSO2} jedinica="mg/L" />
             </div>
-            <div className="meta">Mjereno {datum(k.mjerenoU)}</div>
+            {/* ISTA OZNAKA PORIJEKLA za cijeli blok, i za alkohol. Alkohol je
+                zadnja vrijednost svog polja, pa kad nije izmjeren istog dana kad
+                i zadnji redak, oznaka mu imenuje vlastiti datum umjesto da mu
+                pripise tudji. */}
+            <div className="meta">
+              Mjereno {datum(k.mjerenoU)}
+              {k.alkoholMjerenoU &&
+              datum(k.alkoholMjerenoU) !== datum(k.mjerenoU)
+                ? ` · alkohol ${datum(k.alkoholMjerenoU)}`
+                : null}
+            </div>
           </section>
 
           {/* Samo uz berbu: mjesavina svoj sastav ima u desnom bloku. */}
@@ -393,9 +445,10 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
             <div className="prazno">nije zapisan</div>
           )}
         </div>
-        <PopisStavki naslov="Zadnji dodaci" stavke={k.zadnjiDodaci} />
         <PopisStavki naslov="Zadnje radnje" stavke={k.zadnjeRadnje} />
       </div>
+
+      <PopisDodataka dodaci={k.dodaci} />
 
       <div className="biljeska">
         <div className="biljeska-oznaka">Bilješka enologa</div>
@@ -661,7 +714,9 @@ const CSS = `
 .grafovi { display: grid; grid-template-columns: 1fr 1fr; gap: 2.4mm; }
 .graf { width: 100%; height: auto; display: block; }
 
-.stupci { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2.4mm; }
+/* Dva stupca: KVASAC i ZADNJE RADNJE. Treci, "Zadnji dodaci", preselio je u
+   puni popis ispod, preko cijele sirine. */
+.stupci { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2.4mm; }
 .stupac { border-top: 1px solid #e4e0d6; padding-top: 1mm; min-width: 0; }
 .stupac-naslov {
   font-size: 7.5px; text-transform: uppercase; letter-spacing: .4px;
@@ -682,6 +737,18 @@ const CSS = `
   font-size: 8px; color: #7f1d1d; font-style: italic; margin-bottom: .4mm;
 }
 .prazno { font-size: 11px; color: #8a8a85; }
+
+/* Svi dodaci preparata, kronoloski, u tri stupca preko cijele sirine.
+   Stupci se pune odozgo prema dolje; redak se ne cijepa izmedju dva stupca.
+   Slova su za stupanj manja od ostalih stavki (10px naprama 11px) jer popis
+   ide do tridesetak redaka — naziv, kolicina i oznaka tanka moraju stati u
+   trecinu sirine. */
+.dodaci { border-top: 1px solid #e4e0d6; padding-top: 1mm; }
+.dodaci-popis { column-count: 3; column-gap: 3mm; }
+.dodatak {
+  font-size: 10px; line-height: 1.25; margin-bottom: .4mm;
+  break-inside: avoid; page-break-inside: avoid;
+}
 
 .biljeska { margin-top: auto; }
 .biljeska-oznaka {

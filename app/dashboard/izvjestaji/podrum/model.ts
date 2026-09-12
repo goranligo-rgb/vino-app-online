@@ -95,6 +95,36 @@ export type Stavka = {
   detalj: string | null;
 };
 
+/**
+ * Jedno dodavanje preparata u vino, za popis na kartici.
+ *
+ * `izTanka` je broj tanka u kojem je preparat STVARNO dodan, i popunjen je
+ * SAMO kad to nije ovaj tank — naslijedeno dodavanje, doslo s vinom. Vlastito
+ * dodavanje oznake nema, pa se naslijedeno razlikuje na prvi pogled.
+ */
+export type StavkaDodatka = {
+  datum: Date;
+  naziv: string;
+  /** "350 g" — kolicina zapisana pri dodavanju, NE skalirana udjelom. */
+  kolicina: string | null;
+  izTanka: number | null;
+};
+
+/**
+ * Je li redak dodavanje preparata u vino.
+ *
+ * Nije samo vrsta DODAVANJE: SO2 korekcija Sumpovinom zapisuje se kao
+ * KOREKCIJA s preparatom, a fizicki je dodavanje u vino. Mjereno 11.09.2026 na
+ * punim tankovima: 186 DODAVANJE i 38 KOREKCIJA nose preparat, nijedna druga
+ * vrsta ga nema.
+ */
+function jeDodavanjePreparata(r: {
+  vrsta: string;
+  preparatNaziv: string | null;
+}): boolean {
+  return r.vrsta === "DODAVANJE" || r.preparatNaziv != null;
+}
+
 export type Kartica = {
   id: string;
   broj: number;
@@ -143,6 +173,19 @@ export type Kartica = {
   ukupniSO2: number | null;
   mjerenoU: Date | null;
 
+  /**
+   * Alkohol, % vol — ZADNJA vrijednost tog polja u prozoru mjerenja, a ne
+   * polje zadnjeg retka kao ostali parametri.
+   *
+   * Alkohol se mjeri rijetko: 11.09.2026 ima ga 2 od 38 punih tankova, a na
+   * T6 ne u zadnjem retku (10:51, zadnji redak 12:51). Iz zadnjeg retka T6 bi
+   * pokazao crticu iako alkohol postoji. `null` = nema ga, i redak se tada ne
+   * ispisuje.
+   */
+  alkohol: number | null;
+  /** Kad je bas taj alkohol izmjeren. Prikaz ga imenuje samo kad nije isti dan kao `mjerenoU`. */
+  alkoholMjerenoU: Date | null;
+
   /** Tocno jedno od ovoga dvoga je popunjeno. */
   berba: BlokBerbe | null;
   sastav: Sastavnica[] | null;
@@ -165,7 +208,8 @@ export type Kartica = {
   /** Oba grafa prazna -> kartica ih izbacuje i daje vise mjesta za biljesku. */
   bezGrafova: boolean;
 
-  zadnjiDodaci: Stavka[];
+  /** SVA dodavanja preparata u ovo vino, kronoloski, ukljucivo naslijedena. */
+  dodaci: StavkaDodatka[];
   zadnjeRadnje: Stavka[];
 };
 
@@ -212,6 +256,8 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
     const blend = blendPo.get(t.id) ?? [];
     const oc = ocitanjePo.get(t.id) ?? null;
     const zadnje = mj[0] ?? null;
+    // Po polju, ne iz zadnjeg retka — vidi `Kartica.alkohol`.
+    const zadnjiAlkohol = mj.find((m) => m.alkohol != null) ?? null;
 
     // --- Traka: temperatura i hladjenje ---
     const zadana = stvarnaZadana(oc?.zadanaTemperatura, t.zadanaTemp);
@@ -436,20 +482,19 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
     });
     const imaSO2 = grafSO2.some((x) => x.slobodni != null || x.ukupni != null);
 
-    // --- Stupci: dodaci i radnje. Vise od tri se ODBACUJE, ne prelama. ---
-    const opisRadnje = (r: (typeof rad)[number]): Stavka => {
-      const kol =
-        r.kolicina != null
-          ? `${formatBrojKratko(r.kolicina)}${
-              r.jedinicaNaziv ? ` ${r.jedinicaNaziv}` : ""
-            }`
-          : null;
-      return {
-        datum: r.dogodenoAt,
-        naslov: r.preparatNaziv ?? r.opis ?? r.vrsta,
-        detalj: kol,
-      };
-    };
+    // --- Dodaci i radnje. Radnji vise od tri se ODBACUJE, ne prelama. ---
+    const kolicinaRadnje = (r: (typeof rad)[number]): string | null =>
+      r.kolicina != null
+        ? `${formatBrojKratko(r.kolicina)}${
+            r.jedinicaNaziv ? ` ${r.jedinicaNaziv}` : ""
+          }`
+        : null;
+
+    const opisRadnje = (r: (typeof rad)[number]): Stavka => ({
+      datum: r.dogodenoAt,
+      naslov: r.preparatNaziv ?? r.opis ?? r.vrsta,
+      detalj: kolicinaRadnje(r),
+    });
 
     // DEKLARIRANA SORTA NAPRAMA ONOME STO KNJIGA POKAZUJE.
     //
@@ -506,6 +551,8 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
         zadnje?.slobodniSO2 != null ? Number(zadnje.slobodniSO2) : null,
       ukupniSO2: zadnje?.ukupniSO2 != null ? Number(zadnje.ukupniSO2) : null,
       mjerenoU: zadnje?.izmjerenoAt ?? null,
+      alkohol: zadnjiAlkohol ? Number(zadnjiAlkohol.alkohol) : null,
+      alkoholMjerenoU: zadnjiAlkohol?.izmjerenoAt ?? null,
 
       berba,
       sastav,
@@ -525,20 +572,35 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
       // trecinu visine da bi rekle "nema podataka". Mjesto ide biljesci.
       bezGrafova: grafSecer.length === 0 && grafTemp.length === 0 && !imaSO2,
 
-      // Sumporenje se NE prepoznaje: u bazi ne postoji kao vrsta radnje, samo
-      // kao DODAVANJE s preparatom. Kalij metabisulfit se ovdje ispisuje isto
-      // kao i svaki drugi dodatak, bez posebne oznake.
-      zadnjiDodaci: rad
-        .filter((r) => r.vrsta === "DODAVANJE")
-        .slice(0, 3)
-        .map(opisRadnje),
+      // SVA DODAVANJA PREPARATA, kronoloski — ne zadnja tri.
+      //
+      // Iz `VinoRadnja`, pa popis nosi i ono sto je vino donijelo iz ranijih
+      // posuda; `izTanka` to oznacava. Sumporenje se NE prepoznaje posebno:
+      // kalij metabisulfit i Sumpovin ispisuju se kao i svaki drugi dodatak.
+      //
+      // Kolicina je ona zapisana pri dodavanju, NE skalirana udjelom
+      // (`VinoRadnja.udio`): popis kaze sto je islo u vino, ne koliko je od
+      // toga danas u ovom tanku.
+      dodaci: rad
+        .filter(jeDodavanjePreparata)
+        .sort((a, b) => a.dogodenoAt.getTime() - b.dogodenoAt.getTime())
+        .map((r) => ({
+          datum: r.dogodenoAt,
+          naziv: r.preparatNaziv ?? r.opis ?? r.vrsta,
+          kolicina: kolicinaRadnje(r),
+          izTanka:
+            r.izvorniBrojTanka !== null && r.izvorniBrojTanka !== t.broj
+              ? r.izvorniBrojTanka
+              : null,
+        })),
 
-      // DODAVANJE se ovdje ISKLJUCUJE — ima vlastiti stupac lijevo. Bez toga
-      // su na tanku u fermentaciji oba stupca ista tri retka (T7: tri puta
-      // FERMAID/OPTI-MUM), pa treci stupac ne kaze nista novo. Ostaje ono sto
-      // se s vinom radilo: pretoci, punjenja, filtracije, flotacija, ostalo.
+      // DODAVANJE PREPARATA se ovdje ISKLJUCUJE — ima vlastiti popis. Bez toga
+      // su na tanku u fermentaciji dva mjesta pokazivala iste retke (T7: tri
+      // puta FERMAID/OPTI-MUM), a SO2 korekcija bi sada stajala i ovdje i u
+      // popisu dodataka. Ostaje ono sto se s vinom radilo: pretoci, punjenja,
+      // filtracije, flotacija, ostalo.
       zadnjeRadnje: rad
-        .filter((r) => r.vrsta !== "DODAVANJE")
+        .filter((r) => !jeDodavanjePreparata(r))
         .slice(0, 3)
         .map(opisRadnje),
     };

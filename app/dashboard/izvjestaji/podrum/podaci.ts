@@ -64,6 +64,8 @@ type ZadnjiDolazak = {
 export type RedMjerenja = {
   tankId: string;
   izmjerenoAt: Date;
+  /** % vol. Mjeri se rijetko — kartica ga ispisuje samo kad postoji. */
+  alkohol: number | null;
   secer: number | null;
   ukupneKiseline: number | null;
   ph: number | null;
@@ -258,6 +260,7 @@ export async function dohvatiPodrum() {
           select: {
             tankId: true,
             izmjerenoAt: true,
+            alkohol: true,
             secer: true,
             ukupneKiseline: true,
             ph: true,
