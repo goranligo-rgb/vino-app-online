@@ -34,6 +34,7 @@
     "test:vino:radnje": "tsx scripts/test-vino-radnje.ts",
     "test:knjiga:vrijeme": "tsx scripts/test-knjiga-vrijeme.ts",
     "test:sat:knjige": "tsx scripts/test-sat-knjige.ts",
+    "test:punjenje:vina": "tsx scripts/test-punjenje-vina.ts",
     "e:provjeri": "tsx scripts/provjeri-fazu-e.ts",
     "kvasac:partija": "tsx scripts/provjeri-kvasac-partija.ts",
     "blend:popravi": "tsx scripts/popravi-blend-izlazima.ts",

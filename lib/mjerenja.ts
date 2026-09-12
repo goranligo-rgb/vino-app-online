@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { izvorJeSumnjiv } from "@/lib/berba-lanac";
 import { uValovima } from "@/lib/paralelno";
 import { granicaVina, odGraniceVina } from "@/lib/granica-vina";
+import { citajPunjenjaTrenutnogVina } from "@/lib/punjenje-vina";
 import { imeVinaSada } from "@/lib/ime-vina";
 
 /**
@@ -271,23 +272,18 @@ export async function vrijednostiTankaPoPolju(
   // secer i kiseline s grozdja u ponderiranju pretoka, filtracije i na
   // monitoru — a upravo je zbog tog podatka punjenje i upisano.
   //
-  // Pripadnost novom vinu utvrdjuje PUNJENJE, ne sat mjerenja: uzimaju se samo
-  // punjenja koja su i sama nakon granice.
-  const pocetnaNovogVina =
-    odKad?.gte != null
-      ? (
-          await db.punjenjeTanka.findMany({
-            where: {
-              tankId,
-              datumPunjenja: { gte: odKad.gte },
-              pocetnoMjerenjeId: { not: null },
-            },
-            select: { pocetnoMjerenjeId: true },
-          })
-        )
-          .map((p) => p.pocetnoMjerenjeId)
-          .filter((x): x is string => x !== null)
-      : [];
+  // Pripadnost novom vinu utvrdjuje PUNJENJE, ne sat mjerenja. A je li punjenje
+  // dio ovog vina, sudi KNJIGA, ne `datumPunjenja`: datum je ono sto je covjek
+  // utipkao i smije biti unatrag, pa filtar po njemu ispusti bas ona punjenja
+  // ciji je ULAZ redak pomaknut donjom branom sata (T27, T33, T45 gube secer i
+  // kiseline s grozdja; T2 jedno punjenje). Racun je u lib/punjenje-vina.ts,
+  // zajednicki sa stranicom tanka — dva ekrana ne smiju suditi razlicito.
+  const { pocetnaMjerenja } = await citajPunjenjaTrenutnogVina(
+    db,
+    tankId,
+    odKad?.gte ?? null
+  );
+  const pocetnaNovogVina = [...pocetnaMjerenja];
 
   const uvjetMjerenja =
     Object.keys(uvjetVremena).length > 0

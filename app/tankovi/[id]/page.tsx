@@ -21,6 +21,7 @@ import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
 import { popisKvasacaSDopunom } from "@/lib/kvasci";
 import { kvasciPoPartiji } from "@/lib/kvasac-partija";
 import { granicaVina, odGraniceVina } from "@/lib/granica-vina";
+import { punjenjaTrenutnogVina } from "@/lib/punjenje-vina";
 import { imeVina, jeBezImena, usporediSaSastavom } from "@/lib/ime-vina";
 import { parametriVinaIzKnjige } from "@/lib/parametri-vina";
 import { stanjeVina, razlogSkrivanja } from "@/lib/vino-fermentira";
@@ -1052,11 +1053,14 @@ export default async function TankPregledPage({
   // Drugi val. Prazan tank i dalje NE cita punjenja ni zadatke — uvjet je isti,
   // samo je preseljen u izraz; `Promise.all` prima i obicne vrijednosti, pa
   // `[]` prolazi bez upita.
-  const [punjenja, otvoreniZadaci, izvrseniZadaci] = await Promise.all([
+  const [svaPunjenja, otvoreniZadaci, izvrseniZadaci] = await Promise.all([
     prisma.punjenjeTanka.findMany({
       where: {
         tankId: id,
-        datumPunjenja: odGranice,
+        // GRANICA SE VISE NE STAVLJA OVDJE. Rezanje po `datumPunjenja` sakrilo
+        // je punjenja cije je vino po knjizi stiglo nakon granice, a datum iz
+        // obrasca nosi raniji dan. Odabir je nize, po knjizi — vidi
+        // `punjenjaTrenutnogVina`.
         stavke: {
           some: {
             obrisano: false,
@@ -1382,18 +1386,45 @@ export default async function TankPregledPage({
   // Zato ide vrijednost PO SVAKOM POLJU zasebno (lib/mjerenja.ts), a polje bez
   // vlastitog mjerenja popunjava prosjek blenda i tada nosi oznaku procjene.
   //
-  // Brana na arhiviranju: ne poseze se ispred zadnjeg `arhiviranoAt`, jer
-  // starija mjerenja pripadaju PRETHODNOM vinu u istom tanku.
-  // Pocetna mjerenja punjenja koja su SAMA nakon granice arhive. `punjenja` je
-  // vec filtrirano granicom (`datumPunjenja: odGranice`), pa je svako punjenje
-  // u ovom popisu po definiciji dio trenutnog vina — a s njim i njegovo
-  // pocetno mjerenje, bez obzira sto ono nosi datum berbe (UTC ponoc) koji zna
-  // biti raniji od sata arhiviranja. Vidi `mjerenjaTrenutnogVina`.
-  const pocetnaMjerenjaNovogVina = new Set(
-    punjenja
-      .map((p) => p.pocetnoMjerenjeId)
-      .filter((x): x is string => x !== null)
+  // KOJA PUNJENJA PRIPADAJU OVOM VINU — sudi KNJIGA, ne `datumPunjenja`.
+  //
+  // Dosad je upit gore rezao punjenja granicom po datumu iz obrasca. Otkad sat
+  // knjige ima donju branu (lib/sat-knjige.ts), datum i ULAZ redak se razilaze:
+  // punjenje tanka 27 nosi datum 09.09., a vino je po knjizi uslo 10.09., pa je
+  // filtar po datumu sakrio i samo punjenje i njegovo pocetno mjerenje.
+  // Izmjereno 12.09.2026: T27, T33 i T45 tako gube secer, kiseline i pH s
+  // grozdja, a T2 jedno punjenje; nijedan tank ne gubi nista.
+  //
+  // Racun je u lib/punjenje-vina.ts, isti koji koristi `vrijednostiTankaPoPolju`
+  // — dva ekrana ne smiju suditi razlicito o istom vinu.
+  const kretanjaTanka = await prisma.berbaKretanje.findMany({
+    where: { OR: [{ uTankId: id }, { izTankId: id }] },
+    select: {
+      id: true,
+      uTankId: true,
+      izTankId: true,
+      berbaId: true,
+      litre: true,
+      vrsta: true,
+      dogodenoAt: true,
+      createdAt: true,
+      punjenjeId: true,
+    },
+  });
+
+  const pripadnost = punjenjaTrenutnogVina(
+    id,
+    svaPunjenja,
+    kretanjaTanka,
+    granicaVinaAt
   );
+  const uVinu = new Set(pripadnost.ids);
+  const punjenja = svaPunjenja.filter((p) => uVinu.has(p.id));
+
+  // Pocetno mjerenje punjenja nosi DATUM BERBE (secer, kiseline i pH izmjereni
+  // su na grozdju), dakle UTC ponoc, pa redovno pada ispred granice. Pripadnost
+  // vinu utvrdjuje PUNJENJE, ne sat mjerenja. Vidi `mjerenjaTrenutnogVina`.
+  const pocetnaMjerenjaNovogVina = pripadnost.pocetnaMjerenja;
 
   const mjerenjaZaParametre = mjerenjaTrenutnogVina(
     mjerenja,
