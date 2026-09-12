@@ -81,7 +81,11 @@
  */
 
 import { prisma } from "../lib/prisma";
-import { satKretanja } from "../lib/sat-knjige";
+import {
+  donjaGranicaPunjenja,
+  praznjenjaPosuda,
+  satKretanja,
+} from "../lib/sat-knjige";
 import { izracunajGranicuVina, PRAZNO_ML } from "../lib/granica-vina";
 import {
   izracunajImeVina,
@@ -131,6 +135,8 @@ const kljuc = (p: { at: Date; strana: "PRIJE" | "POSLIJE" }) =>
   p.at.getTime() * 2 + (p.strana === "PRIJE" ? 0 : 1);
 
 type RedakKnjige = {
+  /** Razrjesava poredak redaka iz iste sekunde — vidi `praznjenjaPosuda`. */
+  id: string;
   uTankId: string | null;
   izTankId: string | null;
   litre: number;
@@ -166,6 +172,7 @@ async function main() {
   });
   const knjiga = (await prisma.berbaKretanje.findMany({
     select: {
+      id: true,
       uTankId: true,
       izTankId: true,
       litre: true,
@@ -236,12 +243,21 @@ async function main() {
   for (const [tankId, redci] of poTankuKnjiga) {
     // Preklapanje po satu knjige — treba samo da se zna je li tank bio prazan
     // neposredno prije cina.
+    // Isti sat kao svugdje drugdje, ukljucivo donju branu unatrag datiranog
+    // punjenja i skracivanje datuma iz forme (lib/sat-knjige.ts). Bez toga bi
+    // backfill imena vidio tank kao pun u trenutku u kojem je po knjizi vec bio
+    // ispraznjen, i ime bi sjelo na prethodno vino.
+    const praznjenja = praznjenjaPosuda(redci);
+
     const poredani = redci
       .map((r) => {
-        const sat = satKretanja(r);
-        const punjeno = r.punjenjeId
+        const sat = satKretanja(r, praznjenja);
+        const donja = donjaGranicaPunjenja(r, praznjenja);
+        const izForme = r.punjenjeId
           ? datumPunjenja.get(r.punjenjeId)?.getTime()
           : undefined;
+        const punjeno =
+          izForme != null && donja != null ? Math.max(izForme, donja) : izForme;
         return {
           r,
           poredak: sat,

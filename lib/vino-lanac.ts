@@ -1,4 +1,4 @@
-import { satKretanja } from "./sat-knjige";
+import { praznjenjaPosuda, satKretanja, type Praznjenja } from "./sat-knjige";
 
 /**
  * Mililitri, isti racun kao `uMl` u lib/filtracija.ts.
@@ -161,6 +161,23 @@ function kljucCina(k: Kretanje): string {
   const veza =
     k.pretokId ?? k.zadatakId ?? k.izlazVinaId ?? k.punjenjeId ?? `sam:${k.id}`;
 
+  // PUNJENJE SE NE SPAJA PREKO TANKOVA.
+  //
+  // Jedno spremanje forme puni vise tankova i svi ti redci nose ISTI
+  // `punjenjeId` (veza je punjenje prvog tanka — vidi app/api/punjenje/route.ts).
+  // Otkad donja brana sata pomice redak na praznjenje NJEGOVE posude, retci
+  // jedne grupe vise nemaju isti trenutak, a cin bi ih sveo na najraniji —
+  // pa bi tank ispraznjen kasnije opet zatekao svoje prethodno vino.
+  // Mjereno 12.09.2026: bez ovoga T33 ostaje na 14 tudjih radnji i T45 na 16,
+  // a T27 padne samo s 12 na 10 umjesto na 1.
+  //
+  // Razdvajanje SAMO PO SEBI ne mijenja nista (izmjereno: nijedan tank), jer
+  // se razrjedenje ionako racuna po ciljnom tanku — ono sluzi iskljucivo tome
+  // da pomak sata ne bude ponisten grupiranjem.
+  if (k.punjenjeId && k.uTankId) {
+    return `${veza}:${k.uTankId}:${k.vrsta}`;
+  }
+
   // VRSTA JE DIO KLJUCA, i to nije kozmetika.
   //
   // Ispravak i ponistenje nose ISTU vezu kao ono sto ispravljaju: brisanje
@@ -177,12 +194,12 @@ function kljucCina(k: Kretanje): string {
 
 type Cin = { kljuc: string; kada: number; kretanja: Kretanje[] };
 
-function grupirajUCine(kretanja: Kretanje[]): Cin[] {
+function grupirajUCine(kretanja: Kretanje[], praznjenja: Praznjenja): Cin[] {
   const mapa = new Map<string, Cin>();
 
   for (const k of kretanja) {
     const kljuc = kljucCina(k);
-    const kada = satKretanja(k);
+    const kada = satKretanja(k, praznjenja);
     const postojeci = mapa.get(kljuc);
 
     if (postojeci) {
@@ -256,7 +273,11 @@ export function odigrajLanac(
     return m;
   };
 
-  const cini = grupirajUCine(kretanja);
+  // Praznjenja posuda racunaju se iz ISTIH redaka koje je pozivatelj dao, pa
+  // lanac nema skriven izvor podataka: sto nije u `kretanja`, ne postoji ni za
+  // donju branu sata. Vidi lib/sat-knjige.ts.
+  const praznjenja = praznjenjaPosuda(kretanja);
+  const cini = grupirajUCine(kretanja, praznjenja);
 
   const ulazniCini = cini.filter((c) => c.kretanja.some((k) => k.uTankId));
   const izlazniCini = cini.filter((c) => c.kretanja.some((k) => k.izTankId));

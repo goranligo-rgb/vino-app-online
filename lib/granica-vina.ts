@@ -1,5 +1,9 @@
 import type { Prisma } from "@prisma/client";
-import { satKretanja } from "@/lib/sat-knjige";
+import {
+  donjaGranicaPunjenja,
+  praznjenjaPosuda,
+  satKretanja,
+} from "@/lib/sat-knjige";
 
 /**
  * GRANICA VINA — otkad je u tanku VINO KOJE JE U NJEMU SADA.
@@ -74,6 +78,8 @@ export type GranicaVina = {
  * retcima (test, ili stranica koja knjigu ionako cita).
  */
 export type RedakZaGranicu = {
+  /** Razrjesava poredak redaka iz iste sekunde — vidi `praznjenjaPosuda`. */
+  id?: string | null;
   uTankId: string | null;
   izTankId: string | null;
   litre: number;
@@ -135,12 +141,29 @@ export function izracunajGranicuVina(
     return { odAt: null, razlog: "NEMA_KNJIGE", litre: 0 };
   }
 
+  // Donja brana sata: redak nastao punjenjem ne smije pasti ispred trenutka u
+  // kojem je posuda zadnji put bila prazna prije tog upisa (lib/sat-knjige.ts).
+  const praznjenja = praznjenjaPosuda(
+    redci.map((r) => ({ ...r, id: r.id ?? "" }))
+  );
+
   const poredani = redci
     .map((r) => {
-      const sat = satKretanja(r);
-      const punjeno = r.punjenjeId
+      const sat = satKretanja(r, praznjenja);
+      const donja = donjaGranicaPunjenja(r, praznjenja);
+      const izForme = r.punjenjeId
         ? datumiPunjenja?.get(r.punjenjeId)?.getTime()
         : undefined;
+
+      // ISTA BRANA VRIJEDI I ZA DATUM IZ FORME. `datumiPunjenja` je drugi kanal
+      // kojim datum smije povuci granicu unatrag (vidi tip iznad) i bez ovoga
+      // bi ponistio pomak: tank 27 bi ostao na granici 08.09., dan prije nego
+      // je vino uopce uslo. Datum se time ne ukida — punjenje bez praznjenja
+      // izmedju (T30, T31) i dalje povlaci granicu na svoj datum.
+      const punjeno =
+        izForme != null && donja != null
+          ? Math.max(izForme, donja)
+          : izForme;
 
       return {
         // Najraniji trenutak za koji se zna da je vino bilo u tanku.
@@ -243,6 +266,7 @@ export async function granicaVina(
   const redci = await db.berbaKretanje.findMany({
     where: { OR: [{ uTankId: tankId }, { izTankId: tankId }] },
     select: {
+      id: true,
       uTankId: true,
       izTankId: true,
       litre: true,
@@ -273,6 +297,7 @@ export async function granicaSvihTankova(
 ): Promise<Map<string, GranicaVina>> {
   const redci = await db.berbaKretanje.findMany({
     select: {
+      id: true,
       uTankId: true,
       izTankId: true,
       litre: true,

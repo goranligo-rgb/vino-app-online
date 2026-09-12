@@ -260,12 +260,58 @@ export async function vrijednostiTankaPoPolju(
   if (odKad) uvjetVremena.gte = odKad.gte;
   if (opts?.doDatuma) uvjetVremena.lte = opts.doDatuma;
 
+  // POCETNO MJERENJE PUNJENJA PROLAZI GRANICU — isto pravilo koje stranica
+  // tanka vec ima kroz `mjerenjaTrenutnogVina`, sada i ovdje, da dva citaca ne
+  // govore razlicito o istom vinu.
+  //
+  // Ono nosi DATUM BERBE (secer, kiseline i pH izmjereni su na grozdju), pa
+  // redovno pada ispred granice: kod punjenja upisanog naknadno granica sjedne
+  // na trenutak praznjenja posude, a mjerenje ostaje na datumu iz forme.
+  // Izmjereno 12.09.2026: bez ovoga pet tankova (T2, T20, T27, T33, T45) gubi
+  // secer i kiseline s grozdja u ponderiranju pretoka, filtracije i na
+  // monitoru — a upravo je zbog tog podatka punjenje i upisano.
+  //
+  // Pripadnost novom vinu utvrdjuje PUNJENJE, ne sat mjerenja: uzimaju se samo
+  // punjenja koja su i sama nakon granice.
+  const pocetnaNovogVina =
+    odKad?.gte != null
+      ? (
+          await db.punjenjeTanka.findMany({
+            where: {
+              tankId,
+              datumPunjenja: { gte: odKad.gte },
+              pocetnoMjerenjeId: { not: null },
+            },
+            select: { pocetnoMjerenjeId: true },
+          })
+        )
+          .map((p) => p.pocetnoMjerenjeId)
+          .filter((x): x is string => x !== null)
+      : [];
+
+  const uvjetMjerenja =
+    Object.keys(uvjetVremena).length > 0
+      ? pocetnaNovogVina.length > 0
+        ? {
+            OR: [
+              { izmjerenoAt: uvjetVremena },
+              // I izuzeti redak postuje gornju granicu: citanje proslog
+              // trenutka ne smije vidjeti mjerenje iz buducnosti.
+              {
+                id: { in: pocetnaNovogVina },
+                ...(opts?.doDatuma
+                  ? { izmjerenoAt: { lte: opts.doDatuma } }
+                  : {}),
+              },
+            ],
+          }
+        : { izmjerenoAt: uvjetVremena }
+      : {};
+
   const mjerenja = (await db.mjerenje.findMany({
     where: {
       tankId,
-      ...(Object.keys(uvjetVremena).length > 0
-        ? { izmjerenoAt: uvjetVremena }
-        : {}),
+      ...uvjetMjerenja,
     },
     orderBy: { izmjerenoAt: "desc" },
     take: limit,

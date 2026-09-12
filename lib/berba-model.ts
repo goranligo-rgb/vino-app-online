@@ -42,7 +42,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { postotciIzMl, uLitre } from "@/lib/filtracija";
 import { usporediPoBerbi } from "@/lib/berba-lanac";
-import { doTrenutkaSQL, satKretanja } from "@/lib/sat-knjige";
+import { doTrenutkaSQL, praznjenjaPosuda, satKretanja } from "@/lib/sat-knjige";
 
 export type CitacBerbe = Prisma.TransactionClient | PrismaClient;
 
@@ -713,12 +713,14 @@ export async function vinoUTrenucima(
   const kretanja = await db.berbaKretanje.findMany({
     where: { OR: [{ uTankId: tankId }, { izTankId: tankId }] },
     select: {
+      id: true,
       berbaId: true,
       uTankId: true,
       izTankId: true,
       litre: true,
       dogodenoAt: true,
       createdAt: true,
+      punjenjeId: true,
     },
   });
 
@@ -740,13 +742,18 @@ export async function vinoUTrenucima(
 
   const poId = new Map(berbe.map((b) => [b.id, b]));
 
-  // Sat po retku racuna se JEDNOM, ne u petlji po trenucima.
+  // Sat po retku racuna se JEDNOM, ne u petlji po trenucima. Praznjenja se
+  // racunaju iz istih redaka — donja brana unatrag datiranog punjenja mora
+  // vrijediti i ovdje, inace bi mjerenje dobilo vino koje je iz tanka vec
+  // otislo (vidi lib/sat-knjige.ts).
+  const praznjenja = praznjenjaPosuda(kretanja);
+
   const sKlokom = kretanja.map((k) => ({
     berbaId: k.berbaId,
     ml:
       (k.uTankId === tankId ? Math.round(Number(k.litre) * 1000) : 0) -
       (k.izTankId === tankId ? Math.round(Number(k.litre) * 1000) : 0),
-    sat: satKretanja(k),
+    sat: satKretanja(k, praznjenja),
   }));
 
   return trenuci.map((trenutak) => {

@@ -56,7 +56,7 @@ import {
   sastavIzPodrijetla,
   vinoUTrenucima,
 } from "../lib/berba-model";
-import { satKretanja } from "../lib/sat-knjige";
+import { praznjenjaPosuda, satKretanja } from "../lib/sat-knjige";
 import {
   izracunajGranicuVina,
   granicaSvihTankova,
@@ -93,15 +93,23 @@ async function main() {
       vrsta: true,
       dogodenoAt: true,
       createdAt: true,
+      punjenjeId: true,
     },
   });
+
+  // Donja brana sata trazi kad je koja posuda bila prazna (lib/sat-knjige.ts).
+  // Bez nje bi JS ovdje racunao jedan sat, a SQL u `stanjeTanka` drugi — i
+  // tvrdnja 3 vise ne bi usporedivala dvije izvedbe ISTE definicije.
+  const praznjenja = praznjenjaPosuda(kretanja);
 
   const tankovi = await prisma.tank.findMany({
     select: { id: true, broj: true },
     orderBy: { broj: "asc" },
   });
 
-  const satovi = kretanja.map(satKretanja).sort((a, b) => a - b);
+  const satovi = kretanja
+    .map((k) => satKretanja(k, praznjenja))
+    .sort((a, b) => a - b);
   const prvi = satovi[0];
   const zadnji = satovi[satovi.length - 1];
 
@@ -180,7 +188,7 @@ async function main() {
     // Isti racun, drugom rukom: preklapanje redaka u JS-u.
     const uJs = new Map<string, Map<string, number>>();
     for (const k of kretanja) {
-      if (satKretanja(k) > ms) continue;
+      if (satKretanja(k, praznjenja) > ms) continue;
       const ml = uMl(k.litre);
 
       if (k.uTankId) {
@@ -228,7 +236,7 @@ async function main() {
     let uslo = 0;
     let izaslo = 0;
     for (const k of kretanja) {
-      if (satKretanja(k) > ms) continue;
+      if (satKretanja(k, praznjenja) > ms) continue;
       if (!k.izTankId) uslo += uMl(k.litre);
       if (!k.uTankId) izaslo += uMl(k.litre);
     }
@@ -250,7 +258,8 @@ async function main() {
   let monotono = true;
   let prije = -1;
   for (const ms of [...uzorak].sort((a, b) => a - b)) {
-    const koliko = kretanja.filter((k) => satKretanja(k) <= ms).length;
+    const koliko = kretanja.filter((k) => satKretanja(k, praznjenja) <= ms)
+      .length;
     if (koliko < prije) monotono = false;
     prije = koliko;
   }
@@ -500,7 +509,7 @@ async function main() {
     const TOLERANCIJA_MS = 5 * 60_000;
 
     const dokaz = kretanja.some((k) => {
-      const ms = satKretanja(k);
+      const ms = satKretanja(k, praznjenja);
       if (
         ms < stara.getTime() - TOLERANCIJA_MS ||
         ms > nova.getTime() + 86_400_000
@@ -508,7 +517,7 @@ async function main() {
         return false;
       const doTad = izracunajGranicuVina(
         t.id,
-        kretanja.filter((x) => satKretanja(x) <= ms)
+        kretanja.filter((x) => satKretanja(x, praznjenja) <= ms)
       );
       return doTad.razlog === "PRAZAN";
     });

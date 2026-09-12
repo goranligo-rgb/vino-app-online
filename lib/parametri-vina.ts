@@ -1,5 +1,9 @@
 import type { Prisma } from "@prisma/client";
-import { satKretanja } from "@/lib/sat-knjige";
+import {
+  praznjenjaPosuda,
+  satKretanja,
+  type Praznjenja,
+} from "@/lib/sat-knjige";
 import { izracunajGranicuVina, type RedakZaGranicu } from "@/lib/granica-vina";
 import { stanjeTanka } from "@/lib/berba-model";
 import { POLJA_MJERENJA } from "@/lib/mjerenja";
@@ -123,9 +127,12 @@ type Boravak = { tankId: string; odMs: number; doMs: number };
  * pocinje; kad padne na nulu, zavrsava. Partija koja je jos u posudi ima
  * otvoren boravak do sada.
  */
-function boravciPartije(redci: RedakZaGranicu[]): Boravak[] {
+function boravciPartije(
+  redci: RedakZaGranicu[],
+  praznjenja: Praznjenja
+): Boravak[] {
   const poredani = redci
-    .map((r) => ({ ...r, sat: satKretanja(r) }))
+    .map((r) => ({ ...r, sat: satKretanja(r, praznjenja) }))
     .sort((a, b) => a.sat - b.sat);
 
   const ml = new Map<string, number>();
@@ -168,10 +175,14 @@ function boravciPartije(redci: RedakZaGranicu[]): Boravak[] {
  * Posuda u koju je partija samo usput razdijeljena, a iz nje nista nije doslo
  * ovamo, ne ulazi.
  */
-function stvarniLanac(tankId: string, redci: RedakZaGranicu[]): Set<string> {
+function stvarniLanac(
+  tankId: string,
+  redci: RedakZaGranicu[],
+  praznjenja: Praznjenja
+): Set<string> {
   const prijenosi = redci
     .filter((r) => r.izTankId && r.uTankId)
-    .map((r) => ({ iz: r.izTankId!, u: r.uTankId!, sat: satKretanja(r) }));
+    .map((r) => ({ iz: r.izTankId!, u: r.uTankId!, sat: satKretanja(r, praznjenja) }));
 
   // Najkasniji trenutak u kojem je vino iz posude jos moglo krenuti prema
   // tanku. Posuda se ponovno obilazi samo kad joj taj trenutak naraste, pa
@@ -208,12 +219,14 @@ export async function parametriVinaIzKnjige(
   const kretanjaPartija = await db.berbaKretanje.findMany({
     where: { berbaId: { in: berbaIds } },
     select: {
+      id: true,
       berbaId: true,
       uTankId: true,
       izTankId: true,
       litre: true,
       dogodenoAt: true,
       createdAt: true,
+      punjenjeId: true,
     },
   });
 
@@ -224,29 +237,29 @@ export async function parametriVinaIzKnjige(
     poPartiji.set(k.berbaId, popis);
   }
 
-  const boravci = new Map<string, Boravak[]>();
-  const posude = new Set<string>();
-  for (const [berbaId, redci] of poPartiji) {
-    // Samo boravci u posudama iz stvarnog lanca — sestrinske posude se ne
-    // citaju ni za mjerenja ni za graf.
-    const izvorne = stvarniLanac(tankId, redci);
-    const b = boravciPartije(redci).filter((x) => izvorne.has(x.tankId));
-    boravci.set(berbaId, b);
-    for (const x of b) posude.add(x.tankId);
+  // KRETANJA POSUDA SE CITAJU PRIJE RACUNA, a ne poslije njega.
+  //
+  // Donja brana sata (lib/sat-knjige.ts) trazi kad je posuda bila prazna, a to
+  // se ne moze znati iz redaka JEDNE partije — treba cijeli promet te posude.
+  // Zato se upit koji je dosad sluzio samo za pocetak punjenja radi ranije i
+  // sirim filtrom (sve posude koje se pojavljuju u kretanjima partija, a ne
+  // samo one koje prezive stvarni lanac). Broj upita je isti.
+  const kandidati = new Set<string>();
+  for (const k of kretanjaPartija) {
+    if (k.uTankId) kandidati.add(k.uTankId);
+    if (k.izTankId) kandidati.add(k.izTankId);
   }
+  kandidati.add(tankId);
 
-  if (posude.size === 0) return null;
-
-  // Kretanja SVIH tih posuda — treba za pocetak punjenja (granicu vina).
-  // Jedan upit, ne jedan po posudi.
   const kretanjaPosuda = await db.berbaKretanje.findMany({
     where: {
       OR: [
-        { uTankId: { in: [...posude] } },
-        { izTankId: { in: [...posude] } },
+        { uTankId: { in: [...kandidati] } },
+        { izTankId: { in: [...kandidati] } },
       ],
     },
     select: {
+      id: true,
       uTankId: true,
       izTankId: true,
       litre: true,
@@ -255,6 +268,23 @@ export async function parametriVinaIzKnjige(
       punjenjeId: true,
     },
   });
+
+  const praznjenja = praznjenjaPosuda(kretanjaPosuda);
+
+  const boravci = new Map<string, Boravak[]>();
+  const posude = new Set<string>();
+  for (const [berbaId, redci] of poPartiji) {
+    // Samo boravci u posudama iz stvarnog lanca — sestrinske posude se ne
+    // citaju ni za mjerenja ni za graf.
+    const izvorne = stvarniLanac(tankId, redci, praznjenja);
+    const b = boravciPartije(redci, praznjenja).filter((x) =>
+      izvorne.has(x.tankId)
+    );
+    boravci.set(berbaId, b);
+    for (const x of b) posude.add(x.tankId);
+  }
+
+  if (posude.size === 0) return null;
 
   const punjenjaIds = [
     ...new Set(kretanjaPosuda.map((k) => k.punjenjeId).filter(Boolean)),
