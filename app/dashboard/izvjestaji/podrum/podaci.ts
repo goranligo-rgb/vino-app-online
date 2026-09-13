@@ -24,8 +24,21 @@ export const DANA_GRAF = 10;
 export const TJEDANA_SO2 = 8;
 /** Ciljna vrijednost slobodnog SO2 na grafu. */
 export const CILJ_SLOBODNI_SO2 = 30;
-/** Iznad ovog udjela tank se tretira kao jednosortni (blok "Berba"). */
-export const PRAG_JEDNOSORTNI = 90;
+/**
+ * Iznad ovog udjela tank se tretira kao jednosortni (blok "Berba").
+ *
+ * 80, a ne 90: isti broj kojim se vino imenuje (vlasnikova odluka 12.09.2026 —
+ * vino je CUVÉE kad nijedna sorta nema preko 80 %, inace SORTNO). Dva razlicita
+ * praga na istoj stranici znacila su da kartica tvrdi dvoje: sest tankova
+ * (T8, T9, T17, T25, T29, T43) bilo bi sortno po imenu, a kartica bi im
+ * ispisala "Sastav mjesavine".
+ *
+ * PRAG NE STOJI SAM. Uz njega ide uvjet da je najveci udio PRAVA SORTA
+ * (`lib/sorta-naziv.ts`) — inace bi T8, T29 i T43, kojima je najveci udio
+ * "Nepoznato podrijetlo", zamijenili koristan popis sastavnica blokom berbe od
+ * sest crtica. Vidi `model.ts`, `jednosortni`.
+ */
+export const PRAG_JEDNOSORTNI = 80;
 
 // --- Sirovi oblici koje vracaju $queryRaw upiti -----------------------------
 

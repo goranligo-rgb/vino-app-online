@@ -14,6 +14,7 @@ import {
   type PodrumPodaci,
 } from "./podaci";
 import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
+import { jePravaSorta } from "@/lib/sorta-naziv";
 import { usporediSaSastavom } from "@/lib/ime-vina";
 import { stvarnaZadana, uBroj } from "@/lib/temperatura";
 import { popisKvasacaSDopunom, type StavkaKvasca } from "@/lib/kvasci";
@@ -329,9 +330,17 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
         ? (litrePoSorti.get(norm(nazivSorte)) ?? 0)
         : (kolicina * postotak) / 100;
 
+    // JEDNOSORTNI TRAZI DVOJE: dovoljan udio I pravu sortu.
+    //
+    // "Mješavina", "Cuvée" i "Nepoznato podrijetlo" stoje u `nazivSorte` kao i
+    // prave sorte, ali nisu sorte (lib/sorta-naziv.ts). Bez drugog uvjeta bi
+    // tank 8 (Nepoznato podrijetlo 83,3 %) zamijenio popis sastavnica blokom
+    // berbe u kojem su svi redci crtice — zapis berbe postoji, ali je prazan.
     const najveci = udjeli[0] ?? null;
     const jednosortni =
-      najveci != null && Number(najveci.postotak) > PRAG_JEDNOSORTNI;
+      najveci != null &&
+      Number(najveci.postotak) > PRAG_JEDNOSORTNI &&
+      jePravaSorta(najveci.nazivSorte);
 
     let berba: BlokBerbe | null = null;
     if (jednosortni) {
