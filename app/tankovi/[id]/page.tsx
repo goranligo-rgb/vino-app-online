@@ -44,6 +44,13 @@ import {
   type VinoCvor,
   type Sastavnica as SastavnicaStabla,
 } from "@/lib/identitet-vina";
+import {
+  povijestVina,
+  type RedakRadnje,
+  type RedakMjerenjaPosude,
+  type PovijestVina,
+  type StavkaPovijesti,
+} from "@/lib/povijest-vina";
 import { opisGubitka } from "@/lib/pretok-gubitak";
 import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
 // `berbaKrozLanac` se od 11.09.2026. vise ne zove s ove stranice — berbu daje
@@ -1379,6 +1386,38 @@ export default async function TankPregledPage({
   );
   const kucicePrveRazine =
     stabloVina.vino.vrsta === "spoj" ? stabloVina.vino.sastavnice : [];
+
+  // MJERENJA SVIH POSUDA U STABLU — jedan upit, i jedini koji povijest kucica
+  // uopce kosta.
+  //
+  // Kvasci, preparati i radnje ne kostaju nista: `VinoRadnja` danasnjeg tanka
+  // nosi `izvorniTankId`, pa se povijest svakog pretka izdvaja iz vec
+  // dohvacenih redaka (vidi lib/povijest-vina.ts). Mjerenja su jedino sto
+  // `VinoRadnja` ne nosi, a stoje po posudi i prezive praznjenje.
+  const posudeUStablu = new Set<string>();
+  const skupiPosude = (v: VinoCvor) => {
+    if (v.vrsta === "partija") return;
+    posudeUStablu.add(v.tankId);
+    if (v.vrsta === "spoj") for (const s of v.sastavnice) skupiPosude(s.vino);
+  };
+  skupiPosude(stabloVina.vino);
+
+  const mjerenjaStabla: RedakMjerenjaPosude[] =
+    posudeUStablu.size > 0
+      ? await prisma.mjerenje.findMany({
+          where: { tankId: { in: [...posudeUStablu] } },
+          select: {
+            tankId: true,
+            izmjerenoAt: true,
+            alkohol: true,
+            secer: true,
+            ukupneKiseline: true,
+            ph: true,
+            slobodniSO2: true,
+            ukupniSO2: true,
+          },
+        })
+      : [];
   const odljevVina = imenujOdljev(
     knjigaIdentiteta.odljevi.get(id) ?? [],
     stabloVina.vino.vrsta === "spoj" ? stabloVina.vino.kada.getTime() : 0,
@@ -2743,6 +2782,8 @@ export default async function TankPregledPage({
                   s={s}
                   brojevi={brojeviTankova}
                   roditeljTankId={id}
+                  radnje={vinoRadnje}
+                  mjerenja={mjerenjaStabla}
                 />
               ))}
             </div>
@@ -4313,10 +4354,15 @@ function SastavnicaVina({
   s,
   brojevi,
   roditeljTankId,
+  radnje,
+  mjerenja,
 }: {
   s: SastavnicaStabla;
   brojevi: Map<string, number>;
   roditeljTankId: string;
+  /** `VinoRadnja` DANASNJEG tanka, sve; izbor po posudi radi `povijestVina`. */
+  radnje: RedakRadnje[];
+  mjerenja: RedakMjerenjaPosude[];
 }) {
   const v = s.vino;
   const naziv = imeCvoraVina(v, brojevi, roditeljTankId);
@@ -4384,12 +4430,34 @@ function SastavnicaVina({
           </div>
         </summary>
         <div style={detailsContentStyle}>
+          {/* POVIJEST PRVA, PORIJEKLO ISPOD — vlasnikov redoslijed (14.09.2026):
+              klik na kucicu mora pokazati sto je s tim vinom radeno, a njegove
+              vlastite kucice dolaze ispod toga, ne umjesto njega.
+
+              Prozor je [rodjenje u toj posudi, cas ulaska u roditelja]. Donji
+              rub je `v.kada` jer cvor tipa `spoj` nosi svoje rodjenje; gornji
+              je `s.usloAt`. */}
+          <PovijestKucice
+            povijest={povijestVina({
+              tankId: v.tankId,
+              od: v.kada,
+              do: s.usloAt,
+              radnje,
+              mjerenja,
+            })}
+          />
+
+          <div style={{ ...izKnjigeNaslovStyle, marginTop: 12 }}>
+            Odakle je to vino
+          </div>
           {v.sastavnice.map((d, i) => (
             <SastavnicaVina
               key={i}
               s={d}
               brojevi={brojevi}
               roditeljTankId={v.tankId}
+              radnje={radnje}
+              mjerenja={mjerenja}
             />
           ))}
         </div>
@@ -4404,6 +4472,114 @@ function SastavnicaVina({
     </div>
   );
 }
+
+/** Datum bez sata — povijest kucice ide u retke, ne u tablicu. */
+function datumKratko(d: Date): string {
+  return d.toLocaleDateString("hr-HR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function SkupinaPovijesti({
+  naslov,
+  stavke,
+}: {
+  naslov: string;
+  stavke: StavkaPovijesti[];
+}) {
+  if (stavke.length === 0) return null;
+
+  return (
+    <div>
+      <div style={izKnjigeNaslovStyle}>{naslov}</div>
+      {stavke.map((x, i) => (
+        <div key={i} style={povijestRedakStyle}>
+          <span style={povijestDatumStyle}>{datumKratko(x.datum)}</span>
+          <span>{x.naslov}</span>
+          {x.detalj ? <span style={povijestDetaljStyle}>{x.detalj}</span> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * STO JE S TIM VINOM RADENO dok je bilo u toj posudi.
+ *
+ * Prazan popis ima TRI razlicita znacenja i sva tri se moraju razlikovati
+ * (vlasnik, 14.09.2026):
+ *   prolazna     — vino je uslo i odmah otislo; "nista radeno" je ISTINA;
+ *   nema_zapisa  — prozor je prekratak da bi se tvrdilo ijedno od toga;
+ *   rupa         — vino je dugo stajalo a nista nije zapisano. To je KVAR i
+ *                  ne smije izgledati kao uredan kraj.
+ * Granice su izmjerene, ne odabrane od oka — vidi lib/povijest-vina.ts.
+ */
+function PovijestKucice({ povijest }: { povijest: PovijestVina }) {
+  if (povijest.stanje === "prolazna") {
+    return (
+      <div style={summarySubTextStyle}>
+        Vino je ušlo i odmah otišlo — ništa nije rađeno.
+      </div>
+    );
+  }
+
+  if (povijest.stanje === "rupa") {
+    const dana = Math.round(
+      (povijest.do.getTime() - povijest.od.getTime()) / 86_400_000
+    );
+    return (
+      <div style={rupaEvidencijeStyle}>
+        ⚠ Nema nijednog zapisa, a vino je u toj posudi stajalo {dana} dana —
+        rupa u evidenciji, ne uredan kraj.
+      </div>
+    );
+  }
+
+  if (povijest.stanje === "nema_zapisa") {
+    return <div style={summarySubTextStyle}>Nema zapisa.</div>;
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <SkupinaPovijesti naslov="Kvasci" stavke={povijest.kvasci} />
+      <SkupinaPovijesti naslov="Dodaci i preparati" stavke={povijest.dodaci} />
+      <SkupinaPovijesti naslov="Mjerenja" stavke={povijest.mjerenja} />
+      <SkupinaPovijesti naslov="Pretoci i radnje" stavke={povijest.radnje} />
+    </div>
+  );
+}
+
+const povijestRedakStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  alignItems: "baseline",
+  fontSize: 12,
+  lineHeight: 1.5,
+  flexWrap: "wrap",
+};
+
+const povijestDatumStyle: React.CSSProperties = {
+  color: "#6b7280",
+  fontVariantNumeric: "tabular-nums",
+  minWidth: 74,
+};
+
+const povijestDetaljStyle: React.CSSProperties = {
+  color: "#52514e",
+  fontVariantNumeric: "tabular-nums",
+};
+
+/* Rupa u evidenciji je kvar i tako izgleda — ista crvena kao prekinut lanac. */
+const rupaEvidencijeStyle: React.CSSProperties = {
+  border: "1px solid #fecaca",
+  background: "#fef2f2",
+  color: "#7f1d1d",
+  padding: "8px 10px",
+  fontSize: 12,
+  lineHeight: 1.5,
+};
 
 const kucicaRedakStyle: React.CSSProperties = {
   display: "flex",

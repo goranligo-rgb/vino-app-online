@@ -106,6 +106,14 @@ export type Sastavnica = {
   /** Litre koje su tim izvorom USLE u tank. */
   litre: number;
   udio: number;
+  /**
+   * Cas kad je to vino USLO u roditelja — gornji rub njegove povijesti.
+   *
+   * Cvor tipa `spoj` nosi `kada` = svoje RODJENJE, a ne cas odlaska. Bez ovog
+   * polja se prozor "od rodjenja u toj posudi do casa kad je otislo dalje" ne
+   * moze zatvoriti (lib/povijest-vina.ts).
+   */
+  usloAt: Date;
   /** Litre koje su iz izvora IZASLE; `litre + kalo`. */
   otpusteno: number;
   /** Otpusteno minus uslo. Enolog gleda sto je u tanku, ali kalo mora vidjeti. */
@@ -592,6 +600,7 @@ export function vinoUTanku(
           : { vrsta: "posuda", tankId: izTankId, kada, litre, razlog: "neotvoreno" },
         litre,
         udio: 0,
+        usloAt: kada,
         otpusteno,
         kalo: Math.max(0, otpusteno - litre),
         progutano,
@@ -612,6 +621,7 @@ export function vinoUTanku(
         },
         litre: litre / jedinstvene.length,
         udio: 0,
+        usloAt: kada,
         otpusteno: otpusteno / jedinstvene.length,
         kalo: Math.max(0, (otpusteno - litre) / jedinstvene.length),
         progutano,
@@ -629,6 +639,8 @@ export function vinoUTanku(
         : { vrsta: "posuda", tankId, kada: rodni.cin.kada, litre: rodni.cin.prije, razlog: "neotvoreno" },
       litre: rodni.cin.prije,
       udio: 0,
+      // Prethodno vino je "otislo" u trenutku kad je novo nastalo.
+      usloAt: rodni.cin.kada,
       // Vino koje je vec bilo u posudi nije nikamo putovalo: nema otpustanja,
       // pa ni kala.
       otpusteno: rodni.cin.prije,

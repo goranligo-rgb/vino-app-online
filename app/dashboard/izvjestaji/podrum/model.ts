@@ -19,6 +19,7 @@ import { usporediSaSastavom } from "@/lib/ime-vina";
 import { stvarnaZadana, uBroj } from "@/lib/temperatura";
 import { popisKvasacaSDopunom, type StavkaKvasca } from "@/lib/kvasci";
 import { vinoUTanku, imenujOdljev } from "@/lib/identitet-vina";
+import { jeDodavanjePreparata } from "@/lib/povijest-vina";
 
 const DAN_MS = 24 * 3600 * 1000;
 
@@ -141,20 +142,8 @@ export type StavkaDodatka = {
   izTanka: number | null;
 };
 
-/**
- * Je li redak dodavanje preparata u vino.
- *
- * Nije samo vrsta DODAVANJE: SO2 korekcija Sumpovinom zapisuje se kao
- * KOREKCIJA s preparatom, a fizicki je dodavanje u vino. Mjereno 11.09.2026 na
- * punim tankovima: 186 DODAVANJE i 38 KOREKCIJA nose preparat, nijedna druga
- * vrsta ga nema.
- */
-function jeDodavanjePreparata(r: {
-  vrsta: string;
-  preparatNaziv: string | null;
-}): boolean {
-  return r.vrsta === "DODAVANJE" || r.preparatNaziv != null;
-}
+// `jeDodavanjePreparata` je preselio u lib/povijest-vina.ts: isto pravilo sudi
+// i ovdje i u povijesti kucice, pa ne smije zivjeti u dvije kopije.
 
 export type Kartica = {
   id: string;

@@ -313,6 +313,7 @@ async function main() {
         vino: v,
         litre: 100,
         udio: 1 / djeca.length,
+        usloAt: u(0),
         otpusteno: 100,
         kalo: 0,
         progutano: false,

@@ -38,6 +38,7 @@
     "test:sorta:naziv": "tsx scripts/test-sorta-naziv.ts",
     "test:identitet:vina": "tsx scripts/test-identitet-vina.ts",
     "test:trenuci:vise": "tsx scripts/test-vino-u-trenucima-vise.ts",
+    "test:povijest:vina": "tsx scripts/test-povijest-vina.ts",
     "e:provjeri": "tsx scripts/provjeri-fazu-e.ts",
     "kvasac:partija": "tsx scripts/provjeri-kvasac-partija.ts",
     "blend:popravi": "tsx scripts/popravi-blend-izlazima.ts",
