@@ -215,6 +215,20 @@ export function satKretanja(k: RedakSata, praznjenja?: Praznjenja): number {
  * raste nekoliko stotina po sezoni; kad to prestane biti jeftino, zamjena je
  * materijalizirana tablica praznjenja, ne drugo pravilo.
  *
+ * IMENA UNUTARNJIH TABLICA MORAJU BITI NEMOGUCA KAO ALIAS POZIVATELJA.
+ *
+ * Ovaj je fragment do 14.09.2026. unutra koristio `b` (tablica) i `x` (izvedena
+ * tablica). Nazove li pozivatelj svoju tablicu istim imenom, unutarnje ime
+ * ZASJENI vanjsko i upit tiho odgovara na drugo pitanje: s aliasom `b` 20 od
+ * 658 redaka dobivalo je sat BEZ donje brane, a s aliasom `x` upit je pucao s
+ * "column x.createdAt does not exist". Postgres prvo ne prijavljuje — upit je
+ * posve legalan.
+ *
+ * Produkcijski citaci su svi islo preko `doTrenutkaSQL`, ciji je zadani alias
+ * `k`, pa nijedan ekran nije bio pogodjen; kvar je nasao test koji je fragment
+ * pozvao s tri imena. Zato imena nize pocinju podvlakom — takav alias nitko ne
+ * pise slucajno. Vidi `scripts/test-sat-knjige.ts`.
+ *
  * `alias` je ime tablice u upitu i UVIJEK je konstanta iz koda — nikad
  * korisnicki unos. Zato smije ici kroz `Prisma.raw`.
  */
@@ -237,23 +251,23 @@ export function satSQL(alias = "k"): Prisma.Sql {
             -- Tank bez ijednog praznjenja time bi dobio sat upisa umjesto
             -- datuma iz forme (uhvaceno testom, 14 od 606 redaka).
             SELECT CASE
-              WHEN max(x.sat) IS NULL THEN NULL
+              WHEN max(_praznjenja.sat) IS NULL THEN NULL
               ELSE LEAST(
-                max(x.sat) + interval '${POMAK_MS} milliseconds',
+                max(_praznjenja.sat) + interval '${POMAK_MS} milliseconds',
                 ${a}."createdAt"
               )
             END
             FROM (
               SELECT
-                b."createdAt" AS sat,
+                _praznjenja_k."createdAt" AS sat,
                 sum(
-                    (CASE WHEN b."uTankId"  = ${a}."uTankId" THEN round(b.litre::numeric * 1000) ELSE 0 END)
-                  - (CASE WHEN b."izTankId" = ${a}."uTankId" THEN round(b.litre::numeric * 1000) ELSE 0 END)
-                ) OVER (ORDER BY b."createdAt", b."id") AS ml
-              FROM "BerbaKretanje" b
-              WHERE b."uTankId" = ${a}."uTankId" OR b."izTankId" = ${a}."uTankId"
-            ) x
-            WHERE x.ml < ${PRAZNO_ML} AND x.sat < ${a}."createdAt"
+                    (CASE WHEN _praznjenja_k."uTankId"  = ${a}."uTankId" THEN round(_praznjenja_k.litre::numeric * 1000) ELSE 0 END)
+                  - (CASE WHEN _praznjenja_k."izTankId" = ${a}."uTankId" THEN round(_praznjenja_k.litre::numeric * 1000) ELSE 0 END)
+                ) OVER (ORDER BY _praznjenja_k."createdAt", _praznjenja_k."id") AS ml
+              FROM "BerbaKretanje" _praznjenja_k
+              WHERE _praznjenja_k."uTankId" = ${a}."uTankId" OR _praznjenja_k."izTankId" = ${a}."uTankId"
+            ) _praznjenja
+            WHERE _praznjenja.ml < ${PRAZNO_ML} AND _praznjenja.sat < ${a}."createdAt"
           ),
           LEAST(${a}."dogodenoAt", ${a}."createdAt")
         )

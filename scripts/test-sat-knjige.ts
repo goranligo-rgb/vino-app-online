@@ -26,6 +26,7 @@
  */
 
 import "dotenv/config";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import {
   donjaGranicaPunjenja,
@@ -372,27 +373,76 @@ async function main() {
   });
 
   const praznjenja = praznjenjaPosuda(redci);
-  const izSQL = await prisma.$queryRaw<Array<{ id: string; sat: Date }>>`
-    SELECT k."id", ${satSQL("k")} AS sat FROM "BerbaKretanje" k
-  `;
-  const poId = new Map(izSQL.map((r) => [r.id, r.sat]));
 
-  let razlika = 0;
-  let prviRazmak = "";
-  for (const r of redci) {
-    const js = satKretanja(r, praznjenja);
-    const sql = poId.get(r.id);
-    if (!sql || sql.getTime() !== js) {
-      razlika++;
-      if (!prviRazmak)
-        prviRazmak = `${r.id}: JS ${new Date(js).toISOString()} / SQL ${sql?.toISOString() ?? "—"}`;
+  // TRI ALIASA, i to nije pretjerivanje.
+  //
+  // `satSQL` unutar sebe alijasira "BerbaKretanje". Nazove li pozivatelj svoju
+  // tablicu istim imenom, unutarnji alias ZASJENI vanjski: korelirani podupit
+  // pocne citati sam sebe, korelacija nestane i donja brana se ne primijeni.
+  // Postgres to ne prijavljuje — upit je legalan, samo odgovara na drugo
+  // pitanje. Uhvaceno 14.09.2026: s aliasom "b" 20 redaka od 658 dobiva krivi
+  // sat, a test koji je zvao samo "k" tvrdio je da se sve slaze.
+  const aliasi = ["k", "b", "x"];
+  const poAliasu = new Map<string, Map<string, Date>>();
+
+  for (const alias of aliasi) {
+    // Svaki alias u vlastitom `try`: fragment koji se s nekim imenom uopce ne
+    // MOZE upotrijebiti je pad testa, ne rusenje skripte. `satSQL` je imao dvije
+    // zamke odjednom — unutarnju tablicu `b` (tiho krivi sat) i izvedenu tablicu
+    // `x` (tvrdi ColumnNotFound).
+    try {
+      const izSQL = await prisma.$queryRaw<Array<{ id: string; sat: Date }>>(
+        Prisma.sql`
+          SELECT ${Prisma.raw(alias)}."id", ${satSQL(alias)} AS sat
+          FROM "BerbaKretanje" ${Prisma.raw(alias)}
+        `
+      );
+      poAliasu.set(alias, new Map(izSQL.map((r) => [r.id, r.sat])));
+    } catch (e) {
+      tvrdi(false, `alias "${alias}": upit se uopce moze izvrsiti`, String((e as Error).message).slice(0, 120));
+      poAliasu.set(alias, new Map());
     }
   }
 
+  for (const alias of aliasi) {
+    const poId = poAliasu.get(alias)!;
+    if (poId.size === 0) continue;
+    let razlika = 0;
+    let prviRazmak = "";
+
+    for (const r of redci) {
+      const js = satKretanja(r, praznjenja);
+      const sql = poId.get(r.id);
+      if (!sql || sql.getTime() !== js) {
+        razlika++;
+        if (!prviRazmak)
+          prviRazmak = `${r.id}: JS ${new Date(js).toISOString()} / SQL ${sql?.toISOString() ?? "—"}`;
+      }
+    }
+
+    tvrdi(
+      razlika === 0,
+      `alias "${alias}": JS i SQL daju isti sat na svih ${redci.length} redaka`,
+      razlika > 0 ? `razlika na ${razlika}, prva: ${prviRazmak}` : undefined
+    );
+  }
+
+  // Tri aliasa moraju dati i medjusobno isto — ime tablice ne smije mijenjati
+  // odgovor.
+  let medjusobno = 0;
+  let prviPar = "";
+  for (const r of redci) {
+    const vrijednosti = aliasi.map((a) => poAliasu.get(a)!.get(r.id)?.getTime() ?? -1);
+    if (new Set(vrijednosti).size > 1) {
+      medjusobno++;
+      if (!prviPar)
+        prviPar = `${r.id}: ${aliasi.map((a, i) => `${a}=${new Date(vrijednosti[i]).toISOString()}`).join(" / ")}`;
+    }
+  }
   tvrdi(
-    razlika === 0,
-    `JS i SQL daju isti sat na svih ${redci.length} redaka`,
-    razlika > 0 ? `razlika na ${razlika}, prva: ${prviRazmak}` : undefined
+    medjusobno === 0,
+    "sva tri aliasa daju identican rezultat",
+    medjusobno > 0 ? `razlicito na ${medjusobno}, prvi: ${prviPar}` : undefined
   );
 
   const pomaknuti = redci.filter(
