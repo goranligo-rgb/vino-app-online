@@ -44,6 +44,28 @@ export type RedakRadnje = {
   jedinicaNaziv: string | null;
   kolicina: number | null;
   jeKvasac: boolean;
+  /** Kljuc deduplikacije naprama arhivi; ista radnja zna postojati dvaput. */
+  izvornaRadnjaId?: string | null;
+};
+
+/**
+ * `ArhivaVinaRadnja` — radnja posude koja je u medjuvremenu ARHIVIRANA.
+ *
+ * NEMA `jeKvasac`, i to se ne da zaobici: arhiva to polje ne nosi, a naknadno
+ * spajanje na `Preparation.jeKvasac` je zabranjeno — gasenje oznake u katalogu
+ * unatrag bi mijenjalo povijest fermentacije. Arhivska radnja zato ulazi u
+ * dodatke i radnje, ali NIKAD u popis kvasaca.
+ */
+export type RedakArhivskeRadnje = {
+  tankId: string | null;
+  /** Arhiva nema `dogodenoAt`; `createdAt` je cas kad se radnja dogodila. */
+  createdAt: Date;
+  vrsta: string;
+  opis: string | null;
+  preparatNaziv: string | null;
+  jedinicaNaziv: string | null;
+  kolicina: number | null;
+  izvornaRadnjaId?: string | null;
 };
 
 /**
@@ -166,11 +188,50 @@ export function povijestVina(args: {
   do: Date;
   radnje: RedakRadnje[];
   mjerenja: RedakMjerenjaPosude[];
+  /**
+   * ARHIVSKI REDCI SU OBAVEZNI, ne opcijski — i zato stoje u potpisu.
+   *
+   * Arhiviranje SELI podatke, ne kopira ih: `Mjerenje` i `Radnja` su PRAZNE za
+   * svaku posudu koja je u medjuvremenu arhivirana, a u stablima porijekla
+   * takve su gotovo sve. Bez ovoga je detektor rupa 14.09.2026 prijavio 36
+   * rupa, od kojih je svih 36 bilo lazno — T3 ima sest mjerenja u prozoru koji
+   * je modul zvao praznim.
+   *
+   * Potpis ih trazi izrijekom da ih sljedeci pozivatelj ne moze presutjeti.
+   */
+  arhivskeRadnje: RedakArhivskeRadnje[];
+  arhivskaMjerenja: RedakMjerenjaPosude[];
 }): PovijestVina {
   const odMs = args.od.getTime();
   const doMs = args.do.getTime();
 
-  const moje = args.radnje
+  // Arhivska radnja u obliku zive. `jeKvasac` je uvijek `false` — vidi
+  // `RedakArhivskeRadnje`.
+  const izArhive: RedakRadnje[] = args.arhivskeRadnje
+    .filter((r) => r.tankId === args.tankId)
+    .map((r) => ({
+      izvorniTankId: r.tankId ?? "",
+      dogodenoAt: r.createdAt,
+      vrsta: r.vrsta,
+      opis: r.opis,
+      preparatNaziv: r.preparatNaziv,
+      jedinicaNaziv: r.jedinicaNaziv,
+      kolicina: r.kolicina,
+      jeKvasac: false,
+      izvornaRadnjaId: r.izvornaRadnjaId ?? null,
+    }));
+
+  // ISTA RADNJA ZNA POSTOJATI DVAPUT: kao `VinoRadnja` u zivom tanku i kao
+  // `ArhivaVinaRadnja` u arhivi. Oboje nose `izvornaRadnjaId`, pa se arhivski
+  // duplikat odbacuje — ziva kopija ima `jeKvasac` i preciznija je.
+  const vecImam = new Set(
+    args.radnje.map((r) => r.izvornaRadnjaId).filter((x): x is string => !!x)
+  );
+
+  const moje = [
+    ...args.radnje,
+    ...izArhive.filter((r) => !r.izvornaRadnjaId || !vecImam.has(r.izvornaRadnjaId)),
+  ]
     .filter(
       (r) =>
         r.izvorniTankId === args.tankId &&
@@ -207,7 +268,7 @@ export function povijestVina(args: {
       detalj: kolicinaRadnje(r),
     }));
 
-  const mjerenja: StavkaPovijesti[] = args.mjerenja
+  const mjerenja: StavkaPovijesti[] = [...args.mjerenja, ...args.arhivskaMjerenja]
     .filter(
       (m) =>
         m.tankId === args.tankId &&

@@ -48,6 +48,7 @@ import {
 import {
   povijestVina,
   type RedakRadnje,
+  type RedakArhivskeRadnje,
   type RedakMjerenjaPosude,
   type PovijestVina,
   type StavkaPovijesti,
@@ -1419,6 +1420,80 @@ export default async function TankPregledPage({
           },
         })
       : [];
+  // ARHIVA — bez nje je povijest predaka LAZNO PRAZNA.
+  //
+  // Arhiviranje SELI mjerenja i radnje, ne kopira ih: `Mjerenje` i `Radnja` su
+  // prazne za svaku posudu koja je u medjuvremenu arhivirana, a u stablima
+  // porijekla takve su gotovo sve. Bez ovoga je detektor rupa 14.09.2026 na
+  // stranici tanka prijavio 36 rupa, od kojih su sve bile lazne — T3 je bio
+  // oznacen kao 83 dana bez ijednog zapisa, a imao je sest mjerenja u tom
+  // prozoru. Vidi AGENTS.md.
+  //
+  // `brojTanka` je rezerva za arhive kojima `tankId` nije popunjen.
+  const brojeviUStablu = [...posudeUStablu]
+    .map((x) => brojeviTankova.get(x))
+    .filter((x): x is number => x != null);
+
+  const arhiveStabla =
+    posudeUStablu.size > 0
+      ? await prisma.arhivaVina.findMany({
+          where: {
+            OR: [
+              { tankId: { in: [...posudeUStablu] } },
+              { brojTanka: { in: brojeviUStablu } },
+            ],
+          },
+          select: { id: true },
+        })
+      : [];
+
+  const arhivaIds = arhiveStabla.map((a) => a.id);
+  const gdje = {
+    OR: [
+      { arhivaVinaId: { in: arhivaIds } },
+      { tankId: { in: [...posudeUStablu] } },
+    ],
+  };
+
+  // Dva upita, ne petlja po posudama — ista brana kao svugdje.
+  const [sirovaArhMjerenja, sirovaArhRadnje] =
+    posudeUStablu.size > 0
+      ? await Promise.all([
+          prisma.arhivaVinaMjerenje.findMany({
+            where: gdje,
+            select: {
+              tankId: true,
+              izmjerenoAt: true,
+              alkohol: true,
+              secer: true,
+              ukupneKiseline: true,
+              ph: true,
+              slobodniSO2: true,
+              ukupniSO2: true,
+            },
+          }),
+          prisma.arhivaVinaRadnja.findMany({
+            where: gdje,
+            select: {
+              tankId: true,
+              createdAt: true,
+              vrsta: true,
+              opis: true,
+              preparatNaziv: true,
+              jedinicaNaziv: true,
+              kolicina: true,
+              izvornaRadnjaId: true,
+            },
+          }),
+        ])
+      : [[], []];
+
+  const arhivskaMjerenjaStabla: RedakMjerenjaPosude[] = sirovaArhMjerenja
+    .filter((m) => m.tankId != null)
+    .map((m) => ({ ...m, tankId: m.tankId as string }));
+
+  const arhivskeRadnjeStabla: RedakArhivskeRadnje[] = sirovaArhRadnje;
+
   const odljevVina = imenujOdljev(
     knjigaIdentiteta.odljevi.get(id) ?? [],
     stabloVina.vino.vrsta === "spoj" ? stabloVina.vino.kada.getTime() : 0,
@@ -2785,6 +2860,8 @@ export default async function TankPregledPage({
                   roditeljTankId={id}
                   radnje={vinoRadnje}
                   mjerenja={mjerenjaStabla}
+                  arhivskeRadnje={arhivskeRadnjeStabla}
+                  arhivskaMjerenja={arhivskaMjerenjaStabla}
                 />
               ))}
             </div>
@@ -4359,6 +4436,8 @@ function SastavnicaVina({
   roditeljTankId,
   radnje,
   mjerenja,
+  arhivskeRadnje,
+  arhivskaMjerenja,
 }: {
   s: SastavnicaStabla;
   brojevi: Map<string, number>;
@@ -4366,6 +4445,9 @@ function SastavnicaVina({
   /** `VinoRadnja` DANASNJEG tanka, sve; izbor po posudi radi `povijestVina`. */
   radnje: RedakRadnje[];
   mjerenja: RedakMjerenjaPosude[];
+  /** Arhivski redci — bez njih je povijest arhivirane posude lazno prazna. */
+  arhivskeRadnje: RedakArhivskeRadnje[];
+  arhivskaMjerenja: RedakMjerenjaPosude[];
 }) {
   const v = s.vino;
   const naziv = imeCvoraVina(v, brojevi, roditeljTankId);
@@ -4447,6 +4529,8 @@ function SastavnicaVina({
               do: s.usloAt,
               radnje,
               mjerenja,
+              arhivskeRadnje,
+              arhivskaMjerenja,
             })}
           />
 
@@ -4461,6 +4545,8 @@ function SastavnicaVina({
               roditeljTankId={v.tankId}
               radnje={radnje}
               mjerenja={mjerenja}
+              arhivskeRadnje={arhivskeRadnje}
+              arhivskaMjerenja={arhivskaMjerenja}
             />
           ))}
         </div>

@@ -10,9 +10,20 @@
  * 3. Kvasac se IZDVAJA, ali se NE MICE iz popisa dodataka.
  * 4. SO2 korekcija s preparatom je dodavanje; pretok nije.
  * 5. Tri prazna kraja se razlikuju: prolazna posuda, bez tvrdnje, rupa.
- * 6. NAD PRAVOM BAZOM: broj rupa u podrumu poklapa se s neovisnim brojanjem.
+ * 6. ARHIVSKI REDCI SE CITAJU. Arhiviranje SELI podatke — posuda koja je
+ *    arhivirana ima prazne zive tablice.
+ * 7. NAD PRAVOM BAZOM: nijedan cvor koji ima arhivska mjerenja ne smije biti
+ *    oznacen kao rupa.
  *
- * MUTACIJE: `razvrstajStanje` i filtar se ubacuju.
+ * ZASTO TVRDNJA "POSTOJE RUPE" VISE NE POSTOJI
+ * --------------------------------------------
+ * Prva izvedba ovog testa tvrdila je da rupe POSTOJE i prolazila je — jer je
+ * modul citao samo zive tablice, pa je 36 prozora s podacima proglasio
+ * praznima. Tvrdnja je time zabetonirala kvar kao ocekivano ponasanje. Sada
+ * stoji obrnuta: cvor s arhivskim mjerenjima NIJE rupa, a mutacija koja
+ * arhivski izvor ukloni mora pasti.
+ *
+ * MUTACIJE: `razvrstajStanje` i arhivski izvor se ubacuju.
  */
 
 import "dotenv/config";
@@ -24,8 +35,10 @@ import {
   PRAG_PROLAZNA_MS,
   PRAG_RUPE_MS,
   type RedakRadnje,
+  type RedakArhivskeRadnje,
   type RedakMjerenjaPosude,
   type StanjePovijesti,
+  type PovijestVina,
 } from "../lib/povijest-vina";
 import { citajUlazneCine, vinoUTanku, type VinoCvor } from "../lib/identitet-vina";
 
@@ -48,6 +61,27 @@ const SAT = 3_600_000;
 const POCETAK = Date.parse("2026-09-01T06:00:00Z");
 const u = (h: number) => new Date(POCETAK + h * SAT);
 
+/** Scenarij bez arhive — arhivski izvor se dodaje ondje gdje se mjeri. */
+function pov(args: {
+  tankId: string;
+  od: Date;
+  do: Date;
+  radnje?: RedakRadnje[];
+  mjerenja?: RedakMjerenjaPosude[];
+  arhivskeRadnje?: RedakArhivskeRadnje[];
+  arhivskaMjerenja?: RedakMjerenjaPosude[];
+}): PovijestVina {
+  return povijestVina({
+    tankId: args.tankId,
+    od: args.od,
+    do: args.do,
+    radnje: args.radnje ?? [],
+    mjerenja: args.mjerenja ?? [],
+    arhivskeRadnje: args.arhivskeRadnje ?? [],
+    arhivskaMjerenja: args.arhivskaMjerenja ?? [],
+  });
+}
+
 function radnja(x: Partial<RedakRadnje> & { dogodenoAt: Date }): RedakRadnje {
   return {
     izvorniTankId: x.izvorniTankId ?? "S",
@@ -58,6 +92,22 @@ function radnja(x: Partial<RedakRadnje> & { dogodenoAt: Date }): RedakRadnje {
     jedinicaNaziv: x.jedinicaNaziv ?? null,
     kolicina: x.kolicina ?? null,
     jeKvasac: x.jeKvasac ?? false,
+    izvornaRadnjaId: x.izvornaRadnjaId ?? null,
+  };
+}
+
+function arhRadnja(
+  x: Partial<RedakArhivskeRadnje> & { createdAt: Date }
+): RedakArhivskeRadnje {
+  return {
+    tankId: x.tankId ?? "S",
+    createdAt: x.createdAt,
+    vrsta: x.vrsta ?? "DODAVANJE",
+    opis: x.opis ?? null,
+    preparatNaziv: x.preparatNaziv ?? null,
+    jedinicaNaziv: x.jedinicaNaziv ?? null,
+    kolicina: x.kolicina ?? null,
+    izvornaRadnjaId: x.izvornaRadnjaId ?? null,
   };
 }
 
@@ -97,7 +147,7 @@ const MUTACIJE_RAZVRSTAJ: Array<{ opis: string; f: Razvrstaj }> = [
   },
   {
     opis: "razvrstaj — sve prazno zove prolaznim (rupa se gubi)",
-    f: (ima, t) => (ima ? "ima" : "prolazna"),
+    f: (ima) => (ima ? "ima" : "prolazna"),
   },
   {
     opis: "razvrstaj — ne gleda ima li zapisa",
@@ -116,7 +166,7 @@ async function main() {
 
   console.log("\nIZBOR REDAKA");
   {
-    const p = povijestVina({
+    const p = pov({
       tankId: "S",
       od: u(10),
       do: u(20),
@@ -126,7 +176,6 @@ async function main() {
         radnja({ dogodenoAt: u(15), preparatNaziv: "TUDJA POSUDA", izvorniTankId: "X" }),
         radnja({ dogodenoAt: u(15), preparatNaziv: "NASA" }),
       ],
-      mjerenja: [],
     });
     tvrdi(
       p.dodaci.length === 1 && p.dodaci[0].naslov === "NASA",
@@ -136,7 +185,7 @@ async function main() {
   }
 
   {
-    const p = povijestVina({
+    const p = pov({
       tankId: "S",
       od: u(10),
       do: u(20),
@@ -144,13 +193,12 @@ async function main() {
         radnja({ dogodenoAt: u(10), preparatNaziv: "NA RUBU OD" }),
         radnja({ dogodenoAt: u(20), preparatNaziv: "NA RUBU DO" }),
       ],
-      mjerenja: [],
     });
     tvrdi(p.dodaci.length === 2, "granice prozora su ukljucive na oba kraja");
   }
 
   {
-    const p = povijestVina({
+    const p = pov({
       tankId: "S",
       od: u(0),
       do: u(30),
@@ -159,7 +207,6 @@ async function main() {
         radnja({ dogodenoAt: u(2), preparatNaziv: "Šumpovin", vrsta: "KOREKCIJA" }),
         radnja({ dogodenoAt: u(3), vrsta: "PRETOK", opis: "pretok u T8" }),
       ],
-      mjerenja: [],
     });
 
     tvrdi(p.kvasci.length === 1 && p.kvasci[0].detalj === "350 g", "kvasac se izdvaja s kolicinom");
@@ -169,15 +216,55 @@ async function main() {
   }
 
   {
-    const p = povijestVina({
+    const p = pov({
       tankId: "S",
       od: u(0),
       do: u(30),
-      radnje: [],
       mjerenja: [mjerenje({ izmjerenoAt: u(5), secer: 72, ph: 3.2 })],
     });
     tvrdi(p.mjerenja.length === 1 && (p.mjerenja[0].detalj ?? "").includes("pH"), "mjerenje se ispisuje s parametrima");
     tvrdi(p.stanje === "ima", "samo mjerenje je takodjer zapis — nije rupa");
+  }
+
+  console.log("\nARHIVSKI IZVOR");
+  {
+    // Posuda je arhivirana: zive tablice su PRAZNE, sve je u arhivi.
+    const p = pov({
+      tankId: "S",
+      od: u(0),
+      do: u(24 * 10),
+      arhivskaMjerenja: [mjerenje({ izmjerenoAt: u(50), secer: 82, ph: 3.1 })],
+    });
+    tvrdi(p.mjerenja.length === 1, "arhivsko mjerenje se cita");
+    tvrdi(p.stanje === "ima", "arhivirana posuda s mjerenjem NIJE rupa");
+  }
+
+  {
+    const p = pov({
+      tankId: "S",
+      od: u(0),
+      do: u(24 * 10),
+      arhivskeRadnje: [arhRadnja({ createdAt: u(50), preparatNaziv: "Bentonit" })],
+    });
+    tvrdi(p.dodaci.length === 1 && p.dodaci[0].naslov === "Bentonit", "arhivska radnja se cita kao dodatak");
+    tvrdi(p.kvasci.length === 0, "arhivska radnja NIKAD ne ulazi u kvasce — arhiva nema jeKvasac");
+  }
+
+  {
+    // Ista radnja ziva i u arhivi: smije se pojaviti samo jednom.
+    const p = pov({
+      tankId: "S",
+      od: u(0),
+      do: u(30),
+      radnje: [radnja({ dogodenoAt: u(5), preparatNaziv: "Bentonit", izvornaRadnjaId: "r1" })],
+      arhivskeRadnje: [arhRadnja({ createdAt: u(5), preparatNaziv: "Bentonit", izvornaRadnjaId: "r1" })],
+    });
+    tvrdi(p.dodaci.length === 1, "duplikat iz arhive se odbacuje po izvornaRadnjaId", `${p.dodaci.length}`);
+  }
+
+  {
+    const p = pov({ tankId: "S", od: u(0), do: u(24 * 10) });
+    tvrdi(p.stanje === "rupa", "bez ijednog izvora dug prozor JEST rupa");
   }
 
   console.log("\nPRAVILO O DODAVANJU");
@@ -193,6 +280,7 @@ async function main() {
     prisma.berba.findMany({ select: { id: true, nazivSorte: true } }),
   ]);
   const sorte = new Map(berbe.map((b) => [b.id, b.nazivSorte]));
+  const brojTanka = new Map(tankovi.map((t) => [t.id, t.broj]));
   const puni = tankovi.filter((t) => Number(t.kolicinaVinaUTanku ?? 0) > 0);
 
   const knjiga = await citajUlazneCine(prisma, tankovi.map((t) => t.id));
@@ -202,6 +290,7 @@ async function main() {
     select: {
       tankId: true, izvorniTankId: true, dogodenoAt: true, vrsta: true, opis: true,
       preparatNaziv: true, jedinicaNaziv: true, kolicina: true, jeKvasac: true,
+      izvornaRadnjaId: true,
     },
   })) as Array<RedakRadnje & { tankId: string }>;
 
@@ -212,71 +301,99 @@ async function main() {
     },
   })) as RedakMjerenjaPosude[];
 
-  // Prodji sva stabla i razvrstaj svaki cvor-posudu.
-  const stanja = new Map<StanjePovijesti, number>();
-  let cvorova = 0;
+  const sirovaArhMj = await prisma.arhivaVinaMjerenje.findMany({
+    select: {
+      tankId: true, izmjerenoAt: true, alkohol: true, secer: true,
+      ukupneKiseline: true, ph: true, slobodniSO2: true, ukupniSO2: true,
+    },
+  });
+  const arhMjerenja: RedakMjerenjaPosude[] = sirovaArhMj
+    .filter((m) => m.tankId != null)
+    .map((m) => ({ ...m, tankId: m.tankId as string }));
 
-  const prodji = (v: VinoCvor, korijen: string, doMs: number) => {
-    if (v.vrsta === "partija") return;
-    cvorova++;
+  const arhRadnje: RedakArhivskeRadnje[] = await prisma.arhivaVinaRadnja.findMany({
+    select: {
+      tankId: true, createdAt: true, vrsta: true, opis: true,
+      preparatNaziv: true, jedinicaNaziv: true, kolicina: true, izvornaRadnjaId: true,
+    },
+  });
 
-    const vlastito = vinoUTanku(knjiga.cini, sorte, v.tankId, doMs);
-    const odMs = vlastito.vrsta === "spoj" ? vlastito.kada.getTime() : doMs;
+  console.log(`  (arhiva: ${arhMjerenja.length} mjerenja, ${arhRadnje.length} radnji)`);
 
-    const p = povijestVina({
-      tankId: v.tankId,
-      od: new Date(odMs),
-      do: new Date(doMs),
-      radnje: sveRadnje.filter((r) => r.tankId === korijen),
-      mjerenja: sveMjerenje,
-    });
-    stanja.set(p.stanje, (stanja.get(p.stanje) ?? 0) + 1);
+  /** Prodji sva stabla; `bezArhive` je mutacija koja arhivski izvor uklanja. */
+  function prodjiSve(bezArhive: boolean) {
+    const stanja = new Map<StanjePovijesti, number>();
+    const rupeSArhivom: string[] = [];
+    let cvorova = 0;
 
-    if (v.vrsta === "spoj") {
-      for (const s of v.sastavnice) prodji(s.vino, korijen, v.kada.getTime());
+    const prodji = (v: VinoCvor, korijen: string, doMs: number) => {
+      if (v.vrsta === "partija") return;
+      cvorova++;
+
+      const vlastito = vinoUTanku(knjiga.cini, sorte, v.tankId, doMs);
+      const odMs = vlastito.vrsta === "spoj" ? vlastito.kada.getTime() : doMs;
+
+      const p = povijestVina({
+        tankId: v.tankId,
+        od: new Date(odMs),
+        do: new Date(doMs),
+        radnje: sveRadnje.filter((r) => r.tankId === korijen),
+        mjerenja: sveMjerenje,
+        arhivskeRadnje: bezArhive ? [] : arhRadnje,
+        arhivskaMjerenja: bezArhive ? [] : arhMjerenja,
+      });
+      stanja.set(p.stanje, (stanja.get(p.stanje) ?? 0) + 1);
+
+      // IMA LI TAJ CVOR ARHIVSKIH MJERENJA U SVOM PROZORU?
+      if (p.stanje === "rupa") {
+        const ima = arhMjerenja.some(
+          (m) =>
+            m.tankId === v.tankId &&
+            m.izmjerenoAt.getTime() >= odMs &&
+            m.izmjerenoAt.getTime() <= doMs
+        );
+        if (ima) rupeSArhivom.push(`T${brojTanka.get(v.tankId) ?? "?"}`);
+      }
+
+      if (v.vrsta === "spoj") {
+        for (const s of v.sastavnice) prodji(s.vino, korijen, v.kada.getTime());
+      }
+    };
+
+    for (const t of puni) {
+      const v = vinoUTanku(knjiga.cini, sorte, t.id, Date.now());
+      if (v.vrsta === "spoj") for (const s of v.sastavnice) prodji(s.vino, t.id, v.kada.getTime());
     }
-  };
 
-  for (const t of puni) {
-    const v = vinoUTanku(knjiga.cini, sorte, t.id, Date.now());
-    if (v.vrsta === "spoj") for (const s of v.sastavnice) prodji(s.vino, t.id, v.kada.getTime());
+    return { stanja, rupeSArhivom, cvorova };
   }
 
-  console.log(`  (${cvorova} cvorova: ${[...stanja.entries()].map(([k, n]) => `${k} ${n}`).join(", ")})`);
+  const sada = prodjiSve(false);
+  console.log(
+    `  (${sada.cvorova} cvorova: ${[...sada.stanja.entries()].map(([k, n]) => `${k} ${n}`).join(", ")})`
+  );
 
-  tvrdi(cvorova > 300, "podrum daje dovoljno cvorova za usporedbu", `${cvorova}`);
-  tvrdi((stanja.get("prolazna") ?? 0) > 0, "postoje prolazne posude");
-  tvrdi((stanja.get("rupa") ?? 0) > 0, "postoje rupe u evidenciji — i vide se");
+  tvrdi(sada.cvorova > 300, "podrum daje dovoljno cvorova za usporedbu", `${sada.cvorova}`);
+  tvrdi((sada.stanja.get("prolazna") ?? 0) > 0, "postoje prolazne posude");
 
-  // NEOVISNO BROJANJE: rupa je cvor bez ijedne radnje, bez mjerenja, prozor > 3 dana.
-  // Broji se ovdje ponovno, bez modula, da tvrdnja ne mjeri samu sebe.
-  let rucno = 0;
-  const prodji2 = (v: VinoCvor, korijen: string, doMs: number) => {
-    if (v.vrsta === "partija") return;
-    const vlastito = vinoUTanku(knjiga.cini, sorte, v.tankId, doMs);
-    const odMs = vlastito.vrsta === "spoj" ? vlastito.kada.getTime() : doMs;
-
-    const imaRadnju = sveRadnje.some(
-      (r) => r.tankId === korijen && r.izvorniTankId === v.tankId &&
-             r.dogodenoAt.getTime() >= odMs && r.dogodenoAt.getTime() <= doMs
-    );
-    const imaMjerenje = sveMjerenje.some(
-      (m) => m.tankId === v.tankId &&
-             m.izmjerenoAt.getTime() >= odMs && m.izmjerenoAt.getTime() <= doMs
-    );
-    if (!imaRadnju && !imaMjerenje && doMs - odMs > PRAG_RUPE_MS) rucno++;
-
-    if (v.vrsta === "spoj") for (const s of v.sastavnice) prodji2(s.vino, korijen, v.kada.getTime());
-  };
-  for (const t of puni) {
-    const v = vinoUTanku(knjiga.cini, sorte, t.id, Date.now());
-    if (v.vrsta === "spoj") for (const s of v.sastavnice) prodji2(s.vino, t.id, v.kada.getTime());
-  }
-
+  // OBRNUTA TVRDNJA. Prije je ovdje stajalo "postoje rupe — i vide se", sto je
+  // betoniralo kvar: modul ih je stvarao jer nije citao arhivu.
   tvrdi(
-    (stanja.get("rupa") ?? 0) === rucno,
-    "broj rupa se slaze s neovisnim brojanjem",
-    `modul ${stanja.get("rupa") ?? 0}, rucno ${rucno}`
+    sada.rupeSArhivom.length === 0,
+    "nijedan cvor s arhivskim mjerenjima nije oznacen kao rupa",
+    sada.rupeSArhivom.slice(0, 8).join(", ")
+  );
+
+  // MUTACIJA: makni arhivski izvor — rupe se moraju vratiti.
+  const bez = prodjiSve(true);
+  tvrdi(
+    bez.rupeSArhivom.length > 0,
+    "uhvacena: povijest bez arhivskog izvora (rupe se vracaju)",
+    `bez arhive rupa s arhivskim mjerenjima: ${bez.rupeSArhivom.length}`
+  );
+
+  console.log(
+    `  (bez arhive: ${[...bez.stanja.entries()].map(([k, n]) => `${k} ${n}`).join(", ")})`
   );
 
   console.log("");
