@@ -9,6 +9,7 @@ import TankSwitcher from "./tank-switcher";
 import { Card } from "./kartica";
 import BerbaPrekidac from "./berba-prekidac";
 import PovijestPrekidac from "./povijest-prekidac";
+import KronologijaPrekidac from "./kronologija-prekidac";
 import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
 import TankRoleActions from "./tank-role-actions";
 import TankRoleSastavModal from "./tank-role-sastav-modal";
@@ -3251,8 +3252,10 @@ export default async function TankPregledPage({
       {/* --- KRONOLOGIJA: jedan slijed umjesto sest kartica (Radnje, Pretoci,
               Dolasci, Punjenja, Izlazi, Izvrseni zadaci). Mjerenja NISU ovdje
               — ostaju vlastita kartica, vidi kronologija.tsx. --- */}
-      <Card
-        title="Kronologija"
+      {/* KVACICA, ZADANO ISKLJUCENA. Kronologija zna biti 53 stavke i zatrpa
+          sve ispod sebe; stanje se pamti u localStorage, kao i kod kvacice
+          "Povijest vina" (vlasnik, 14.09.2026). */}
+      <KronologijaPrekidac
         broj={dogadaji.length}
         pod="sve što se s ovim vinom radilo"
       >
@@ -3260,7 +3263,7 @@ export default async function TankPregledPage({
         <div style={{ padding: 10 }}>
           <Kronologija dogadaji={dogadaji} />
         </div>
-      </Card>
+      </KronologijaPrekidac>
 
 
       <Card
