@@ -15,6 +15,7 @@ import { prisma } from "@/lib/prisma";
 import { uValovima } from "@/lib/paralelno";
 import { kvasciPoPartiji, type KvasacPartije } from "@/lib/kvasac-partija";
 import { sastavSvihTankova } from "@/lib/berba-model";
+import { citajUlazneCine, type KnjigaIdentiteta } from "@/lib/identitet-vina";
 import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
 import { zadnjaOcitanja, type ZadnjeOcitanje } from "@/lib/zadnje-ocitanje";
 
@@ -215,6 +216,11 @@ export async function dohvatiPodrum() {
       dolasci: [] as ZadnjiDolazak[],
       berbe: [] as BerbaUTanku[],
       kvasciPartija: new Map<string, KvasacPartije[]>(),
+      identitet: {
+        cini: new Map(),
+        odljevi: new Map(),
+      } as KnjigaIdentiteta,
+      sorteBerbi: new Map<string, string>(),
       brojUpita,
       trajanjeMs: Date.now() - pocelo,
     };
@@ -471,6 +477,34 @@ export async function dohvatiPodrum() {
 
   if (bezKvasca.length > 0) brojUpita += 3;
 
+  // --- KRUG 5: identitet vina (kucice) ---
+  //
+  // TRI UPITA ZA CIJELI PODRUM — pravilo iz zaglavlja ostaje netaknuto.
+  //
+  // Prva izvedba je ovdje zvala `vinoUTrenucima` po tanku. Ta funkcija radi
+  // DVA upita po pozivu, pa je izvjestaj platio ~88 upita i 481 ms — i time
+  // ponistio raniji rad na brzini bas na stranici koju vlasnik tiska i nosi u
+  // podrum.
+  //
+  // Knjiga cijelog podruma ima 660 redaka i povuce se jednim upitom, pa
+  // `vinoUTrenucimaVise` (lib/berba-model.ts) daje isto u dva upita i 47 ms.
+  // Dokazano identicno na 484 trenutka: `npm run test:trenuci:vise`.
+  //
+  // Kartica crta samo PRVU RAZINU (`model.ts`, `dubina: 1`); dubina se placa
+  // tek na stranici tanka, kad je netko zatrazi.
+  const identitet = await citajUlazneCine(prisma, ids);
+  // Knjiga kretanja + (kretanja, berbe) iz `vinoUTrenucimaVise`.
+  brojUpita += 3;
+
+  // Imena sorti za listove stabla. Cijela tablica, jer kucica prve razine zna
+  // pokazivati berbu koje u tanku vise nema — a tablica je mala.
+  const sorteBerbi = new Map(
+    (await prisma.berba.findMany({ select: { id: true, nazivSorte: true } })).map(
+      (b) => [b.id, b.nazivSorte] as const
+    )
+  );
+  brojUpita++;
+
   return {
     puni,
     prazni,
@@ -483,6 +517,8 @@ export async function dohvatiPodrum() {
     dolasci,
     berbe,
     kvasciPartija,
+    identitet,
+    sorteBerbi,
     brojUpita,
     trajanjeMs: Date.now() - pocelo,
   };

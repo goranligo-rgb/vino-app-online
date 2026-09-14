@@ -20,6 +20,8 @@ import {
   type Sastavnica,
   type Stavka,
   type StavkaDodatka,
+  type Kucica,
+  type StavkaOdljeva,
 } from "./model";
 import { GrafSO2, GrafSecerITemperature } from "./grafovi";
 
@@ -151,6 +153,66 @@ function PopisDodataka({ dodaci }: { dodaci: StavkaDodatka[] }) {
                 <span className="kvasac-tank">T{d.izTanka}</span>
               ) : null}
             </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * ODAKLE JE VINO DOSLO — prva razina kucica.
+ *
+ * GLAVNI BROJ SU LITRE KOJE SU USLE. Otpusteno i kalo stoje sitno, i samo kad
+ * kala ima: enologa zanima sto je u tanku, ne sto je usput iscurilo. Ali kad
+ * kalo postoji, mora se vidjeti — 2,4 % je normalno, 10 % je znak da s
+ * pretokom nesto nije u redu i ne smije se tiho progutati.
+ *
+ * ZBROJ KUCICA NIJE KOLICINA U TANKU. Razliku imenuje redak odljeva ispod;
+ * "neobjašnjeno" je jedini koji izgleda kao kvar, jer to i jest.
+ */
+function Kucice({
+  kucice,
+  odljev,
+}: {
+  kucice: Kucica[];
+  odljev: StavkaOdljeva[];
+}) {
+  if (kucice.length === 0 && odljev.length === 0) return null;
+
+  return (
+    <section className="kucice">
+      <div className="stupac-naslov">Odakle je vino</div>
+      {kucice.length === 0 ? (
+        <div className="prazno">—</div>
+      ) : (
+        <div className="kucice-popis">
+          {kucice.map((c, i) => (
+            <div
+              key={i}
+              className={`kucica${c.progutano ? " kucica-progutana" : ""}${
+                c.kvar ? " kucica-kvar" : ""
+              }`}
+            >
+              <span className="kucica-naziv">{c.naziv}</span>
+              <span className="kucica-litre">{broj(c.litre, 0)} L</span>
+              <span className="kucica-udio">{broj(c.postotak, 0)} %</span>
+              {c.kalo > 0.5 && (
+                <span className="kucica-kalo">
+                  otp. {broj(c.otpusteno, 0)} · kalo {broj(c.kalo, 0)} L (
+                  {broj((c.kalo / c.otpusteno) * 100, 1)} %)
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {odljev.length > 0 && (
+        <div className="odljev">
+          {odljev.map((o, i) => (
+            <span key={i} className={o.kvar ? "odljev-kvar" : "odljev-stavka"}>
+              {o.naziv} {broj(o.litre, 0)} L
+            </span>
           ))}
         </div>
       )}
@@ -447,6 +509,8 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
         </div>
         <PopisStavki naslov="Zadnje radnje" stavke={k.zadnjeRadnje} />
       </div>
+
+      <Kucice kucice={k.kucice} odljev={k.odljev} />
 
       <PopisDodataka dodaci={k.dodaci} />
 
@@ -748,6 +812,34 @@ const CSS = `
 .dodatak {
   font-size: 10px; line-height: 1.25; margin-bottom: .4mm;
   break-inside: avoid; page-break-inside: avoid;
+}
+
+/* Kucice: odakle je vino doslo, prva razina. Dva stupca, jer ih je najvise pet
+   (mjereno 14.09.2026: prosjek 1,6 po tanku). Litre koje su USLE su glavni
+   broj; otpusteno i kalo stoje sitno i samo kad kala ima. */
+.kucice { border-top: 1px solid #e4e0d6; padding-top: 1mm; }
+.kucice-popis { column-count: 2; column-gap: 3mm; }
+.kucica {
+  font-size: 10px; line-height: 1.3; margin-bottom: .4mm;
+  break-inside: avoid; page-break-inside: avoid;
+}
+.kucica-naziv { font-weight: 600; }
+.kucica-litre { margin-left: 1.4mm; font-variant-numeric: tabular-nums; }
+.kucica-udio { margin-left: 1.2mm; color: #52514e; font-variant-numeric: tabular-nums; }
+/* Otpusteno i kalo NISU ravnopravni s ulazom — sitno, prigusenom bojom. */
+.kucica-kalo { margin-left: 1.4mm; font-size: 8px; color: #8a8a85; }
+/* Progutano dolijevanje: vidi se, ali ne trazi paznju. */
+.kucica-progutana .kucica-naziv { font-weight: 400; color: #6f6e6a; }
+/* Prekinut lanac je KVAR i mora se vidjeti kao kvar. */
+.kucica-kvar .kucica-naziv { color: #7f1d1d; }
+
+.odljev { margin-top: .8mm; font-size: 9px; color: #52514e; }
+.odljev-stavka { margin-right: 2mm; }
+/* "Neobjašnjeno" ne smije izgledati kao uredan redak: uokvireno i crveno,
+   jer je to rupa u knjizi, a ne stavka. */
+.odljev-kvar {
+  margin-right: 2mm; color: #7f1d1d; font-weight: 700;
+  border: 1px solid #7f1d1d; padding: 0 .8mm;
 }
 
 .biljeska { margin-top: auto; }

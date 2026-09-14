@@ -35,6 +35,15 @@ import {
   type ZapisPodrijetla,
   SORTA_NEPOZNATA,
 } from "@/lib/berba-model";
+import {
+  citajUlazneCine,
+  vinoUTanku,
+  skrati,
+  imenujOdljev,
+  DUBINA_KLIKA,
+  type VinoCvor,
+  type Sastavnica as SastavnicaStabla,
+} from "@/lib/identitet-vina";
 import { opisGubitka } from "@/lib/pretok-gubitak";
 import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
 // `berbaKrozLanac` se od 11.09.2026. vise ne zove s ove stranice — berbu daje
@@ -1327,6 +1336,55 @@ export default async function TankPregledPage({
   const podrijetloKnjige = await podrijetloTanka(prisma, id);
   const sastavKnjige = sastavIzPodrijetla(podrijetloKnjige);
   const nepoznatoUKnjizi = nepoznatiDio(sastavKnjige);
+
+  // ODAKLE JE VINO — stablo kucica, do berbe.
+  //
+  // SVIM TANKOVIMA, ne samo ovome: stablo se spusta u posude iz kojih je vino
+  // doslo, pa su mu potrebni i NJIHOVI ulazni cinovi. Bez toga lanac stane na
+  // prvoj razini.
+  //
+  // CIJENA. `citajUlazneCine` cita knjigu jednim upitom, ali volumen prije
+  // svakog ulaza uzima iz `vinoUTrenucima` — pozivom po tanku, u valovima po
+  // cetiri. Zasto nema vlastiti SQL pise u zaglavlju lib/identitet-vina.ts:
+  // isti je racun vec jednom prepisan i tiho dao krive sate.
+  //
+  // Ide TEK OVDJE, u nizu, a ne usporedno s necim: vrsak istovremenih veza
+  // vec je 6, a `citajUlazneCine` i sam trosi cetiri.
+  const sviTankovi = await prisma.tank.findMany({
+    select: { id: true, broj: true },
+  });
+  const brojeviTankova = new Map(sviTankovi.map((t) => [t.id, t.broj]));
+  const knjigaIdentiteta = await citajUlazneCine(
+    prisma,
+    sviTankovi.map((t) => t.id)
+  );
+  const sorteBerbi = new Map(
+    (await prisma.berba.findMany({ select: { id: true, nazivSorte: true } })).map(
+      (b) => [b.id, b.nazivSorte] as const
+    )
+  );
+
+  // DUBOKO, pa rez na `DUBINA_KLIKA` razina; ispod toga prikaz kaze "jos N".
+  const stabloVina = skrati(
+    vinoUTanku(
+      knjigaIdentiteta.cini,
+      sorteBerbi,
+      id,
+      Date.now(),
+      {},
+      [],
+      podrijetloKnjige.ukupnoL
+    ),
+    DUBINA_KLIKA
+  );
+  const kucicePrveRazine =
+    stabloVina.vino.vrsta === "spoj" ? stabloVina.vino.sastavnice : [];
+  const odljevVina = imenujOdljev(
+    knjigaIdentiteta.odljevi.get(id) ?? [],
+    stabloVina.vino.vrsta === "spoj" ? stabloVina.vino.kada.getTime() : 0,
+    kucicePrveRazine.reduce((z, s) => z + s.litre, 0) || stabloVina.vino.litre,
+    podrijetloKnjige.ukupnoL
+  );
 
   // OZNAKA U ZAGLAVLJU dolazi iz knjige, ne iz upisanog sastava.
   const poznateSorte = sastavKnjige.filter((x) => !x.nepoznata);
@@ -2654,6 +2712,63 @@ export default async function TankPregledPage({
               </div>
             </div>
           ) : null}
+        </div>
+      </Card>
+
+      {/* ODAKLE JE VINO — kucica po SVAKOM izvoru, do berbe.
+          Odgovara na drugo pitanje od kartice "Sastav": ne koje su sorte u
+          tanku, nego iz kojih je posuda vino doteklo i sto je s njim usput
+          bilo. Klik otvara razinu po razinu. */}
+      <Card
+        title="Odakle je vino"
+        broj={kucicePrveRazine.length}
+        pod="kućica"
+        sklopljena
+      >
+        <div style={{ display: "grid", gap: 10 }}>
+          <div style={mutedTextStyle}>
+            Kućica po svakom izvoru, do berbe. Litre su ono što je UŠLO u
+            posudu; kalo stoji uz njih kad ga ima.
+          </div>
+
+          {kucicePrveRazine.length === 0 ? (
+            <div style={mutedTextStyle}>
+              Knjiga za ovaj tank ne zna nijedan ulaz.
+            </div>
+          ) : (
+            <div style={{ display: "grid" }}>
+              {kucicePrveRazine.map((s, i) => (
+                <SastavnicaVina
+                  key={i}
+                  s={s}
+                  brojevi={brojeviTankova}
+                  roditeljTankId={id}
+                />
+              ))}
+            </div>
+          )}
+
+          {stabloVina.jos > 0 && (
+            <div style={josRazinaStyle}>još {stabloVina.jos} razina</div>
+          )}
+
+          {odljevVina.length > 0 && (
+            <div style={odljevTrakaStyle}>
+              <span style={izKnjigeNaslovStyle}>Otišlo od nastanka</span>
+              {odljevVina.map((o, i) => {
+                // KVAR je samo "neobjašnjeno" — ono sto ni jedno ime ne
+                // pokriva. Ostalo su uredne stavke: prodano, odliveno, kalo,
+                // ispravak stanja.
+                const kvar = o.vrsta === "neobjasnjeno";
+                return (
+                  <span key={i} style={kvar ? odljevKvarStyle : odljevStavkaStyle}>
+                    {kvar ? "⚠ " : ""}
+                    {IME_ODLJEVA[o.vrsta] ?? o.vrsta} {formatBroj(o.litre, 0)} L
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
       </Card>
 
@@ -4144,6 +4259,203 @@ const sectionToolbarStyle: React.CSSProperties = {
   gap: 8,
   alignItems: "center",
   flexWrap: "wrap",
+};
+
+/** Imena odljeva na ekranu. "neobjasnjeno" je jedino koje je kvar. */
+const IME_ODLJEVA: Record<string, string> = {
+  izdano: "izdano",
+  odliveno: "odliveno dalje",
+  kalo: "kalo",
+  ispravak: "ispravak stanja",
+  neobjasnjeno: "neobjašnjeno",
+};
+
+/** 1 kućica, 2–4 kućice, 5 i vise kućica. Stablo ih nema preko pet. */
+function rijecKucica(n: number): string {
+  return n === 1 ? "kućica" : n < 5 ? "kućice" : "kućica";
+}
+
+/**
+ * Ime cvora: sorta za berbu, "Tank N" za posudu — a za posudu SAMU SEBE
+ * "prethodno vino".
+ *
+ * Kucica s brojem vlastitog tanka nije izvor nego ono sto je u posudi vec bilo
+ * kad je danasnje vino nastalo; ispisana kao "Tank 43" na stranici tanka 43
+ * cita se kao da je vino doteklo samo iz sebe.
+ */
+function imeCvoraVina(
+  v: VinoCvor,
+  brojevi: Map<string, number>,
+  roditeljTankId: string
+): string {
+  if (v.vrsta === "partija") return v.nazivSorte;
+  if (v.tankId === roditeljTankId) return "prethodno vino";
+  const broj = brojevi.get(v.tankId);
+  return broj != null ? `Tank ${broj}` : "nepoznata posuda";
+}
+
+/**
+ * Jedna kucica u stablu, s razinama ispod sebe.
+ *
+ * BEZ JS-a: ugnijezdjeni `<details>`, isti uzorak kao sastavnice blenda nize.
+ * Poslužitelj iscrta cijelo stablo, preglednik otvara razinu po razinu.
+ *
+ * TRI KRAJA LANCA se MORAJU razlikovati (vlasnik, 14.09.2026):
+ *   "neotvoreno" — ima jos, klik vodi na tu posudu;
+ *   "bez_knjige" — zateceno vino, uredan kraj;
+ *   "prekinuto"  — lanac bi trebao ici dalje a ne moze. To je KVAR i tako
+ *                  izgleda, jer bi uredan redak zamaskirao rupu u knjizi.
+ *
+ * Progutano dolijevanje (prag ga nije priznao kao novo vino) prigusuje se i NE
+ * otvara se — pravilo 3.
+ */
+function SastavnicaVina({
+  s,
+  brojevi,
+  roditeljTankId,
+}: {
+  s: SastavnicaStabla;
+  brojevi: Map<string, number>;
+  roditeljTankId: string;
+}) {
+  const v = s.vino;
+  const naziv = imeCvoraVina(v, brojevi, roditeljTankId);
+  const prekinuto = v.vrsta === "posuda" && v.razlog === "prekinuto";
+
+  const zaglavlje = (
+    <div style={{ display: "grid", gap: 2 }}>
+      <div
+        style={{
+          ...summaryMainTextStyle,
+          ...(s.progutano ? { color: "#6b7280", fontWeight: 400 } : null),
+          ...(prekinuto ? { color: "#7f1d1d", fontWeight: 700 } : null),
+        }}
+      >
+        {prekinuto ? "⚠ " : ""}
+        {naziv}
+      </div>
+      <div style={summarySubTextStyle}>
+        {formatBroj(s.litre, 0)} L · {formatBroj(s.udio * 100, 0)} %
+        {s.progutano ? " · dolijevanje, nije novo vino" : ""}
+      </div>
+      {/* OTPUSTENO NIJE RAVNOPRAVNO S ULAZOM — sitno, i samo kad kala ima. */}
+      {s.kalo > 0.5 && (
+        <div style={kaloTekstStyle}>
+          otpušteno {formatBroj(s.otpusteno, 0)} L · kalo{" "}
+          {formatBroj(s.kalo, 0)} L (
+          {formatBroj((s.kalo / s.otpusteno) * 100, 1)} %)
+        </div>
+      )}
+    </div>
+  );
+
+  const desno =
+    v.vrsta === "partija" ? (
+      <div style={summaryRightStyle}>berba</div>
+    ) : v.vrsta === "posuda" ? (
+      v.razlog === "prekinuto" ? (
+        <div style={{ ...summaryRightStyle, fontWeight: 700 }}>
+          lanac prekinut
+        </div>
+      ) : v.razlog === "bez_knjige" ? (
+        <div style={summarySubTextStyle}>knjiga dalje ne zna</div>
+      ) : (
+        <Link href={`/tankovi/${v.tankId}`} style={{ color: "#1f6f8b" }}>
+          otvori posudu
+        </Link>
+      )
+    ) : v.sastavnice.length === 0 ? (
+      // ODREZANA GRANA NIJE KRAJ LANCA. Rez na `DUBINA_KLIKA` ostavlja spoj
+      // bez djece; bez ove oznake izgledao bi kao uredan zavrsetak, a ispod
+      // njega ima jos razina. Klik ih otvara na stranici te posude.
+      <Link href={`/tankovi/${v.tankId}`} style={{ color: "#1f6f8b" }}>
+        još razina — otvori posudu
+      </Link>
+    ) : null;
+
+  // Razmotano dalje: otvorivi `<details>`. Progutano se ne otvara.
+  if (v.vrsta === "spoj" && v.sastavnice.length > 0 && !s.progutano) {
+    return (
+      <details style={detailsStyle}>
+        <summary style={summaryStyle}>
+          {zaglavlje}
+          <div style={summaryRightStyle}>
+            {v.sastavnice.length} {rijecKucica(v.sastavnice.length)}
+          </div>
+        </summary>
+        <div style={detailsContentStyle}>
+          {v.sastavnice.map((d, i) => (
+            <SastavnicaVina
+              key={i}
+              s={d}
+              brojevi={brojevi}
+              roditeljTankId={v.tankId}
+            />
+          ))}
+        </div>
+      </details>
+    );
+  }
+
+  return (
+    <div style={prekinuto ? kucicaPrekinutaStyle : kucicaRedakStyle}>
+      {zaglavlje}
+      {desno}
+    </div>
+  );
+}
+
+const kucicaRedakStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 8,
+  padding: "8px 10px",
+  borderBottom: "1px solid #ececec",
+};
+
+/* Prekinut lanac nije uredan kraj i ne smije tako izgledati. */
+const kucicaPrekinutaStyle: React.CSSProperties = {
+  ...kucicaRedakStyle,
+  border: "1px solid #fecaca",
+  background: "#fef2f2",
+  color: "#7f1d1d",
+};
+
+const kaloTekstStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#8a8a85",
+};
+
+const josRazinaStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#6b7280",
+  fontStyle: "italic",
+  padding: "0 10px",
+};
+
+const odljevTrakaStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  flexWrap: "wrap",
+  gap: 8,
+  padding: "8px 10px",
+  border: "1px solid #ececec",
+  background: "#fcfcfc",
+};
+
+const odljevStavkaStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#52514e",
+};
+
+/* "Neobjašnjeno" je rupa u knjizi, ne stavka — i tako mora izgledati. */
+const odljevKvarStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#7f1d1d",
+  fontWeight: 700,
+  border: "1px solid #7f1d1d",
+  padding: "1px 5px",
 };
 
 const infoStripStyle: React.CSSProperties = {

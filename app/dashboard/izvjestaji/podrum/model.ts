@@ -18,6 +18,7 @@ import { jePravaSorta } from "@/lib/sorta-naziv";
 import { usporediSaSastavom } from "@/lib/ime-vina";
 import { stvarnaZadana, uBroj } from "@/lib/temperatura";
 import { popisKvasacaSDopunom, type StavkaKvasca } from "@/lib/kvasci";
+import { vinoUTanku, imenujOdljev } from "@/lib/identitet-vina";
 
 const DAN_MS = 24 * 3600 * 1000;
 
@@ -95,6 +96,35 @@ export type Stavka = {
   naslov: string;
   detalj: string | null;
 };
+
+/**
+ * Jedna kucica: odakle je vino doslo i koliko ga je USLO.
+ *
+ * `otpusteno` i `kalo` odgovaraju na drugo pitanje — koliko je iz izvora
+ * izaslo. Enologa zanima sto je u tanku, pa je na kartici `litre` glavni broj,
+ * a otpusteno stoji sitno uz kalo i samo kad kala ima.
+ */
+export type Kucica = {
+  /** "T12" za posudu, naziv sorte za berbu. */
+  naziv: string;
+  /** Litre koje su USLE u ovaj tank. */
+  litre: number;
+  otpusteno: number;
+  kalo: number;
+  postotak: number;
+  /** Dolijevanje koje prag nije priznao kao novo vino — prikaz ga prigusuje. */
+  progutano: boolean;
+  /** Kucica je kraj lanca jer knjiga dalje ne zna, ili jer je lanac PREKINUT. */
+  kvar: boolean;
+};
+
+/**
+ * Imenovana razlika izmedju zbroja kucica i kolicine u tanku.
+ *
+ * `kvar` je istinit samo za "neobjašnjeno" — ono sto ni jedno ime ne pokriva.
+ * Prikaz ga MORA pokazati kao kvar; uredan redak bi zamaskirao rupu u knjizi.
+ */
+export type StavkaOdljeva = { naziv: string; litre: number; kvar: boolean };
 
 /**
  * Jedno dodavanje preparata u vino, za popis na kartici.
@@ -202,6 +232,19 @@ export type Kartica = {
    */
   sastavSvi: Sastavnica[];
 
+  /**
+   * ODAKLE JE VINO DOSLO — prva razina kucica, bez rekurzije.
+   *
+   * Izvjestaj podruma gradi PLITKO (`dubina: 1`): puna dubina za 38 kartica
+   * kosta jos ~70 upita, a nitko je s papira ne moze kliknuti. Dubina se placa
+   * na stranici tanka, kad je netko zatrazi.
+   */
+  kucice: Kucica[];
+  /** Razlika izmedju zbroja kucica i kolicine u tanku, po imenima. */
+  odljev: StavkaOdljeva[];
+  /** Kad je danasnje vino nastalo; `null` kad knjiga ne zna. */
+  rodjenje: Date | null;
+
   grafSecer: TockaSecera[];
   grafTemp: TockaTemp[];
   grafSO2: TjedanSO2[];
@@ -238,6 +281,38 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
   const kvasciPartijaPo = p.kvasciPartija;
 
   const odGrafa = sada.getTime() - DANA_GRAF * DAN_MS;
+
+  // Brojevi SVIH tankova, ne samo punih: kucica zna pokazivati na posudu koja
+  // je danas prazna — vino je iz nje otislo, ali je odande doslo.
+  const brojTanka = new Map<string, number>(
+    [...p.puni, ...p.prazni].map((t) => [t.id, t.broj])
+  );
+
+  /**
+   * "T12" za posudu, naziv sorte za berbu — a za posudu SAMU SEBE "prethodno
+   * vino".
+   *
+   * Kucica s brojem vlastitog tanka nije izvor nego ono sto je u posudi vec
+   * bilo kad je danasnje vino nastalo. Ispisana kao "T43" na kartici tanka 43
+   * cita se kao da je vino doteklo samo iz sebe.
+   */
+  const imeIzvora = (
+    v: { vrsta: string; tankId?: string; nazivSorte?: string },
+    tankId: string
+  ) =>
+    v.vrsta === "partija"
+      ? (v.nazivSorte ?? "Nepoznato podrijetlo")
+      : v.tankId === tankId
+        ? "prethodno vino"
+        : `T${v.tankId ? (brojTanka.get(v.tankId) ?? "?") : "?"}`;
+
+  const IME_ODLJEVA: Record<string, string> = {
+    izdano: "izdano",
+    odliveno: "odliveno dalje",
+    kalo: "kalo",
+    ispravak: "ispravak stanja",
+    neobjasnjeno: "neobjašnjeno",
+  };
 
   return p.puni.map((t): Kartica => {
     const mj = mjerenjaPo.get(t.id) ?? []; // vec sortirana izmjerenoAt DESC
@@ -445,6 +520,50 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
       if (sastav.length === 0) sastav = null;
     }
 
+    // --- Kucice: odakle je vino doslo, prva razina ---
+    //
+    // Cisti racun nad vec procitanom knjigom (`podaci.ts`, KRUG 5) — nijedan
+    // upit, kao i sve ostalo u ovoj datoteci.
+    //
+    // ZBROJ KUCICA NIJE KOLICINA U TANKU i ne smije se tako citati: kucica nosi
+    // litre koje su USLE, a tank je otad znao biti prodan, odliven ili
+    // ispravljen. Tu razliku imenuje `odljev`; ono sto ni jedno ime ne pokrije
+    // zove se "neobjašnjeno" i prikaz ga pokazuje kao kvar.
+    const vino = vinoUTanku(
+      p.identitet.cini,
+      p.sorteBerbi,
+      t.id,
+      sada.getTime(),
+      { dubina: 1 },
+      [],
+      kolicina
+    );
+    const sastavnice = vino.vrsta === "spoj" ? vino.sastavnice : [];
+    const zbrojKucica =
+      sastavnice.reduce((z, s) => z + s.litre, 0) || vino.litre;
+
+    const kucice: Kucica[] = sastavnice.map((s) => ({
+      naziv: imeIzvora(s.vino, t.id),
+      litre: s.litre,
+      otpusteno: s.otpusteno,
+      kalo: s.kalo,
+      postotak: s.udio * 100,
+      progutano: s.progutano,
+      // Prekinut lanac je kvar; "knjiga dalje ne zna" je uredan kraj.
+      kvar: s.vino.vrsta === "posuda" && s.vino.razlog === "prekinuto",
+    }));
+
+    const odljev: StavkaOdljeva[] = imenujOdljev(
+      p.identitet.odljevi.get(t.id) ?? [],
+      vino.vrsta === "spoj" ? vino.kada.getTime() : 0,
+      zbrojKucica,
+      kolicina
+    ).map((s) => ({
+      naziv: IME_ODLJEVA[s.vrsta] ?? s.vrsta,
+      litre: s.litre,
+      kvar: s.vrsta === "neobjasnjeno",
+    }));
+
     // --- Graf 1a: zaostali secer g/L kroz 10 dana ---
     const grafSecer: TockaSecera[] = mj
       .filter(
@@ -572,6 +691,10 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
         postotak: Number(u.postotak),
         izvor: null,
       })),
+
+      kucice,
+      odljev,
+      rodjenje: vino.vrsta === "spoj" ? vino.kada : null,
 
       grafSecer,
       grafTemp,
