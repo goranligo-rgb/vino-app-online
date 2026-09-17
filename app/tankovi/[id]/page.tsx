@@ -1389,6 +1389,20 @@ export default async function TankPregledPage({
   const kucicePrveRazine =
     stabloVina.vino.vrsta === "spoj" ? stabloVina.vino.sastavnice : [];
 
+  // KUCICA NEMA IME VINA, I TO JE MJERENO STANJE, NE PROPUST.
+  //
+  // Ispis je "Tank 12", ne "Cuvee bijeli (T12)". Jedini izvor imena koji je na
+  // ovoj stranici vec ucitan je `BlendIzvor.nazivVina`, ali se s ovim stablom
+  // ne da spojiti: od 41 retka samo 7 uopce ima `izvorTankId`, a presjek tih
+  // sedam s `tankId` kucica prve razine je NULA na svih 17 tankova koji blend
+  // imaju (mjereno 17.09.2026). `BlendIzvor` su zamrznuti pokazivaci iz
+  // ranijeg pretoka i pokazuju na drugu generaciju vina nego knjiga.
+  //
+  // Ime se izvodi tocno preko `izracunajImeVina(granica, zapisi, doTrenutka)`
+  // u lib/ime-vina.ts, koji za to i postoji ("kako se zvalo vino koje je ODANDE
+  // doslo") — ali trazi granicu izvornog tanka na `usloAt`, dakle dodatne
+  // upite. Ceka fazu 5a. Do tada je prazno bolje od krivog.
+
   // MJERENJA SVIH POSUDA U STABLU — jedan upit, i jedini koji povijest kucica
   // uopce kosta.
   //
@@ -2055,78 +2069,19 @@ export default async function TankPregledPage({
     });
   }
 
-  // NASLIJEDJENE RADNJE — ono sto je vino dobilo PRIJE nego je doslo ovamo.
+  // NASLIJEDJENIH RADNJI OVDJE VISE NEMA — i to je namjerno.
   //
-  // Samo redci ciji je `izvorniTankId` DRUGI tank: sto se radilo kraj ovog
-  // tanka vec stoji gore, kroz `Radnja`, i ondje se dedupira po `zadatakId`.
-  // Ovime kronologija prvi put pokazuje da je vino u tanku 5 fermentiralo u
-  // tanku 11 — dosad se to nije vidjelo nigdje.
-  for (const v of vinoRadnje) {
-    if (v.izvorniTankId === id) continue;
-
-    // "Naslijeđeno iz tanka 11 · Punjenje tanka", a ne "... — tanka 11" na
-    // kraju: `opis` cesto vec zavrsava rijecju "tanka" ("Punjenje tanka"), pa
-    // je dodatak na kraj davao "punjenje tanka — tanka 11". Izvor ide naprijed,
-    // gdje i pripada — prvo se cita ODAKLE, pa STO.
-    const izvor =
-      v.izvorniBrojTanka !== null
-        ? `iz tanka ${v.izvorniBrojTanka}`
-        : "iz drugog tanka";
-
-    const postotak = Math.round(v.udio * 100);
-
-    dogadaji.push({
-      id: `vino-${v.id}`,
-      // VLASTITA VRSTA, ne "RADNJA". Dobiva svoj gumb filtra i svoju boju, pa
-      // se ne cita kao nesto sto je izvedeno u OVOM tanku. Prije je stajala kao
-      // obicna radnja pod naslovom "Punjenje tanka" — na tanku 10 je to
-      // izgledalo kao da je punjen tank 10, a rijec je o punjenju tanka 11
-      // cije je vino kasnije doslo ovamo.
-      vrsta: "NASLIJEDENO",
-      vrijeme: v.dogodenoAt.toISOString(),
-      naslov: `Naslijeđeno ${izvor} · ${v.opis || String(v.vrsta)}`,
-      podnaslov: [
-        v.preparatNaziv,
-        v.kolicina != null
-          ? `${formatBroj(v.kolicina)} ${v.jedinicaNaziv ?? ""}`.trim()
-          : null,
-        "nije izvedeno u ovom tanku",
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      tko: v.korisnikIme ? `Upisao: ${v.korisnikIme}` : "",
-      // POSTOTAK JE UDIO VOLUMENA IZ TOG IZVORA, ne udio radnje. Bez oznake se
-      // cita kao "koliki dio ove radnje", pa dvije radnje iz istog tanka s
-      // istim brojem izgledaju kao greska u zbrajanju.
-      iznos:
-        v.izvorniBrojTanka !== null
-          ? `iz T${v.izvorniBrojTanka} · ${postotak} % volumena`
-          : `${postotak} % volumena`,
-      detalji: [
-        { label: "Vrsta", value: String(v.vrsta) },
-        { label: "Preparat", value: v.preparatNaziv || "—" },
-        {
-          label: "Izvedeno u tanku",
-          value:
-            v.izvorniBrojTanka !== null ? String(v.izvorniBrojTanka) : "—",
-        },
-        {
-          label: "Udio volumena iz tog tanka",
-          value: `${postotak} % današnje količine u ovom tanku`,
-        },
-        {
-          // Objasnjenje stoji UZ SVAKI redak, ne jednom iznad popisa: retci su
-          // kronoloski izmijesani s ostalima, pa zajednicka napomena ne bi bila
-          // uz onaj koji se cita.
-          label: "Zašto isti postotak na više redaka",
-          value:
-            "postotak se veže uz IZVORNI TANK, ne uz pojedinu radnju — sve što je " +
-            "došlo iz istog tanka nosi isti udio",
-        },
-        { label: "Napomena", value: v.napomena || "—" },
-      ],
-    });
-  }
+  // Do 17.09.2026. je svaki redak `VinoRadnja` ciji je `izvorniTankId` drugi
+  // tank ulazio u kronologiju kao vlastita vrsta "NASLIJEDENO". Tvrdnja je
+  // bila tocna — vino u tanku 5 doista je fermentiralo u tanku 11 — ali je
+  // kolicinom pojela ekran: na T42 je 120 od 127 redaka bilo te vrste, iz 27
+  // razlicitih posuda. Kronologija odgovara na pitanje "sto se dogadjalo OVDJE,
+  // redom"; "od cega je ovo vino slozeno" je drugo pitanje i ima svoju karticu
+  // (`Odakle je vino`), koja je od iste izmjene zadano otvorena.
+  //
+  // REDCI SE NE BRISU I UPIT SE NE MIJENJA. `vinoRadnje` se i dalje cita u
+  // cijelosti i dalje hrani kvasce, povijest kucica i izvjestaj podruma — vidi
+  // biljesku uz sam upit. Mijenja se samo tko ga JOS cita.
 
   // Radnja koja pripada zadatku vec je prikazana kao zadatak — inace bi svaki
   // izvrsen zadatak stajao dvaput. Prikazuju se samo samostalne radnje.
@@ -2833,13 +2788,14 @@ export default async function TankPregledPage({
       {/* ODAKLE JE VINO — kucica po SVAKOM izvoru, do berbe.
           Odgovara na drugo pitanje od kartice "Sastav": ne koje su sorte u
           tanku, nego iz kojih je posuda vino doteklo i sto je s njim usput
-          bilo. Klik otvara razinu po razinu. */}
-      <Card
-        title="Odakle je vino"
-        broj={kucicePrveRazine.length}
-        pod="kućica"
-        sklopljena
-      >
+          bilo. Klik otvara razinu po razinu.
+
+          ZADANO OTVORENA od 17.09.2026. Dotad je stajala sklopljena, a
+          kronologija je istu stvar pokazivala retkom po redkom (vrsta
+          "NASLIJEDENO", 120 od 127 redaka na T42). Kad su ti redci maknuti,
+          ovo je jedino mjesto koje odgovara na "od cega je ovo vino" — pa se
+          ne smije prvo morati otvoriti. */}
+      <Card title="Odakle je vino" broj={kucicePrveRazine.length} pod="kućica">
         <div style={{ display: "grid", gap: 10 }}>
           <div style={mutedTextStyle}>
             Kućica po svakom izvoru, do berbe. Litre su ono što je UŠLO u
@@ -2858,6 +2814,7 @@ export default async function TankPregledPage({
                   s={s}
                   brojevi={brojeviTankova}
                   roditeljTankId={id}
+                  from={from}
                   radnje={vinoRadnje}
                   mjerenja={mjerenjaStabla}
                   arhivskeRadnje={arhivskeRadnjeStabla}
@@ -4434,6 +4391,7 @@ function SastavnicaVina({
   s,
   brojevi,
   roditeljTankId,
+  from,
   radnje,
   mjerenja,
   arhivskeRadnje,
@@ -4442,6 +4400,8 @@ function SastavnicaVina({
   s: SastavnicaStabla;
   brojevi: Map<string, number>;
   roditeljTankId: string;
+  /** Za `?from=` na poveznici, isto kao u kartici porijekla nize. */
+  from?: string;
   /** `VinoRadnja` DANASNJEG tanka, sve; izbor po posudi radi `povijestVina`. */
   radnje: RedakRadnje[];
   mjerenja: RedakMjerenjaPosude[];
@@ -4452,6 +4412,15 @@ function SastavnicaVina({
   const v = s.vino;
   const naziv = imeCvoraVina(v, brojevi, roditeljTankId);
   const prekinuto = v.vrsta === "posuda" && v.razlog === "prekinuto";
+
+  // POVEZNICA NA POSUDU, uz svaku kucicu koja posudu i ima.
+  //
+  // Vlastiti tank se izuzima — poveznica na stranicu na kojoj vec jesi nije
+  // poveznica. Berba nema tank pa nema ni kamo voditi.
+  const hrefPosude =
+    v.vrsta !== "partija" && v.tankId !== roditeljTankId
+      ? `/tankovi/${v.tankId}${from ? `?from=${encodeURIComponent(from)}` : ""}`
+      : null;
 
   const zaglavlje = (
     <div style={{ display: "grid", gap: 2 }}>
@@ -4490,18 +4459,20 @@ function SastavnicaVina({
         </div>
       ) : v.razlog === "bez_knjige" ? (
         <div style={summarySubTextStyle}>knjiga dalje ne zna</div>
-      ) : (
-        <Link href={`/tankovi/${v.tankId}`} style={{ color: "#1f6f8b" }}>
+      ) : hrefPosude ? (
+        <Link href={hrefPosude} style={{ color: "#1f6f8b" }}>
           otvori posudu
         </Link>
-      )
+      ) : null
     ) : v.sastavnice.length === 0 ? (
       // ODREZANA GRANA NIJE KRAJ LANCA. Rez na `DUBINA_KLIKA` ostavlja spoj
       // bez djece; bez ove oznake izgledao bi kao uredan zavrsetak, a ispod
       // njega ima jos razina. Klik ih otvara na stranici te posude.
-      <Link href={`/tankovi/${v.tankId}`} style={{ color: "#1f6f8b" }}>
-        još razina — otvori posudu
-      </Link>
+      hrefPosude ? (
+        <Link href={hrefPosude} style={{ color: "#1f6f8b" }}>
+          još razina — otvori posudu
+        </Link>
+      ) : null
     ) : null;
 
   // Razmotano dalje: otvorivi `<details>`. Progutano se ne otvara.
@@ -4512,6 +4483,17 @@ function SastavnicaVina({
           {zaglavlje}
           <div style={summaryRightStyle}>
             {v.sastavnice.length} {rijecKucica(v.sastavnice.length)}
+            {/* Poveznica stoji i na razmotanoj kucici: klik na redak otvara
+                razinu ispod, a ovo vodi na samu posudu. Dvije razlicite radnje
+                pa moraju biti dvije razlicite mete. */}
+            {hrefPosude ? (
+              <>
+                {" · "}
+                <Link href={hrefPosude} style={{ color: "#1f6f8b" }}>
+                  otvori posudu
+                </Link>
+              </>
+            ) : null}
           </div>
         </summary>
         <div style={detailsContentStyle}>
@@ -4543,6 +4525,7 @@ function SastavnicaVina({
               s={d}
               brojevi={brojevi}
               roditeljTankId={v.tankId}
+              from={from}
               radnje={radnje}
               mjerenja={mjerenja}
               arhivskeRadnje={arhivskeRadnje}
