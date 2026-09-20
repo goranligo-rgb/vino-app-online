@@ -47,7 +47,8 @@
     "test:imenovanje:baza": "tsx scripts/test-imenovanje-baza.ts",
     "test:berba:ispravak": "tsx scripts/test-berba-ispravak-baza.ts",
     "test:parametri:vina": "tsx scripts/test-parametri-vina-baza.ts",
-    "ime:backfill": "tsx scripts/backfill-ime-vina.ts"
+    "ime:backfill": "tsx scripts/backfill-ime-vina.ts",
+    "izvoz:provjeri": "tsx scripts/provjeri-izvoz-podrum.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

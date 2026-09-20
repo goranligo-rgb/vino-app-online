@@ -177,6 +177,31 @@ export default function MonitorPage() {
           >
             ISPIS
           </Link>
+
+          {/* IZVOZ U EXCEL — obican <a>, ne <Link>: odrediste nije stranica
+              nego preuzimanje datoteke s /api rute. `Link` bi pokusao
+              navigaciju i prefetch, a odgovor je .xlsx privitak.
+
+              Bez provjere role u pregledniku, kao ni ISPIS: brava je u ruti
+              (smijeRaditiUPodrumu), a rola iz localStorage nije dokaz. */}
+          <a
+            href="/api/izvoz/podrum"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "1px solid #cfcfcf",
+              background: "#f8f9fa",
+              padding: "8px 12px",
+              fontSize: 12,
+              color: "#222",
+              textDecoration: "none",
+              fontWeight: 700,
+              marginLeft: 8,
+            }}
+          >
+            IZVOZ U EXCEL
+          </a>
         </div>
 
         {/* KUTIJA OBJASNJENJA — smije se stisnuti, nikad ne smije izaci.
