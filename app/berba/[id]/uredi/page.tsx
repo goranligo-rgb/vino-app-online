@@ -85,8 +85,11 @@ export default async function UrediBerbuPage({
     <main style={stranicaStyle}>
       <div style={omotStyle}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          <Link href={`/berba/${g.id}`} style={povratakStyle}>
+            ← Zapis berbe
+          </Link>
           <Link href="/punjenje" style={povratakStyle}>
-            ← Punjenje
+            Punjenje
           </Link>
           <Link href="/berba" style={povratakStyle}>
             Izvještaj o berbi

@@ -310,10 +310,10 @@ function KarticaBerbe({ b }: { b: Berba }) {
     .join(" · ");
 
   return (
-    // Klik vodi na ISPRAVAK te berbe (cijele grupe). /punjenje otvaraju samo
-    // L1/L2, a ispravak je njihov — ruta i ekran svejedno sami provjeravaju rolu.
+    // Klik vodi na ZAPIS berbe; odande su ispravak (cijele grupe) i brisanje.
+    // Jedno mjesto zapisa, isto kao iz tablice na /berba.
     <Link
-      href={`/berba/${b.glava.id}/uredi`}
+      href={`/berba/${b.glava.id}`}
       style={{ textDecoration: "none", color: "inherit" }}
     >
       <div style={karticaStyle}>
