@@ -1,11 +1,16 @@
 // Provjera prijave. Ove rute do 23.08.2026. nisu imale nikakvu — `proxy.ts`
 // svojim matcherom pokriva stranice, ali ne i `/api/*`, pa su odgovarale
-// svakome tko zna URL. Bez uvjeta na rolu: aplikacija to vec radi drugdje.
+// svakome tko zna URL.
+//
+// Od 23.09.2026. i ROLA: brisanje stavke povlaci berbu iz knjige, a do tada ga
+// je smio svaki prijavljeni korisnik. Stranice koje ga zovu (/punjenje,
+// /berba) ionako vide samo ADMIN i PODRUM — isto pravilo kao ispravak berbe.
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
+import { jeL12 } from "@/lib/auth-role";
 import { citajGranicuArhive, odGranice } from "@/lib/granica-arhive";
 import { uLitre, uMl, type Tx } from "@/lib/filtracija";
 import {
@@ -41,6 +46,13 @@ export async function DELETE(_req: Request, { params }: Params) {
 
   if (!user) {
     return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
+  if (!jeL12(user.role)) {
+    return NextResponse.json(
+      { error: "Nemate pravo brisati stavku punjenja." },
+      { status: 403 }
+    );
   }
 
   try {
