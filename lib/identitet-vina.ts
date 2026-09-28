@@ -30,7 +30,9 @@ import { vinoUTrenucimaVise, type CitacBerbe } from "@/lib/berba-model";
  *    prijedje 20 % volumena NEPOSREDNO PRIJE tog dolijevanja.
  * 2. Premjestanje cijelog sadrzaja u praznu posudu NE rada novo vino; vise
  *    izvora odjednom rada.
- * 3. Progutano dolijevanje ostaje vidljivo: litre i udio, bez kucice i klika.
+ * 3. Progutano dolijevanje ostaje vidljivo: litre i udio, sivo i bez
+ *    razmotavanja — ali s poveznicom na proslost vina (/prosli-tank): i
+ *    dolijevanje od 1 % je vino s poviscu (vlasnik, 28.09.2026).
  * 4. Vino je SORTNO kad jedna sorta ima preko 80 %, inace CUVEE; ako najveci
  *    udio nije prava sorta ("Nepoznato podrijetlo"), vino je BEZ TVRDNJE.
  * 5. Klik otvara 5–6 razina, ispod toga prikaz kaze "jos N razina".
@@ -122,7 +124,8 @@ export type Sastavnica = {
    * Dolijevanje koje prag nije priznao kao novo vino (pravilo 3).
    *
    * Model ga drzi kao obicnu sastavnicu jer je pravilo "kucica po svakom
-   * izvoru" mladje i jace; prikaz ga po pravilu 3 nudi sivo i bez klika.
+   * izvoru" mladje i jace; prikaz ga po pravilu 3 nudi sivo i bez
+   * razmotavanja, uz poveznicu na proslost vina.
    */
   progutano: boolean;
   /**

@@ -3139,6 +3139,7 @@ export default async function TankPregledPage({
                   s={s}
                   brojevi={brojeviTankova}
                   roditeljTankId={id}
+                  korijenId={id}
                   from={from}
                   radnje={vinoRadnje}
                   mjerenja={mjerenjaStabla}
@@ -4712,12 +4713,14 @@ function imeCvoraVina(
  *                  izgleda, jer bi uredan redak zamaskirao rupu u knjizi.
  *
  * Progutano dolijevanje (prag ga nije priznao kao novo vino) prigusuje se i NE
- * otvara se — pravilo 3.
+ * razmotava — pravilo 3. Poveznicu na proslost vina ipak ima: i dolijevanje
+ * od 1 % je vino s poviscu (vlasnik, 28.09.2026).
  */
 function SastavnicaVina({
   s,
   brojevi,
   roditeljTankId,
+  korijenId,
   from,
   radnje,
   mjerenja,
@@ -4727,6 +4730,8 @@ function SastavnicaVina({
   s: SastavnicaStabla;
   brojevi: Map<string, number>;
   roditeljTankId: string;
+  /** Tank ove stranice — /prosli-tank u njegovom stablu trazi kucicu i kvasce. */
+  korijenId: string;
   /** Za `?from=` na poveznici, isto kao u kartici porijekla nize. */
   from?: string;
   /** `VinoRadnja` DANASNJEG tanka, sve; izbor po posudi radi `povijestVina`. */
@@ -4748,6 +4753,25 @@ function SastavnicaVina({
     v.vrsta !== "partija" && v.tankId !== roditeljTankId
       ? `/tankovi/${v.tankId}${from ? `?from=${encodeURIComponent(from)}` : ""}`
       : null;
+
+  // POVEZNICA NA PROSLOST VINA — na SVAKU kucicu koja je vino iz posude:
+  // razmotanu, progutanu, odrezanu na `DUBINA_KLIKA`, zatecenu, prekinutu, i
+  // na vino koje je u posudi vec bilo. Praga nema (vlasnik, 28.09.2026).
+  //
+  // Razlikuje se od "otvori posudu": ta vodi na posudu KAKVA JE DANAS, cesto
+  // s tudjim vinom; ova na vino kakvo je bilo u trenutku ulaska ovamo.
+  const hrefProslosti =
+    v.vrsta !== "partija"
+      ? `/prosli-tank?korijen=${encodeURIComponent(korijenId)}` +
+        `&iz=${encodeURIComponent(v.tankId)}` +
+        `&cin=${encodeURIComponent(s.kljucCina)}`
+      : null;
+
+  const poveznicaProslosti = hrefProslosti ? (
+    <Link href={hrefProslosti} style={{ color: "#1f6f8b" }}>
+      prošlost vina
+    </Link>
+  ) : null;
 
   const zaglavlje = (
     <div style={{ display: "grid", gap: 2 }}>
@@ -4776,10 +4800,9 @@ function SastavnicaVina({
     </div>
   );
 
-  const desno =
-    v.vrsta === "partija" ? (
-      <div style={summaryRightStyle}>berba</div>
-    ) : v.vrsta === "posuda" ? (
+  // Kraj lanca i "otvori posudu" — nepromijenjeno od prije.
+  const krajLanca =
+    v.vrsta === "posuda" ? (
       v.razlog === "prekinuto" ? (
         <div style={{ ...summaryRightStyle, fontWeight: 700 }}>
           lanac prekinut
@@ -4791,16 +4814,27 @@ function SastavnicaVina({
           otvori posudu
         </Link>
       ) : null
-    ) : v.sastavnice.length === 0 ? (
+    ) : v.vrsta === "spoj" && v.sastavnice.length === 0 ? (
       // ODREZANA GRANA NIJE KRAJ LANCA. Rez na `DUBINA_KLIKA` ostavlja spoj
       // bez djece; bez ove oznake izgledao bi kao uredan zavrsetak, a ispod
-      // njega ima jos razina. Klik ih otvara na stranici te posude.
+      // njega ima jos razina. "Proslost vina" ih pokazuje za vino kakvo je
+      // tada bilo; "otvori posudu" vodi na posudu kakva je danas.
       hrefPosude ? (
         <Link href={hrefPosude} style={{ color: "#1f6f8b" }}>
           još razina — otvori posudu
         </Link>
       ) : null
     ) : null;
+
+  const desno =
+    v.vrsta === "partija" ? (
+      <div style={summaryRightStyle}>berba</div>
+    ) : (
+      <div style={{ display: "grid", gap: 2, justifyItems: "end", textAlign: "right" }}>
+        {krajLanca}
+        {poveznicaProslosti}
+      </div>
+    );
 
   // Razmotano dalje: otvorivi `<details>`. Progutano se ne otvara.
   if (v.vrsta === "spoj" && v.sastavnice.length > 0 && !s.progutano) {
@@ -4819,6 +4853,12 @@ function SastavnicaVina({
                 <Link href={hrefPosude} style={{ color: "#1f6f8b" }}>
                   otvori posudu
                 </Link>
+              </>
+            ) : null}
+            {poveznicaProslosti ? (
+              <>
+                {" · "}
+                {poveznicaProslosti}
               </>
             ) : null}
           </div>
@@ -4852,6 +4892,7 @@ function SastavnicaVina({
               s={d}
               brojevi={brojevi}
               roditeljTankId={v.tankId}
+              korijenId={korijenId}
               from={from}
               radnje={radnje}
               mjerenja={mjerenja}
