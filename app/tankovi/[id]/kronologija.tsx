@@ -50,7 +50,9 @@ const OZNAKE: Record<VrstaDogadaja, { kratko: string; boja: string; pozadina: st
   // drugog tanka stajala je ovdje kao vlastita vrsta s vlastitim gumbom filtra.
   // Tvrdnja je bila tocna, ali je kolicinom pojela ekran: na T42 je 120 od 127
   // redaka bilo te vrste. "Od cega je ovo vino slozeno" ima svoju karticu
-  // (`Odakle je vino`); ovdje ostaje samo ono sto se dogodilo U OVOM tanku.
+  // (`Odakle je vino`). Od 28.09.2026. radnje iz LANCA vina (posude kroz koje
+  // je proslo cijelo danasnje vino, u prozoru u kojem je ondje stajalo) opet
+  // ulaze, ali kao obicna RADNJA s oznakom tanka — vidi page.tsx.
   PRIJENOS_ULAZ:  { kratko: "Prijenos ↓", boja: "#166534", pozadina: "#f0fdf4" },
   PRIJENOS_IZLAZ: { kratko: "Prijenos ↑", boja: "#9f1239", pozadina: "#fff5f5" },
   PRETOK_ULAZ:    { kratko: "Pretok ↓",  boja: "#166534", pozadina: "#f0fdf4" },

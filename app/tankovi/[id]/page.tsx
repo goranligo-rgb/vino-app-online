@@ -1374,20 +1374,50 @@ export default async function TankPregledPage({
   );
 
   // DUBOKO, pa rez na `DUBINA_KLIKA` razina; ispod toga prikaz kaze "jos N".
-  const stabloVina = skrati(
-    vinoUTanku(
-      knjigaIdentiteta.cini,
-      sorteBerbi,
-      id,
-      Date.now(),
-      {},
-      [],
-      podrijetloKnjige.ukupnoL
-    ),
-    DUBINA_KLIKA
+  // Neskraceno stablo treba i lanac radnji nize, pa se cuva zasebno.
+  const vinoDanas = vinoUTanku(
+    knjigaIdentiteta.cini,
+    sorteBerbi,
+    id,
+    Date.now(),
+    {},
+    [],
+    podrijetloKnjige.ukupnoL
   );
+  const stabloVina = skrati(vinoDanas, DUBINA_KLIKA);
   const kucicePrveRazine =
     stabloVina.vino.vrsta === "spoj" ? stabloVina.vino.sastavnice : [];
+
+  // LANAC VINA — posude kroz koje je CIJELO danasnje vino proslo, s prozorom
+  // u kojem je ondje stajalo. Hrani kronologiju (radnje iz lanca, vidi nize).
+  //
+  // Karika postoji samo dok spoj ima TOCNO JEDNU sastavnicu: tada je vino u
+  // prethodnoj posudi bilo upravo ovo vino, pa je radnja nad njim radnja nad
+  // ovim vinom. Na prvom spoju vise izvora lanac staje — ondje "od cega je
+  // slozeno" preuzima kartica "Odakle je vino".
+  //
+  // Prozor karike: od granice vina te posude, izracunate NA TRENUTAK kad je
+  // vino otamo otislo (`doTrenutka`), do tog trenutka. Bez `doTrenutka`
+  // granica bi bila danasnja, dakle granica vina koje je u tu posudu doslo
+  // POSLIJE, pa bi prozor bio prazan ili tudji.
+  //
+  // CIJENA: `granicaVina` je dva upita, po karici, u nizu — najdulji lanac u
+  // podrumu 28.09.2026. ima tri karike, dakle do sest upita. `lib/` se radi
+  // toga ne dira dok usporenje nije izmjereno kao stvarno.
+  const lanacVina: { tankId: string; odAt: Date | null; doAt: Date }[] = [];
+  {
+    let cvor: VinoCvor = vinoDanas;
+    while (cvor.vrsta === "spoj" && cvor.sastavnice.length === 1) {
+      const s = cvor.sastavnice[0];
+      if (s.vino.vrsta === "partija") break;
+      const g = await granicaVina(prisma, s.vino.tankId, {
+        doTrenutka: s.usloAt,
+        zadnjeVino: true,
+      });
+      lanacVina.push({ tankId: s.vino.tankId, odAt: g.odAt, doAt: s.usloAt });
+      cvor = s.vino;
+    }
+  }
 
   // KUCICA NEMA IME VINA, I TO JE MJERENO STANJE, NE PROPUST.
   //
@@ -2069,19 +2099,81 @@ export default async function TankPregledPage({
     });
   }
 
-  // NASLIJEDJENIH RADNJI OVDJE VISE NEMA — i to je namjerno.
+  // RADNJE IZ LANCA VINA — ono sto je s OVIM vinom radjeno u posudi u kojoj
+  // je stajalo prije ove. Samo `VinoRadnja` ciji je izvorni tank karika
+  // `lanacVina` i koja je pala u prozor te karike.
   //
-  // Do 17.09.2026. je svaki redak `VinoRadnja` ciji je `izvorniTankId` drugi
-  // tank ulazio u kronologiju kao vlastita vrsta "NASLIJEDENO". Tvrdnja je
-  // bila tocna — vino u tanku 5 doista je fermentiralo u tanku 11 — ali je
-  // kolicinom pojela ekran: na T42 je 120 od 127 redaka bilo te vrste, iz 27
-  // razlicitih posuda. Kronologija odgovara na pitanje "sto se dogadjalo OVDJE,
-  // redom"; "od cega je ovo vino slozeno" je drugo pitanje i ima svoju karticu
-  // (`Odakle je vino`), koja je od iste izmjene zadano otvorena.
+  // POVIJEST. Do 17.09.2026. je ovdje ulazio SVAKI naslijedjeni redak, kao
+  // vlastita vrsta "NASLIJEDENO" — i kolicinom pojeo ekran (T42: 120 od 127
+  // redaka, iz 27 posuda). Ta vrsta se NE vraca: vecina tih redaka opisuje
+  // pribrojnik blenda, a to je pitanje kartice "Odakle je vino". Lanac + vrijeme
+  // propusta samo radnje nad vinom koje je tada bilo CIJELO ovo vino, pa
+  // idu kao obicna radnja, uz oznaku posude u kojoj su izvedene.
   //
-  // REDCI SE NE BRISU I UPIT SE NE MIJENJA. `vinoRadnje` se i dalje cita u
-  // cijelosti i dalje hrani kvasce, povijest kucica i izvjestaj podruma — vidi
-  // biljesku uz sam upit. Mijenja se samo tko ga JOS cita.
+  // MJERENO 28.09.2026: prolazi 123 od 346 naslijedjenih redaka; 121 je
+  // tocno. Dva kriva — T38 <- T20 (07.09.) i T34 <- T20 (05.09.) — vec su
+  // krivo upisana u `VinoRadnja`: u T20 su se preklopila dva vina bez
+  // praznjenja izmedju, uz punjenje datirano unatrag. To je kvar u podacima,
+  // ne u ovom pravilu; vracanje svih redaka ne bi ih ispravilo, samo sakrilo
+  // u masi. T42 (blend) ne dobiva nijedan redak, T21 dobiva svih osam svojih.
+  //
+  // `vinoRadnje` se i dalje cita u cijelosti i hrani kvasce, povijest kucica
+  // i izvjestaj podruma — ovo je samo jos jedan citac.
+  for (const v of vinoRadnje) {
+    if (v.izvorniTankId === id) continue;
+    const u = v.dogodenoAt.getTime();
+    const uLancu = lanacVina.some(
+      (k) =>
+        k.tankId === v.izvorniTankId &&
+        k.odAt != null &&
+        u >= k.odAt.getTime() &&
+        u <= k.doAt.getTime()
+    );
+    if (!uLancu) continue;
+
+    // Posuda ide NAPRIJED, prije opisa: "Punjenje tanka" bez nje izgleda kao
+    // da je punjen OVAJ tank (tako je bilo na T10 prije vrste NASLIJEDENO).
+    const gdje =
+      v.izvorniBrojTanka !== null ? `U tanku ${v.izvorniBrojTanka}` : "U drugom tanku";
+
+    dogadaji.push({
+      id: `vino-${v.id}`,
+      vrsta: "RADNJA",
+      vrijeme: v.dogodenoAt.toISOString(),
+      naslov: `${gdje} · ${v.opis || String(v.vrsta)}`,
+      podnaslov: v.preparatNaziv
+        ? `${v.preparatNaziv}${
+            v.kolicina != null
+              ? ` — ${formatBroj(v.kolicina)} ${v.jedinicaNaziv ?? ""}`.trimEnd()
+              : ""
+          }`
+        : String(v.vrsta),
+      tko: v.korisnikIme ? `Upisao: ${v.korisnikIme}` : null,
+      iznos: null,
+      detalji: [
+        { label: "Vrsta", value: String(v.vrsta) },
+        { label: "Preparat", value: v.preparatNaziv || "—" },
+        {
+          label: "Količina",
+          value:
+            v.kolicina != null
+              ? `${formatBroj(v.kolicina)} ${v.jedinicaNaziv ?? ""}`.trim()
+              : "—",
+        },
+        {
+          label: "Izvedeno u tanku",
+          value:
+            v.izvorniBrojTanka !== null ? String(v.izvorniBrojTanka) : "—",
+        },
+        {
+          label: "Zašto je ovdje",
+          value:
+            "sve vino koje je danas ovdje tada je stajalo u tom tanku — radnja je izvedena nad njim",
+        },
+        { label: "Napomena", value: v.napomena || "—" },
+      ],
+    });
+  }
 
   // Radnja koja pripada zadatku vec je prikazana kao zadatak — inace bi svaki
   // izvrsen zadatak stajao dvaput. Prikazuju se samo samostalne radnje.
