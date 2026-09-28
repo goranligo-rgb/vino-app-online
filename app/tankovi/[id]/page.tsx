@@ -1074,6 +1074,16 @@ export default async function TankPregledPage({
   const granicaVinaAt = granica.odAt;
   const odGranice = odGraniceVina(granica);
 
+  // PRAZAN TANK NE POKAZUJE NISTA (vlasnikova odluka, 28.09.2026). Povijest
+  // putuje s vinom: kad je vino otislo, s njim su otisla i njegova mjerenja.
+  // `granicaVinaAt` je tada null, a null u filtrima ispod znaci "bez reza" —
+  // prazan tank bi pokazao SVA svoja mjerenja (T1 17, T38 16, T23 13, T35 1).
+  // Zato izricita oznaka, isto pravilo kao `odGraniceVina`: PRAZAN, ne
+  // NEMA_KNJIGE (ondje knjiga nema sto reci, pa se ne smije praviti da zna).
+  const tankBezVina = granica.razlog === "PRAZAN";
+  // Ni arhive: tank je posuda, a arhiva pripada vinu koje je otislo.
+  const arhiveZaPrikaz = tankBezVina ? [] : arhive;
+
   // IME VINA (faza 4) — cin imenovanja unutar prozora koji je granica upravo
   // odredila, a ne `Tank.nazivVina`. Cita se TEK OVDJE jer mu treba granica:
   // zapis stariji od nje pripada vinu kojeg u posudi vise nema.
@@ -1411,8 +1421,12 @@ export default async function TankPregledPage({
     podrijetloKnjige.ukupnoL
   );
   const stabloVina = skrati(vinoDanas, DUBINA_KLIKA);
+  // Prazan tank nema kucica: `vinoUTanku` cita samo ulaze, pa bi "Odakle je
+  // vino" pokazalo ZADNJE vino (T35: T40) — vino koje vise nije ondje.
   const kucicePrveRazine =
-    stabloVina.vino.vrsta === "spoj" ? stabloVina.vino.sastavnice : [];
+    !tankBezVina && stabloVina.vino.vrsta === "spoj"
+      ? stabloVina.vino.sastavnice
+      : [];
 
   // LANAC VINA — posude kroz koje je CIJELO danasnje vino proslo, s prozorom
   // u kojem je ondje stajalo. Hrani kronologiju (radnje iz lanca, vidi nize).
@@ -1439,7 +1453,7 @@ export default async function TankPregledPage({
   // PRAZAN, ne NEMA_KNJIGE. Bez lanca nema ni naslijedenih tocaka grafa, ni
   // mjerenja lanca u popisu, ni radnji lanca u kronologiji.
   const lanacVina: { tankId: string; odAt: Date | null; doAt: Date }[] = [];
-  if (granica.razlog !== "PRAZAN") {
+  if (!tankBezVina) {
     let cvor: VinoCvor = vinoDanas;
     while (cvor.vrsta === "spoj" && cvor.sastavnice.length === 1) {
       const s = cvor.sastavnice[0];
@@ -1515,7 +1529,8 @@ export default async function TankPregledPage({
     posudeUStablu.add(v.tankId);
     if (v.vrsta === "spoj") for (const s of v.sastavnice) skupiPosude(s.vino);
   };
-  skupiPosude(stabloVina.vino);
+  // Prazan tank nema kucica, pa ni njihove povijesti — bez upita.
+  if (!tankBezVina) skupiPosude(stabloVina.vino);
 
   const mjerenjaStabla: RedakMjerenjaPosude[] =
     posudeUStablu.size > 0
@@ -1712,10 +1727,12 @@ export default async function TankPregledPage({
   // vinu utvrdjuje PUNJENJE, ne sat mjerenja. Vidi `mjerenjaTrenutnogVina`.
   const pocetnaMjerenjaNovogVina = pripadnost.pocetnaMjerenja;
 
-  const mjerenjaZaParametre = mjerenjaTrenutnogVina(
-    mjerenja,
-    granicaVinaAt,
-    pocetnaMjerenjaNovogVina
+  // Prazan tank nema vlastitih parametara, bentotesta ni tocaka grafa: null
+  // granica bi ovdje znacila "sva mjerenja" (vidi `tankBezVina`).
+  const mjerenjaZaParametre = (
+    tankBezVina
+      ? []
+      : mjerenjaTrenutnogVina(mjerenja, granicaVinaAt, pocetnaMjerenjaNovogVina)
   ) as unknown as RedakMjerenja[];
 
   const poPolju = sloziPoPolju(mjerenjaZaParametre);
@@ -1746,12 +1763,16 @@ export default async function TankPregledPage({
   const parametri: ParametarPrikaz[] = OPIS_POLJA.map((o) => {
     const izvor = poPolju.izvorPolja[o.kljuc];
     const vlastita = poPolju.vrijednosti[o.kljuc];
-    const b = blend?.poPolju[o.kljuc] ?? null;
+    // Prazan tank: ni procjene iz blenda ni vrijednosti iz knjige. `BlendIzvor`
+    // retci ostaju na ispraznjenom tanku i opisuju vino koje je otislo.
+    const b = tankBezVina ? null : (blend?.poPolju[o.kljuc] ?? null);
 
     // TRECI IZVOR, kad prva dva sute: vrijednost izmjerena na OVOM vinu dok
     // je bilo u ranijoj posudi. Nije racun nego mjerenje, pa stoji ispred
     // "nema" — a iza vlastitog i iza blenda, koji su blizi ovom tanku.
-    const izKnjigeSirovo = parametriVina?.poPolju[o.kljuc] ?? null;
+    const izKnjigeSirovo = tankBezVina
+      ? null
+      : (parametriVina?.poPolju[o.kljuc] ?? null);
 
     // FERMENTACIJA GASI NASLIJEDJENU VRIJEDNOST.
     //
@@ -1983,19 +2004,8 @@ export default async function TankPregledPage({
   const prikaziBerbu =
     imaPodatakaOBerbi || naslijedenoStavki > 0 || smijeFermentaciju;
 
-  const ukupnoZapisa =
-    mjerenja.length +
-    otvoreniZadaci.length +
-    izvrseniZadaci.length +
-    radnje.length +
-    pretociUlaz.length +
-    pretociIzlaz.length +
-    punjenja.length +
-    izlaziZaPrikaz.length +
-    arhive.length +
-    dolasciPrijenosom.length;
-
-  const mjerenjaZaTop = mjerenja;
+  // "Zadnje klasicno mjerenje" — prazan tank ga nema (vidi `tankBezVina`).
+  const mjerenjaZaTop = tankBezVina ? [] : mjerenja;
 
   // POPIS MJERENJA — vlastita od granice vina, plus mjerenja istog vina iz
   // posuda LANCA, u prozoru karike. Isti rez kao naslijedeni dio grafa.
@@ -2100,10 +2110,13 @@ export default async function TankPregledPage({
     }
   }
 
+  // Prazan tank nema ni vlastitih redaka (vidi `tankBezVina`).
   const vlastitaOdGranice: RedakPopisa[] = (
-    granicaVinaAt
-      ? mjerenja.filter((m) => m.izmjerenoAt >= granicaVinaAt)
-      : mjerenja
+    tankBezVina
+      ? []
+      : granicaVinaAt
+        ? mjerenja.filter((m) => m.izmjerenoAt >= granicaVinaAt)
+        : mjerenja
   ).map((m) => ({ ...m, posudaId: id }));
   // Redak po id-u se ne ponavlja: naslijedena i vlastita mjerenja danas se ne
   // preklapaju (druga posuda), ali brana ostaje ako bi se to jednom promijenilo.
@@ -2576,7 +2589,8 @@ export default async function TankPregledPage({
 
   // Arhiva ostaje i kao vlastita kartica (ondje je poveznica "Otvori arhivu"),
   // a ovdje stoji zato sto objasnjava zasto povijest iznad nje prestaje.
-  for (const a of arhive) {
+  // Prazan tank je nema: arhiva pripada vinu koje je otislo, ne posudi.
+  for (const a of arhiveZaPrikaz) {
     dogadaji.push({
       id: `ar-${a.id}`,
       vrsta: "ARHIVA",
@@ -2795,13 +2809,6 @@ export default async function TankPregledPage({
         <ParamTop label="Slobodno" value={formatBroj(slobodno)} unit="L" />
       </div>
 
-      {/* Prazan tank NE skriva povijest — samo kaze da je prazan. */}
-      {tankJePrazan && ukupnoZapisa > 0 ? (
-        <div style={obavijestPrazanStyle}>
-          Tank je trenutno prazan, ali ima <strong>{ukupnoZapisa}</strong> zapisa
-          u povijesti — svi su ispod, u sklopljenim karticama.
-        </div>
-      ) : null}
 
       {/* KVACICA "POVIJEST VINA".
 
@@ -3118,7 +3125,9 @@ export default async function TankPregledPage({
             posudu; kalo stoji uz njih kad ga ima.
           </div>
 
-          {kucicePrveRazine.length === 0 ? (
+          {tankBezVina ? (
+            <div style={mutedTextStyle}>Tank je prazan.</div>
+          ) : kucicePrveRazine.length === 0 ? (
             <div style={mutedTextStyle}>
               Knjiga za ovaj tank ne zna nijedan ulaz.
             </div>
@@ -3140,11 +3149,11 @@ export default async function TankPregledPage({
             </div>
           )}
 
-          {stabloVina.jos > 0 && (
+          {!tankBezVina && stabloVina.jos > 0 && (
             <div style={josRazinaStyle}>još {stabloVina.jos} razina</div>
           )}
 
-          {odljevVina.length > 0 && (
+          {!tankBezVina && odljevVina.length > 0 && (
             <div style={odljevTrakaStyle}>
               <span style={izKnjigeNaslovStyle}>Otišlo od nastanka</span>
               {odljevVina.map((o, i) => {
@@ -3848,7 +3857,9 @@ export default async function TankPregledPage({
 
 
 
-      {/* --- ARHIVE: s monitora dosad nije bilo puta do arhive. --- */}
+      {/* --- ARHIVE: s monitora dosad nije bilo puta do arhive. ---
+          Prazan tank nema karticu: arhiva pripada vinu koje je otislo. */}
+      {tankBezVina ? null : (
       <Card
         title="Arhive"
         broj={arhive.length}
@@ -3878,6 +3889,7 @@ export default async function TankPregledPage({
           </div>
         )}
       </Card>
+      )}
 
       <Card
         title="Dokumenti"
@@ -4418,15 +4430,6 @@ const zatecenoRedakStyle: React.CSSProperties = {
   padding: "8px 10px",
   fontSize: 13,
   color: "#2f2f2f",
-};
-
-const obavijestPrazanStyle: React.CSSProperties = {
-  border: "1px solid #fecaca",
-  background: "#fef2f2",
-  color: "#7f1d1d",
-  padding: "9px 11px",
-  fontSize: 13,
-  lineHeight: 1.5,
 };
 
 const odArhiveStyle: React.CSSProperties = {
