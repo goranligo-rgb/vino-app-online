@@ -125,6 +125,21 @@ export type Sastavnica = {
    * izvoru" mladje i jace; prikaz ga po pravilu 3 nudi sivo i bez klika.
    */
   progutano: boolean;
+  /**
+   * Cin kojim je ovo vino uslo u roditelja — `UlazniCin.kljuc`, dakle
+   * `veza:ciljniTank:vrsta`, gdje je veza `pretokId` ili `zadatakId`.
+   *
+   * Po njemu se kucica JEDNOZNACNO otvara kao vino zamrznuto na trenutak
+   * ulaska (/prosli-tank). Bez njega bi se cin nagadjao po vremenu, a vrijeme
+   * nije kljuc: PONISTENJE nosi isti `pretokId` kao pretok koji ponistava i
+   * razlikuje ga samo vrsta. Mjereno 28.09.2026: svih 488 prijenosa u knjizi
+   * ima vezu, nijedan nije bez nje.
+   *
+   * Za vino koje je u posudi vec bilo (ono sto je rodni cin razrijedio) to je
+   * RODNI cin: tada je to vino postalo dio novoga, iako nije nikamo putovalo.
+   * Prepoznaje se po tome sto je `vino.tankId` jednak roditelju.
+   */
+  kljucCina: string;
 };
 
 /** Kamo je vino otislo otkad je nastalo — svaka litra pod svojim imenom. */
@@ -584,7 +599,8 @@ export function vinoUTanku(
     otpusteno: number,
     berbe: string[],
     kada: Date,
-    progutano: boolean
+    progutano: boolean,
+    kljucCina: string
   ) => {
     if (izTankId) {
       sastavnice.push({
@@ -604,6 +620,7 @@ export function vinoUTanku(
         otpusteno,
         kalo: Math.max(0, otpusteno - litre),
         progutano,
+        kljucCina,
       });
       return;
     }
@@ -625,6 +642,7 @@ export function vinoUTanku(
         otpusteno: otpusteno / jedinstvene.length,
         kalo: Math.max(0, (otpusteno - litre) / jedinstvene.length),
         progutano,
+        kljucCina,
       });
     }
   };
@@ -646,6 +664,7 @@ export function vinoUTanku(
       otpusteno: rodni.cin.prije,
       kalo: 0,
       progutano: false,
+      kljucCina: rodni.cin.kljuc,
     });
   }
 
@@ -654,7 +673,7 @@ export function vinoUTanku(
   for (let i = raspon.od; i <= raspon.do; i++) {
     const progutano = i > raspon.od;
     for (const izv of odluke[i].cin.izvori) {
-      dodajIzvor(izv.izTankId, izv.litre, izv.otpusteno, izv.berbe, odluke[i].cin.kada, progutano);
+      dodajIzvor(izv.izTankId, izv.litre, izv.otpusteno, izv.berbe, odluke[i].cin.kada, progutano, odluke[i].cin.kljuc);
     }
   }
 

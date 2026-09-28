@@ -306,6 +306,38 @@ async function main() {
   }
 
   {
+    // KLJUC CINA: kucica nosi cin kojim je USLA, ne cin kojim je vino nastalo.
+    // Progutano dolijevanje iz S uslo je svojim cinom, a ne rodnim cinom T.
+    const cini = new Map<string, UlazniCin[]>([
+      ["T", [
+        cin({ tankId: "T", kada: u(0), uslo: 1000, prije: 0, kljuc: "berba:T:ULAZ", izvori: [{ izTankId: null, litre: 1000, berbe: ["b1"] }] }),
+        cin({ tankId: "T", kada: u(5), uslo: 100, prije: 1000, kljuc: "p1:T:PRETOK", izvori: [{ izTankId: "S", litre: 100, berbe: ["b3"] }] }),
+      ]],
+      ["S", [cin({ tankId: "S", kada: u(0), uslo: 500, prije: 0, izvori: [{ izTankId: null, litre: 500, berbe: ["b3"] }] })]],
+    ]);
+    const v = vinoUTanku(cini, SORTE, "T", u(20).getTime());
+    const izS = v.vrsta === "spoj" ? v.sastavnice.find((s) => s.vino.vrsta !== "partija" && s.vino.tankId === "S") : undefined;
+    const berba = v.vrsta === "spoj" ? v.sastavnice.find((s) => s.vino.vrsta === "partija") : undefined;
+    tvrdi(izS?.kljucCina === "p1:T:PRETOK", "kucica nosi kljuc cina kojim je usla", izS?.kljucCina);
+    tvrdi(berba?.kljucCina === "berba:T:ULAZ", "partija izvana nosi kljuc svog ulaza", berba?.kljucCina);
+  }
+
+  {
+    // Vino koje je u posudi VEC BILO nosi RODNI cin: tada je postalo dio
+    // novoga. Prepoznaje se po tome sto je posuda ista kao roditelj.
+    const cini = new Map<string, UlazniCin[]>([
+      ["T", [
+        cin({ tankId: "T", kada: u(0), uslo: 1000, prije: 0, kljuc: "berba:T:ULAZ", izvori: [{ izTankId: null, litre: 1000, berbe: ["b1"] }] }),
+        cin({ tankId: "T", kada: u(5), uslo: 500, prije: 1000, kljuc: "p2:T:PRETOK", izvori: [{ izTankId: "S", litre: 500, berbe: ["b3"] }] }),
+      ]],
+      ["S", [cin({ tankId: "S", kada: u(0), uslo: 500, prije: 0, izvori: [{ izTankId: null, litre: 500, berbe: ["b3"] }] })]],
+    ]);
+    const v = vinoUTanku(cini, SORTE, "T", u(20).getTime());
+    const prijasnje = v.vrsta === "spoj" ? v.sastavnice.find((s) => s.vino.vrsta !== "partija" && s.vino.tankId === "T") : undefined;
+    tvrdi(prijasnje?.kljucCina === "p2:T:PRETOK", "vino koje je vec bilo u posudi nosi rodni cin", prijasnje?.kljucCina);
+  }
+
+  {
     const list = (id: string): VinoCvor => ({ vrsta: "partija", berbaId: id, nazivSorte: "Graševina", litre: 100 });
     const spoj = (djeca: VinoCvor[]): VinoCvor => ({
       vrsta: "spoj", kada: u(0), tankId: "A",
@@ -317,6 +349,7 @@ async function main() {
         otpusteno: 100,
         kalo: 0,
         progutano: false,
+        kljucCina: "c0",
       })),
       litre: 100 * djeca.length,
     });
@@ -498,6 +531,48 @@ async function main() {
   tvrdi(prekinuti.length === 0, "nijedan lanac nije prekinut", prekinuti.join(", "));
   tvrdi(nulaLitara.length === 0, "nijedan cvor nema nula litara", nulaLitara.slice(0, 5).join(", "));
   tvrdi(razlikaLitara === 0, "razlika kucica i knjige je imenovana do zadnje litre", prviRazmak);
+
+  // KLJUC CINA MORA OTVARATI TOCNO ONAJ CIN IZ KOJEG JE KUCICA NASTALA.
+  //
+  // /prosli-tank trazi cin po kljucu u cinovima roditelja i izvor po posudi.
+  // Kucica ciji kljuc ne postoji ondje, ili u cijem cinu te posude nema, dala
+  // bi praznu stranicu ili tudje vino. Provjerava se CIJELO stablo svakog
+  // punog tanka, ne samo prva razina — klik ide i u dubinu.
+  const losKljuc: string[] = [];
+  const dvaputIsti: string[] = [];
+  let kucicaProvjereno = 0;
+
+  const provjeriKljuceve = (v: VinoCvor, broj: number) => {
+    if (v.vrsta !== "spoj") return;
+    const ciniRoditelja = new Map((cini.get(v.tankId) ?? []).map((c) => [c.kljuc, c]));
+    const vidjeno = new Set<string>();
+
+    for (const s of v.sastavnice) {
+      kucicaProvjereno++;
+      const c = ciniRoditelja.get(s.kljucCina);
+      const posuda = s.vino.vrsta === "partija" ? null : s.vino.tankId;
+      // Vino koje je u posudi vec bilo nije izvor cina — ono je ono sto je cin
+      // razrijedio. Njegova posuda je roditelj.
+      const prijasnje = posuda === v.tankId;
+      const izvorPostoji = !!c && (prijasnje || c.izvori.some((i) => i.izTankId === posuda));
+
+      if (!izvorPostoji) {
+        losKljuc.push(`T${broj}: ${s.kljucCina} (${posuda ?? "berba"})`);
+      }
+
+      const id = `${s.kljucCina}|${s.vino.vrsta === "partija" ? s.vino.berbaId : posuda}`;
+      if (vidjeno.has(id)) dvaputIsti.push(`T${broj}: ${id}`);
+      vidjeno.add(id);
+
+      provjeriKljuceve(s.vino, broj);
+    }
+  };
+
+  for (const t of puni) provjeriKljuceve(vinoUTanku(cini, sorte, t.id, Date.now()), t.broj);
+
+  tvrdi(losKljuc.length === 0, "svaka kucica nosi kljuc cina u kojem je ta posuda izvor", losKljuc.slice(0, 5).join(", "));
+  tvrdi(dvaputIsti.length === 0, "kljuc i posuda jednoznacno odredjuju kucicu medju bracom", dvaputIsti.slice(0, 5).join(", "));
+  console.log(`  kljuc provjeren na ${kucicaProvjereno} kucica`);
 
   console.log(`  kucica: max ${Math.max(...kucice)}, prosjek ${(kucice.reduce((a, b) => a + b, 0) / kucice.length).toFixed(1)}`);
 
