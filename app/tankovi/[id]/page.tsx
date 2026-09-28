@@ -31,7 +31,7 @@ import {
   sastavIzPodrijetla,
   nepoznatiDio,
   razlikaSastava,
-  vinoUTrenucima,
+  vinoUTrenucimaVise,
   type VinoUTrenutku,
   type ZapisPodrijetla,
   SORTA_NEPOZNATA,
@@ -433,12 +433,38 @@ function sloziZadnjeMjerenjePoPoljima(
  * arhive. Sada dolazi iz knjige (zadnji put kad je tank bio prazan), pa i
  * natpis govori o vinu, ne o zapisu o vinu.
  */
-function OdPocetkaVina({ granica }: { granica: Date | null }) {
+function OdPocetkaVina({
+  granica,
+  lanac,
+}: {
+  granica: Date | null;
+  /**
+   * Posude kroz koje je vino proslo prije ove, s prozorom (vidi `lanacVina`).
+   * Od 28.09.2026. popis mjerenja i kronologija citaju i njih, pa natpis ne
+   * smije tvrditi da prikaz pocinje granicom.
+   */
+  lanac: Array<{ broj: number | null; odAt: Date; doAt: Date }>;
+}) {
   if (!granica) return null;
+  if (lanac.length === 0) {
+    return (
+      <div style={odArhiveStyle}>
+        Prikazano otkad je ovo vino u tanku ({formatDatumBezVremena(granica)})
+        nadalje — starije pripada prethodnom vinu.
+      </div>
+    );
+  }
   return (
     <div style={odArhiveStyle}>
-      Prikazano otkad je ovo vino u tanku ({formatDatumBezVremena(granica)})
-      nadalje — starije pripada prethodnom vinu.
+      Prikazano ovo vino: u ovom tanku od {formatDatumBezVremena(granica)}, a
+      prije toga{" "}
+      {lanac
+        .map(
+          (k) =>
+            `u tanku ${k.broj ?? "?"} (${formatDatumBezVremena(k.odAt)} – ${formatDatumBezVremena(k.doAt)})`
+        )
+        .join(", ")}
+      . Ostalo iz tih posuda pripada drugim vinima.
     </div>
   );
 }
@@ -1404,8 +1430,16 @@ export default async function TankPregledPage({
   // CIJENA: `granicaVina` je dva upita, po karici, u nizu — najdulji lanac u
   // podrumu 28.09.2026. ima tri karike, dakle do sest upita. `lib/` se radi
   // toga ne dira dok usporenje nije izmjereno kao stvarno.
+  //
+  // PRAZAN TANK NEMA LANAC. Povijest putuje s vinom; kad tank ostane prazan,
+  // u njemu nema nicega (vlasnikova odluka, 28.09.2026). `vinoUTanku` cita
+  // samo ulaze, pa za prazan tank vraca ZADNJE vino koje je u njemu bilo —
+  // T35 je tako u popisu pokazivao devet mjerenja iz T40 za vino koje je
+  // odavno u T42. Isto pravilo kao `odGraniceVina` (lib/granica-vina.ts):
+  // PRAZAN, ne NEMA_KNJIGE. Bez lanca nema ni naslijedenih tocaka grafa, ni
+  // mjerenja lanca u popisu, ni radnji lanca u kronologiji.
   const lanacVina: { tankId: string; odAt: Date | null; doAt: Date }[] = [];
-  {
+  if (granica.razlog !== "PRAZAN") {
     let cvor: VinoCvor = vinoDanas;
     while (cvor.vrsta === "spoj" && cvor.sastavnice.length === 1) {
       const s = cvor.sastavnice[0];
@@ -1418,6 +1452,41 @@ export default async function TankPregledPage({
       cvor = s.vino;
     }
   }
+
+  // Je li NASLIJEDENO mjerenje (iz druge posude) palo u prozor neke karike
+  // lanca. Zajednicko za graf i popis mjerenja, pa o naslijedenima oba sude
+  // isto.
+  //
+  // VLASTITA MJERENJA OVAJ TEST NE PROLAZE NIKAD: njih reze granica vina,
+  // uvijek, i u grafu i u popisu. Karika u samom ovom tanku zato se ovdje
+  // preskace (vlasnikova odluka, 28.09.2026).
+  //
+  // POZNATO I NERIJESENO: vino koje se vratilo u isti tank (T7 <- T4 <- T7).
+  // Njegova mjerenja iz prvog boravka u T7 (31.08.–17.09., 21 redak) jesu
+  // mjerenja ovog vina, ali ih ne pokazuje ni graf ni popis — granica ih
+  // reze kao vlastita. Ne rjesava se ovdje.
+  const uProzoruLanca = (tankId: string, trenutak: Date) =>
+    lanacVina.some(
+      (k) =>
+        k.tankId !== id &&
+        k.tankId === tankId &&
+        k.odAt != null &&
+        trenutak >= k.odAt &&
+        trenutak <= k.doAt
+    );
+  const tankPoBroju = new Map(sviTankovi.map((t) => [t.broj, t.id]));
+  const lanacZaNatpis = lanacVina
+    .filter((k): k is { tankId: string; odAt: Date; doAt: Date } => k.odAt != null)
+    .map((k) => ({
+      tankId: k.tankId,
+      broj: brojeviTankova.get(k.tankId) ?? null,
+      odAt: k.odAt,
+      doAt: k.doAt,
+    }));
+  // Graf i popis mjerenja uzimaju samo naslijedeno, a kronologija preskace
+  // `VinoRadnja` ciji je izvorni tank ovaj. Karika u samom ovom tanku
+  // (T7 <- T4 <- T7) nigdje zato nema nista i natpis je ne smije navesti.
+  const lanacDrugihPosuda = lanacZaNatpis.filter((k) => k.tankId !== id);
 
   // KUCICA NEMA IME VINA, I TO JE MJERENO STANJE, NE PROPUST.
   //
@@ -1738,19 +1807,24 @@ export default async function TankPregledPage({
           }
         : null,
       datum: izvor?.izmjerenoAt.toISOString() ?? null,
-      // GRAF POCINJE OD GRANICE VINA, kao i sve ostalo na ovoj stranici
-      // (vlasnikova odluka, 11.09.2026).
+      // GRAF IDE KROZ LANAC VINA (28.09.2026), ne vise od granice.
       //
       // Vlastita mjerenja ovog tanka + mjerenja istog vina iz ranijih posuda,
-      // spojena u jedan niz po vremenu — ali naslijedena tocka ne smije biti
-      // starija od granice. Tank s berbom od 08.09. crtao je secer od 16.06.:
-      // to je vino koje je tada bilo u toj posudi, ne ovo. Vlastita mjerenja
-      // granicu vec postuju kroz `mjerenjaTrenutnogVina` (s iznimkom pocetnog
-      // mjerenja punjenja, datiranog danom berbe), pa se ovdje ne rezu.
+      // spojena u jedan niz po vremenu. Vlastita granicu postuju kroz
+      // `mjerenjaTrenutnogVina` (s iznimkom pocetnog mjerenja punjenja,
+      // datiranog danom berbe), pa se ovdje ne rezu.
       //
-      // Posljedica: vino koje je pola zivota provelo u drugoj posudi nema na
-      // grafu tu povijest (tank 15 i tank 32 gube tocku iz tanka 8). Kartica
-      // iznad i dalje pokazuje vrijednost iz knjige, s datumom i posudom.
+      // Naslijedena tocka prolazi samo ako je izmjerena u posudi koja je karika
+      // `lanacVina`, unutar prozora te karike. Obicni pretok nije prekid u
+      // zivotu vina: mijenja se posuda, vino ostaje isto — a granica vina je
+      // trenutak ulaska u POSUDU, ne nastanak vina. Do 28.09. je ovdje stajala
+      // granica, pa je T21 (isto vino od 09.09., u tank dosao 25.09.) crtao
+      // secer od 25.09. i gubio dvanaest mjerenja iz T11.
+      //
+      // Lanac staje na prvom spoju vise izvora (cuvee), pa tocke iz posuda s
+      // druge strane cuveea ne ulaze — to je drugo vino.
+      //
+      // KARTICE IZNAD OSTAJU NA GRANICI: ovo je samo krivulja.
       //
       // Vlastito ima prednost: kad su oba niza imala isti trenutak, na grafu
       // ostaje redak ovog tanka (ima `jeRucno`, naslijedeni nema).
@@ -1768,7 +1842,11 @@ export default async function TankPregledPage({
           // mostova, ne povijest ovog vina. Ovo NIJE prag na vrijednosti (te se
           // prikazuju bez obzira na pokrivenost) nego na tome sto se CRTA.
           .filter((x) => !x.vlastito && x.postotak >= 50)
-          .filter((x) => !granicaVinaAt || x.izmjerenoAt >= granicaVinaAt)
+          .filter((x) => {
+            const posuda =
+              x.brojTanka != null ? tankPoBroju.get(x.brojTanka) : undefined;
+            return posuda != null && uProzoruLanca(posuda, x.izmjerenoAt);
+          })
           .map((x) => ({
             t: x.izmjerenoAt.toISOString(),
             v: x.vrijednost,
@@ -1918,13 +1996,127 @@ export default async function TankPregledPage({
     dolasciPrijenosom.length;
 
   const mjerenjaZaTop = mjerenja;
-  // Popis mjerenja poštuje istu granicu kao mreža parametara. Ne koristi
-  // mjerenjaZaParametre jer je ono suženo na tip RedakMjerenja, bez napomene.
-  const svaMjerenja = (
+
+  // POPIS MJERENJA — vlastita od granice vina, plus mjerenja istog vina iz
+  // posuda LANCA, u prozoru karike. Isti rez kao naslijedeni dio grafa.
+  // Mreza parametara i bentotest i dalje stoje na granici; ovo je samo popis.
+  //
+  // Svaki redak nosi posudu u kojoj je izmjeren: mjerenje ne mijenja adresu,
+  // i "cije je vino tada bilo" pita knjigu TE posude, ne ove.
+  type RedakPopisa = Pick<
+    (typeof mjerenja)[number],
+    | "id"
+    | "izmjerenoAt"
+    | "alkohol"
+    | "ukupneKiseline"
+    | "hlapiveKiseline"
+    | "slobodniSO2"
+    | "ukupniSO2"
+    | "secer"
+    | "ph"
+    | "temperatura"
+    | "bentotestDatum"
+    | "bentotestStatus"
+    | "napomena"
+  > & { posudaId: string };
+
+  // ARHIVA SE CITA OBAVEZNO (vidi AGENTS.md): arhiviranje SELI mjerenja, pa
+  // je `Mjerenje` prazna za svaku posudu lanca koja je u medjuvremenu
+  // arhivirana. Spaja se preko `ArhivaVina` po `tankId`, uz `brojTanka` kao
+  // rezervu — isti obrazac kao `mjerenjaStabla` gore.
+  //
+  // CIJENA: tri upita, samo kad lanac postoji — `ArhivaVina`, pa zivo i
+  // arhivsko usporedno.
+  //
+  // Karika u samom ovom tanku se preskace: vlastita mjerenja reze granica
+  // (vidi `uProzoruLanca`).
+  const mjerenjaLanca: RedakPopisa[] = [];
+  const kariceSProzorom = lanacVina.filter(
+    (k): k is { tankId: string; odAt: Date; doAt: Date } =>
+      k.odAt != null && k.tankId !== id
+  );
+  if (kariceSProzorom.length > 0) {
+    const posudeLanca = [...new Set(kariceSProzorom.map((k) => k.tankId))];
+    const brojeviLanca = posudeLanca
+      .map((x) => brojeviTankova.get(x))
+      .filter((x): x is number => x != null);
+
+    const arhiveLanca = await prisma.arhivaVina.findMany({
+      where: {
+        OR: [
+          { tankId: { in: posudeLanca } },
+          { brojTanka: { in: brojeviLanca } },
+        ],
+      },
+      select: { id: true, tankId: true, brojTanka: true },
+    });
+    // Arhivski redak kojem `tankId` nije upisan dobiva posudu iz svoje arhive.
+    const posudaArhive = new Map(
+      arhiveLanca.map((a) => [
+        a.id,
+        a.tankId ?? (a.brojTanka != null ? tankPoBroju.get(a.brojTanka) : undefined),
+      ])
+    );
+
+    const [zivaLanca, arhivskaLanca] = await Promise.all([
+      prisma.mjerenje.findMany({
+        where: {
+          OR: kariceSProzorom.map((k) => ({
+            tankId: k.tankId,
+            izmjerenoAt: { gte: k.odAt, lte: k.doAt },
+          })),
+        },
+      }),
+      // PROZOR KARIKE U SAMOM UPITU, ne tek u JS-u: posuda lanca nosi i
+      // mjerenja vina koja su ondje stajala prije i poslije ovoga (T32:
+      // 16 od 21 arhivskog retka bilo je izvan prozora).
+      prisma.arhivaVinaMjerenje.findMany({
+        where: {
+          OR: kariceSProzorom.flatMap((k) => {
+            const prozor = { gte: k.odAt, lte: k.doAt };
+            const arhiveKarike = arhiveLanca
+              .filter((a) => posudaArhive.get(a.id) === k.tankId)
+              .map((a) => a.id);
+            return [
+              { tankId: k.tankId, izmjerenoAt: prozor },
+              ...(arhiveKarike.length > 0
+                ? [{ arhivaVinaId: { in: arhiveKarike }, izmjerenoAt: prozor }]
+                : []),
+            ];
+          }),
+        },
+      }),
+    ]);
+
+    for (const m of zivaLanca) mjerenjaLanca.push({ ...m, posudaId: m.tankId });
+
+    // Isto mjerenje ne smije stajati dvaput, zivo i kao arhivska kopija.
+    const zivaIds = new Set(zivaLanca.map((m) => m.id));
+    for (const m of arhivskaLanca) {
+      if (m.izvornoMjerenjeId && zivaIds.has(m.izvornoMjerenjeId)) continue;
+      const posuda = m.tankId ?? posudaArhive.get(m.arhivaVinaId);
+      if (!posuda || !uProzoruLanca(posuda, m.izmjerenoAt)) continue;
+      mjerenjaLanca.push({ ...m, posudaId: posuda });
+    }
+  }
+
+  const vlastitaOdGranice: RedakPopisa[] = (
     granicaVinaAt
       ? mjerenja.filter((m) => m.izmjerenoAt >= granicaVinaAt)
       : mjerenja
-  ).slice(0, 100);
+  ).map((m) => ({ ...m, posudaId: id }));
+  // Redak po id-u se ne ponavlja: naslijedena i vlastita mjerenja danas se ne
+  // preklapaju (druga posuda), ali brana ostaje ako bi se to jednom promijenilo.
+  const vecUPopisu = new Set(vlastitaOdGranice.map((m) => m.id));
+  const svaMjerenja: RedakPopisa[] = [
+    ...vlastitaOdGranice,
+    ...mjerenjaLanca.filter((m) => !vecUPopisu.has(m.id)),
+  ]
+    .sort((a, b) => b.izmjerenoAt.getTime() - a.izmjerenoAt.getTime())
+    // REZ NA 100 TEK NAKON SPAJANJA, namjerno ostavljeno: kod dugog lanca
+    // retci iz lanca mogu potisnuti starija VLASTITA mjerenja s popisa.
+    // Najdulji popis 28.09.2026. je 33 retka (T26), pa se to jos ne dogadja.
+    .slice(0, 100);
 
   // FAZA C — CIJE JE VINO SVAKO MJERENJE MJERILO.
   //
@@ -1940,12 +2132,33 @@ export default async function TankPregledPage({
   // JEDAN UPIT ZA SVA MJERENJA, ne jedan po mjerenju: knjiga tanka se povuce
   // odjednom i preklopi u JS-u za svaki trenutak. Sto mjerenja inace znaci sto
   // odlazaka do baze (lib/paralelno.ts, pooler drzi 15 veza).
+  //
+  // PO POSUDI U KOJOJ JE MJERENO, ne po ovom tanku: mjerenje iz tanka 11 od
+  // 12.09. pita sto je tada bilo u tanku 11. `vinoUTrenucimaVise` to radi za
+  // sve posude odjednom, istim brojem upita kao dosadasnji poziv za jednu.
   const vinoPoMjerenju = new Map<string, VinoUTrenutku>();
 
   if (svaMjerenja.length > 0) {
-    const trenuci = svaMjerenja.map((m) => m.izmjerenoAt);
-    const vina = await vinoUTrenucima(prisma, id, trenuci);
-    svaMjerenja.forEach((m, i) => vinoPoMjerenju.set(m.id, vina[i]));
+    const poPosudi = new Map<string, RedakPopisa[]>();
+    for (const m of svaMjerenja) {
+      const popis = poPosudi.get(m.posudaId) ?? [];
+      popis.push(m);
+      poPosudi.set(m.posudaId, popis);
+    }
+    const vina = await vinoUTrenucimaVise(
+      prisma,
+      [...poPosudi].map(([tankId, redci]) => ({
+        tankId,
+        trenuci: redci.map((m) => m.izmjerenoAt),
+      }))
+    );
+    for (const [tankId, redci] of poPosudi) {
+      const zaPosudu = vina.get(tankId);
+      redci.forEach((m, i) => {
+        const v = zaPosudu?.[i];
+        if (v) vinoPoMjerenju.set(m.id, v);
+      });
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -2666,11 +2879,22 @@ export default async function TankPregledPage({
               : "nema bentotesta"}
           </div>
           {zadnje?.napomena ? <div>Napomena: {zadnje.napomena}</div> : null}
-          {granicaVinaAt ? (
+          {/* Vrijednosti i bentotest stoje na granici vina; graf od 28.09.2026.
+              ide kroz lanac. Jedna recenica za oboje vise ne bi bila tocna. */}
+          {granicaVinaAt && lanacDrugihPosuda.length === 0 ? (
             <div>
               Prikazana su mjerenja otkad je ovo vino u tanku (
               {formatDatumBezVremena(granicaVinaAt)}) nadalje — starija pripadaju
               prethodnom vinu.
+            </div>
+          ) : null}
+          {granicaVinaAt && lanacDrugihPosuda.length > 0 ? (
+            <div>
+              Vrijednosti i bentotest su iz mjerenja otkad je ovo vino u tanku (
+              {formatDatumBezVremena(granicaVinaAt)}). Graf uz to pokazuje i
+              mjerenja istog vina dok je stajalo u{" "}
+              {lanacDrugihPosuda.map((k) => `tanku ${k.broj ?? "?"}`).join(" i ")} —
+              uz svaku takvu točku piše posuda.
             </div>
           ) : null}
         </div>
@@ -3385,7 +3609,7 @@ export default async function TankPregledPage({
         broj={dogadaji.length}
         pod="sve što se s ovim vinom radilo"
       >
-        <OdPocetkaVina granica={granicaVinaAt} />
+        <OdPocetkaVina granica={granicaVinaAt} lanac={lanacDrugihPosuda} />
         <div style={{ padding: 10 }}>
           <Kronologija dogadaji={dogadaji} />
         </div>
@@ -3722,7 +3946,7 @@ export default async function TankPregledPage({
         pod="napomena i bentotest po zapisu"
         sklopljena
       >
-        <OdPocetkaVina granica={granicaVinaAt} />
+        <OdPocetkaVina granica={granicaVinaAt} lanac={lanacDrugihPosuda} />
         {svaMjerenja.length === 0 ? (
           <div style={mutedTextStyle}>Nema mjerenja.</div>
         ) : (
@@ -3753,6 +3977,14 @@ export default async function TankPregledPage({
                   >
                     <div style={{ fontSize: 13, fontWeight: 600, color: "#2f2f2f" }}>
                       {samoBentotest ? "Bentotest" : "Mjerenje"}
+                      {/* Mjerenje iz posude lanca: isto vino, druga posuda.
+                          Bez oznake bi se citalo kao mjerenje ovog tanka. */}
+                      {m.posudaId !== id ? (
+                        <span style={{ fontWeight: 400, color: "#6b7280" }}>
+                          {" "}
+                          · u tanku {brojeviTankova.get(m.posudaId) ?? "?"}
+                        </span>
+                      ) : null}
                     </div>
                     <div style={{ fontSize: 12, color: "#6b7280" }}>
                       {formatDatum(m.izmjerenoAt)}
