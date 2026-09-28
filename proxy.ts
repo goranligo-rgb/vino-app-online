@@ -77,6 +77,11 @@ export async function proxy(req: NextRequest) {
       // on i naslovnik ispisa — bez ovoga bi ga allow-lista vracala na
       // /dashboard i vlastita provjera u ruti ne bi ni dosla na red.
       pathname.startsWith("/dashboard/izvjestaji") ||
+      // Kucica iz sastava otvorena kao vino zamrznuto na trenutak ulaska.
+      // Otvara se sa stranice tanka, koju enolog vidi, pa mu pripada i ona —
+      // inace bi ga, kao kod /arhiva, klik vracao na /dashboard. Tocan match:
+      // ruta nema podstranica, sve je u parametrima upita.
+      pathname === "/prosli-tank" ||
       /^\/tankovi\/[^/]+$/.test(pathname);
 
     if (!allowed) {
@@ -129,5 +134,8 @@ export const config = {
     // u matcheru proxy uopce ne vidi, pa bi stranica bila otvorena svakome
     // tko zna URL — isti propust koji su dvije gornje vec imale.
     "/fermentacija/:path*",
+    // Isti razlog: bez ovoga proxy rutu ne vidi, pa je otvara svaka
+    // prijavljena rola koja zna adresu, i PREGLED.
+    "/prosli-tank/:path*",
   ],
 };
