@@ -239,12 +239,15 @@ function ParamTop({
   unit,
   tone,
   emphasize = false,
+  velika = false,
 }: {
   label: string;
   value: number | string | null | undefined;
   unit?: string;
   tone?: "default" | "green" | "red";
   emphasize?: boolean;
+  /** Glavna brojka stranice (kolicina vina) — krupno, cita se s udaljenosti. */
+  velika?: boolean;
 }) {
   const hasValue =
     value !== null &&
@@ -273,6 +276,7 @@ function ParamTop({
         style={{
           ...paramValueStyle,
           ...(emphasize ? paramValueStrongStyle : null),
+          ...(velika ? paramValueVelikaStyle : null),
           color: boja,
         }}
       >
@@ -2681,6 +2685,7 @@ export default async function TankPregledPage({
 
   return (
     <div style={pageStyle}>
+      <div style={omotacStyle}>
       <div style={headerStyle}>
         <div style={{ display: "grid", gap: 8 }}>
           <div>
@@ -2800,13 +2805,15 @@ export default async function TankPregledPage({
           label="Količina vina"
           value={formatBroj(tank.kolicinaVinaUTanku)}
           unit="L"
+          velika
         />
         <ParamTop
           label="Kapacitet"
           value={formatBroj(tank.kapacitet)}
           unit="L"
+          velika
         />
-        <ParamTop label="Slobodno" value={formatBroj(slobodno)} unit="L" />
+        <ParamTop label="Slobodno" value={formatBroj(slobodno)} unit="L" velika />
       </div>
 
 
@@ -2907,6 +2914,11 @@ export default async function TankPregledPage({
         </div>
       </Card>
 
+      {/* MREZA: Kvasci, Sastav i Odakle je vino jedan do drugoga, a ne jedan
+          ispod drugoga (app/globals.css, .tank-mreza). "Odakle" zauzima dva
+          stupca: stablo do sest razina u stupcu od 290 px se lomi. */}
+      <div className="tank-mreza">
+
       {/* --- KVASCI: sto je vino fermentiralo, ma gdje se to dogodilo. ---
 
           Stranica je do sada o kvascu sutjela, jer je kvasac zapisan kao
@@ -2944,40 +2956,35 @@ export default async function TankPregledPage({
               </div>
             )}
             {kvasci.stavke.map((kv, i) => (
-              <div
-                key={`${kv.naziv}-${i}`}
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "baseline",
-                  flexWrap: "wrap",
-                }}
-              >
-                <strong>{kv.naziv}</strong>
-                {kv.brojTanka !== null && (
-                  <span style={mutedTextStyle}>tank {kv.brojTanka}</span>
-                )}
-                <span style={mutedTextStyle}>{formatDatum(kv.datum)}</span>
-                <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
-                  {kv.poPartiji ? "≈ " : ""}
-                  {kv.postotak} %
-                </span>
+              <div key={`${kv.naziv}-${i}`} style={{ display: "grid", gap: 2 }}>
+                {/* Postotak odmah uz naziv, detalj u drugom redu. */}
+                <div style={nazivBrojRedStyle}>
+                  <strong>{kv.naziv}</strong>
+                  <strong style={brojUzNazivStyle}>
+                    {kv.poPartiji ? "≈ " : ""}
+                    {kv.postotak} %
+                  </strong>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {kv.brojTanka !== null && (
+                    <span style={mutedTextStyle}>tank {kv.brojTanka}</span>
+                  )}
+                  <span style={mutedTextStyle}>{formatDatum(kv.datum)}</span>
+                </div>
               </div>
             ))}
             {kvasci.bezZapisaPostotak > 0 && (
               <div
                 style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "baseline",
+                  ...nazivBrojRedStyle,
                   fontStyle: "italic",
                   ...mutedTextStyle,
                 }}
               >
                 <span>bez zapisa</span>
-                <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
+                <strong style={brojUzNazivStyle}>
                   {kvasci.bezZapisaPostotak} %
-                </span>
+                </strong>
               </div>
             )}
           </div>
@@ -3020,19 +3027,21 @@ export default async function TankPregledPage({
               {sastavKnjige.map((s) => (
                 <div key={s.nazivSorte} style={compositionRowStyle}>
                   <div style={compositionHeaderStyle}>
-                    <strong
-                      style={{
-                        fontWeight: 600,
-                        color: s.nepoznata ? "#6b7280" : undefined,
-                      }}
-                    >
-                      {s.nazivSorte}
-                    </strong>
-                    <span>
-                      <span style={{ color: "#6b7280", marginRight: 8 }}>
-                        {formatBroj(s.litre, 0)} L
-                      </span>
-                      {formatBroj(s.postotak)}%
+                    <div style={nazivBrojRedStyle}>
+                      <strong
+                        style={{
+                          fontWeight: 600,
+                          color: s.nepoznata ? "#6b7280" : undefined,
+                        }}
+                      >
+                        {s.nazivSorte}
+                      </strong>
+                      <strong style={brojUzNazivStyle}>
+                        {formatBroj(s.postotak)}%
+                      </strong>
+                    </div>
+                    <span style={{ color: "#6b7280" }}>
+                      {formatBroj(s.litre, 0)} L
                     </span>
                   </div>
 
@@ -3076,12 +3085,7 @@ export default async function TankPregledPage({
                 {udjeliSorti.map((u) => (
                   <div key={u.id} style={izKnjigeRedStyle}>
                     <span>{u.nazivSorte}</span>
-                    <strong
-                      style={{
-                        marginLeft: "auto",
-                        fontVariantNumeric: "tabular-nums",
-                      }}
-                    >
+                    <strong style={brojUzNazivStyle}>
                       {formatBroj(u.postotak)}%
                     </strong>
                   </div>
@@ -3118,6 +3122,7 @@ export default async function TankPregledPage({
           "NASLIJEDENO", 120 od 127 redaka na T42). Kad su ti redci maknuti,
           ovo je jedino mjesto koje odgovara na "od cega je ovo vino" — pa se
           ne smije prvo morati otvoriti. */}
+      <div className="tank-mreza-siroka">
       <Card title="Odakle je vino" broj={kucicePrveRazine.length} pod="kućica">
         <div style={{ display: "grid", gap: 10 }}>
           <div style={mutedTextStyle}>
@@ -3173,6 +3178,8 @@ export default async function TankPregledPage({
           )}
         </div>
       </Card>
+      </div>
+      </div>
 
       <Card title="Otvoreni zadaci" broj={otvoreniZadaci.length}>
         {otvoreniZadaci.length === 0 ? (
@@ -3750,18 +3757,21 @@ export default async function TankPregledPage({
             <>
               <div style={{ display: "grid", gap: 4 }}>
                 {podrijetloKnjige.stavke.map((s) => (
-                  <div key={s.berbaId} style={izKnjigeRedStyle}>
-                    <span>
-                      {s.nazivSorte}
-                      {s.oznakaBerbe ? ` · ${s.oznakaBerbe}` : ""}
-                      {s.vrstaUnosa === "ZATECENO" ? " · zatečeno" : ""}
-                    </span>
-                    <span style={{ color: "#6b7280", marginLeft: "auto" }}>
+                  <div key={s.berbaId} style={{ display: "grid", gap: 2 }}>
+                    {/* Postotak uz naziv, litre u drugom redu. */}
+                    <div style={izKnjigeRedStyle}>
+                      <span>
+                        {s.nazivSorte}
+                        {s.oznakaBerbe ? ` · ${s.oznakaBerbe}` : ""}
+                        {s.vrstaUnosa === "ZATECENO" ? " · zatečeno" : ""}
+                      </span>
+                      <strong style={brojUzNazivStyle}>
+                        {formatBroj(s.postotak)}%
+                      </strong>
+                    </div>
+                    <span style={{ color: "#6b7280", fontSize: 12 }}>
                       {formatBroj(s.uTankuL, 0)} L
                     </span>
-                    <strong style={{ fontVariantNumeric: "tabular-nums" }}>
-                      {formatBroj(s.postotak)}%
-                    </strong>
                   </div>
                 ))}
               </div>
@@ -4204,6 +4214,7 @@ export default async function TankPregledPage({
         )}
       </Card>
       </PovijestPrekidac>
+      </div>
     </div>
   );
 }
@@ -4212,11 +4223,34 @@ export default async function TankPregledPage({
 
 const pageStyle: React.CSSProperties = {
   background: "#f4f4f5",
-  padding: 16,
+  // Razmak raste sa sirinom ekrana: 24 px na stolu, 12 px na mobitelu — bez
+  // media upita, koji se inline ne da napisati.
+  padding: "clamp(12px, 3vw, 24px)",
   fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
   fontSize: 13,
   color: "#2f2f2f",
   minHeight: "100vh",
+};
+
+// BROJKA UZ NAZIV, ne na suprotnom kraju retka. Podebljana i odmah iza
+// naziva; detalj ide u drugi red ispod.
+const nazivBrojRedStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: 8,
+  flexWrap: "wrap",
+};
+
+const brojUzNazivStyle: React.CSSProperties = {
+  fontWeight: 700,
+  fontVariantNumeric: "tabular-nums",
+};
+
+// OGRANICENJE SIRINE — isti obrazac kao /statistika (containerStyle). Bez
+// njega se na 1920 px redak "naziv lijevo, brojka desno" razvuce preko 1888 px.
+const omotacStyle: React.CSSProperties = {
+  maxWidth: 1240,
+  margin: "0 auto",
 };
 
 const headerStyle: React.CSSProperties = {
@@ -4266,12 +4300,12 @@ const nazivVinaStyle: React.CSSProperties = {
   marginTop: 12,
   marginBottom: 2,
   textAlign: "center",
-  fontSize: 24,
+  fontSize: 34,
   fontWeight: 800,
   color: "#7f1d1d",
   lineHeight: 1.15,
   letterSpacing: 0.2,
-  // 24 px i dugacko ime („Bijeli pinot, sivi pinot, zeleni silvanac") na uskom
+  // 34 px i dugacko ime („Bijeli pinot, sivi pinot, zeleni silvanac") na uskom
   // prozoru ili uz zum od 150 % lako premase sirinu — neka se prelomi.
   overflowWrap: "anywhere",
 };
@@ -4367,6 +4401,13 @@ const paramValueStyle: React.CSSProperties = {
 const paramValueStrongStyle: React.CSSProperties = {
   fontSize: 18,
   fontWeight: 800,
+};
+
+const paramValueVelikaStyle: React.CSSProperties = {
+  fontSize: 28,
+  fontWeight: 800,
+  lineHeight: 1.1,
+  fontVariantNumeric: "tabular-nums",
 };
 
 const izBlendaSazetakStyle: React.CSSProperties = {
@@ -4638,11 +4679,10 @@ const compositionRowStyle: React.CSSProperties = {
   borderRadius: 0,
 };
 
+// Postotak uz naziv sorte, litre u drugom redu — ne na suprotnom kraju retka.
 const compositionHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 10,
-  alignItems: "center",
+  display: "grid",
+  gap: 2,
   marginBottom: 6,
 };
 

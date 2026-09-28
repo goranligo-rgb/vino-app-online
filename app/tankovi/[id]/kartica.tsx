@@ -78,7 +78,7 @@ const cardStyle: React.CSSProperties = {
 const cardTitleStyle: React.CSSProperties = {
   padding: "8px 10px",
   borderBottom: "1px solid rgba(127,29,29,0.18)",
-  fontSize: 13,
+  fontSize: 15,
   fontWeight: 600,
   display: "flex",
   alignItems: "baseline",

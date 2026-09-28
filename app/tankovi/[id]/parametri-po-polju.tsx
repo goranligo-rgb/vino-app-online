@@ -619,8 +619,10 @@ const plocicaOtvorenaStil: React.CSSProperties = {
   background: "#fffafa",
 };
 
+// Vrijednost parametra je glavna brojka plocice: krupno (28 px), a oznaka,
+// podnozje i broj mjerenja sitno (11 px) — vlasnik, 28.09.2026.
 const plocicaLabel: React.CSSProperties = {
-  fontSize: 10,
+  fontSize: 11,
   color: "#6b7280",
   textTransform: "uppercase",
   letterSpacing: "0.05em",
@@ -628,33 +630,34 @@ const plocicaLabel: React.CSSProperties = {
 };
 
 const plocicaVrijednost: React.CSSProperties = {
-  fontSize: 19,
+  fontSize: 28,
   fontWeight: 800,
+  lineHeight: 1.1,
   marginTop: 2,
   fontVariantNumeric: "tabular-nums",
   overflowWrap: "anywhere",
 };
 
 const plocicaTilda: React.CSSProperties = {
-  fontSize: 15,
+  fontSize: 22,
   fontWeight: 700,
   marginRight: 1,
 };
 
 const plocicaJedinica: React.CSSProperties = {
-  fontSize: 11,
+  fontSize: 13,
   fontWeight: 600,
   color: "#6b7280",
 };
 
 const plocicaPodnozje: React.CSSProperties = {
-  fontSize: 10,
+  fontSize: 11,
   marginTop: 3,
   lineHeight: 1.25,
 };
 
 const plocicaBroj: React.CSSProperties = {
-  fontSize: 10,
+  fontSize: 11,
   color: "#7f1d1d",
   fontWeight: 700,
   marginTop: 3,

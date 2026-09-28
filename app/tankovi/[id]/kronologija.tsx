@@ -186,28 +186,36 @@ export default function Kronologija({ dogadaji }: { dogadaji: Dogadaj[] }) {
                   const o = OZNAKE[d.vrsta];
                   const imaDetalje = (d.detalji?.length ?? 0) > 0;
 
+                  // REDAK JE MREZA: vrijeme | oznaka | opis (app/globals.css,
+                  // .kron-redak). Iznos stoji odmah uz naslov, u istoj celiji —
+                  // do sada je bio u zadnjem stupcu, stotinama piksela od teksta
+                  // koji opisuje.
                   const glava = (
-                    <>
-                      <div style={redGornji}>
+                    <div className="kron-redak">
+                      <span style={vrijemeStil}>
+                        {formatVrijeme(d.vrijeme)}
+                      </span>
+                      <span>
                         <span style={{ ...znacka, background: o.pozadina, color: o.boja }}>
                           {o.kratko}
                         </span>
-                        <span style={vrijemeStil}>
-                          {formatVrijeme(d.vrijeme)}
-                        </span>
-                        {d.iznos ? <span style={iznosStil}>{d.iznos}</span> : null}
+                      </span>
+
+                      <div className="kron-opis">
+                        <div style={naslovRed}>
+                          <span style={naslovStil}>{d.naslov}</span>
+                          {d.iznos ? <strong style={iznosStil}>{d.iznos}</strong> : null}
+                        </div>
+
+                        {d.podnaslov ? <div style={podnaslovStil}>{d.podnaslov}</div> : null}
+
+                        {d.tko ? <div style={tkoStil}>{d.tko}</div> : null}
+
+                        {d.upozorenje ? (
+                          <div style={upozorenjeStil}>⚠ {d.upozorenje}</div>
+                        ) : null}
                       </div>
-
-                      <div style={naslovStil}>{d.naslov}</div>
-
-                      {d.podnaslov ? <div style={podnaslovStil}>{d.podnaslov}</div> : null}
-
-                      {d.tko ? <div style={tkoStil}>{d.tko}</div> : null}
-
-                      {d.upozorenje ? (
-                        <div style={upozorenjeStil}>⚠ {d.upozorenje}</div>
-                      ) : null}
-                    </>
+                    </div>
                   );
 
                   if (!imaDetalje) {
@@ -297,12 +305,12 @@ const sazetakStil: React.CSSProperties = {
   listStyle: "none",
 };
 
-const redGornji: React.CSSProperties = {
+/** Naslov i iznos u istom retku, iznos odmah uz naslov. */
+const naslovRed: React.CSSProperties = {
   display: "flex",
-  alignItems: "center",
+  alignItems: "baseline",
   gap: 8,
   flexWrap: "wrap",
-  marginBottom: 4,
 };
 
 const znacka: React.CSSProperties = {
@@ -321,7 +329,6 @@ const vrijemeStil: React.CSSProperties = {
 };
 
 const iznosStil: React.CSSProperties = {
-  marginLeft: "auto",
   fontSize: 13,
   fontWeight: 700,
   color: "#2f2f2f",

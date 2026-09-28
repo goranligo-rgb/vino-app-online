@@ -48,6 +48,60 @@ body {
   }
 }
 
+/* Stranica tanka (app/tankovi/[id]/page.tsx): Kvasci, Sastav i Odakle je
+   vino jedan do drugoga. Ovdje, a ne inline, iz istog razloga kao gore: broj
+   stupaca ovisi o sirini ekrana, a media upit se u inline stilu ne moze
+   napisati. `minmax(0, 1fr)` i `min-width: 0` su obavezni — bez njih auto
+   staza raste sa sadrzajem i mobilni raspored se razvuce. "Odakle" zauzima dva
+   stupca: stablo do sest razina u jednom stupcu se lomi. */
+.tank-mreza {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 12px;
+  align-items: start;
+}
+.tank-mreza > * {
+  min-width: 0;
+}
+.tank-mreza-siroka {
+  grid-column: span 2;
+}
+@media (max-width: 1023px) {
+  .tank-mreza {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 639px) {
+  .tank-mreza {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tank-mreza-siroka {
+    grid-column: auto;
+  }
+}
+
+/* Redak kronologije (app/tankovi/[id]/kronologija.tsx): vrijeme | oznaka |
+   opis, s iznosom odmah uz naslov. Na mobitelu 92 + 122 px ostavi za opis
+   jedva 70 px, pa vrijeme i oznaka idu u jedan red, a opis ispod njih. */
+.kron-redak {
+  display: grid;
+  grid-template-columns: 92px 122px minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 4px;
+  align-items: baseline;
+}
+.kron-opis {
+  min-width: 0;
+}
+@media (max-width: 639px) {
+  .kron-redak {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .kron-opis {
+    grid-column: 1 / -1;
+  }
+}
+
 .signature-handwriting {
   font-size: 16px;
   color: #d4af37;
