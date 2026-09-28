@@ -125,11 +125,12 @@ type Boravak = { tankId: string; odMs: number; doMs: number };
  *
  * Prati se stanje po posudama: kad u posudi prvi put ima nesto, boravak
  * pocinje; kad padne na nulu, zavrsava. Partija koja je jos u posudi ima
- * otvoren boravak do sada.
+ * otvoren boravak do `krajMs` — do sada, ili do trazenog trenutka.
  */
 function boravciPartije(
   redci: RedakZaGranicu[],
-  praznjenja: Praznjenja
+  praznjenja: Praznjenja,
+  krajMs: number
 ): Boravak[] {
   const poredani = redci
     .map((r) => ({ ...r, sat: satKretanja(r, praznjenja) }))
@@ -158,7 +159,7 @@ function boravciPartije(
   }
 
   for (const [tankId, odMs] of otvoreni) {
-    out.push({ tankId, odMs, doMs: Date.now() });
+    out.push({ tankId, odMs, doMs: krajMs });
   }
 
   return out;
@@ -205,11 +206,46 @@ function stvarniLanac(
   return new Set(doKada.keys());
 }
 
+export type OpcijeParametara = {
+  /**
+   * PARAMETRI VINA KAKVO JE BILO U PROSLOM TRENUTKU — za kucicu koja se
+   * otvara zamrznuta na trenutak ulaska u drugi tank (/prosli-tank).
+   *
+   * Granica je UKLJUCIVA, kao `doTrenutkaSQL` i sva knjiga. Na sam trenutak
+   * cina izvor je vec umanjen (ispraznjen izvor ima 0 L), pa pozivatelj koji
+   * hoce vino NEPOSREDNO PRIJE cina salje `kada - 1 ms` — isti potez kao
+   * `citajUlazneCine` kad cita volumen prije ulaza.
+   *
+   * Zatvara tri skrivena "sada": partije se citaju iz knjige do tog trenutka
+   * (`stanjeTanka`), boravak koji je tada bio otvoren zatvara se na njemu, a
+   * ne na `Date.now()`, i mjerenje poslije njega ne ulazi ni u vrijednost ni
+   * u graf.
+   *
+   * CITA SE IZ KNJIGE, NIJE SNIMKA — i to je odluka, ne kvar (vlasnik,
+   * 28.09.2026). Ispravak ili unatrag datirano punjenje upisano poslije tog
+   * trenutka mijenja i ovaj prikaz proslosti: ispravak podataka mora
+   * popraviti i proslost. Sat je danasnji sat knjige (lib/sat-knjige.ts),
+   * s danasnjim znanjem o praznjenjima.
+   *
+   * Bez opcije ponasanje je doslovno ono od prije: nijedan filtar se ne
+   * ukljucuje, a otvoreni boravak se zatvara na `Date.now()`.
+   */
+  doTrenutka?: Date | null;
+};
+
 export async function parametriVinaIzKnjige(
   db: Klijent,
-  tankId: string
+  tankId: string,
+  opts?: OpcijeParametara
 ): Promise<ParametriVina | null> {
-  const stanje = await stanjeTanka(db, tankId);
+  const doTrenutka = opts?.doTrenutka ?? null;
+  const doMs = doTrenutka ? doTrenutka.getTime() : null;
+
+  const stanje = await stanjeTanka(
+    db,
+    tankId,
+    doTrenutka ? { doTrenutka } : undefined
+  );
   if (stanje.length === 0) return null;
 
   const ukupnoL = Number(stanje.reduce((z, s) => z + s.litre, 0).toFixed(3));
@@ -269,15 +305,28 @@ export async function parametriVinaIzKnjige(
     },
   });
 
+  // Praznjenja iz CIJELE knjige, i kad se pita prosli trenutak: sat retka je
+  // danasnji sat knjige, isti koji `stanjeTanka` racuna u SQL-u. Rez po
+  // trenutku ide tek nize, nad satom retka.
   const praznjenja = praznjenjaPosuda(kretanjaPosuda);
+
+  // Otvoreni boravak zatvara se na trazenom trenutku, inace na sadasnjem.
+  const krajMs = doMs ?? Date.now();
 
   const boravci = new Map<string, Boravak[]>();
   const posude = new Set<string>();
-  for (const [berbaId, redci] of poPartiji) {
+  for (const [berbaId, sviRedci] of poPartiji) {
+    // Samo kretanja do trazenog trenutka: ono sto se s partijom dogodilo
+    // poslije nije povijest vina kakvo je tada bilo.
+    const redci =
+      doMs === null
+        ? sviRedci
+        : sviRedci.filter((r) => satKretanja(r, praznjenja) <= doMs);
+
     // Samo boravci u posudama iz stvarnog lanca — sestrinske posude se ne
     // citaju ni za mjerenja ni za graf.
     const izvorne = stvarniLanac(tankId, redci, praznjenja);
-    const b = boravciPartije(redci, praznjenja).filter((x) =>
+    const b = boravciPartije(redci, praznjenja, krajMs).filter((x) =>
       izvorne.has(x.tankId)
     );
     boravci.set(berbaId, b);
@@ -340,7 +389,12 @@ export async function parametriVinaIzKnjige(
   const svaMjerenja = [
     ...ziva.map((m) => ({ ...m, izArhive: false })),
     ...arhivska.map((m) => ({ ...m, izArhive: true })),
-  ];
+  ].filter(
+    // Mjerenje poslije trazenog trenutka opisuje vino kakvo je postalo, a ne
+    // kakvo je tada bilo. Rez je izricit, ne samo posljedica zatvorenog
+    // boravka: ne smije ovisiti o tome je li partija u posudi jos bila.
+    (m) => doMs === null || m.izmjerenoAt.getTime() <= doMs
+  );
 
   // Brojevi posuda — prikaz uz vrijednost kaze GDJE je mjereno.
   const brojPoTanku = new Map<string, number | null>(

@@ -310,6 +310,79 @@ async function main() {
   );
 
   // -------------------------------------------------------------------------
+  await scenarij(
+    "8. doTrenutka: vino kakvo je bilo, ne kakvo je postalo",
+    async (tx) => {
+      const a = await napraviTank(tx);
+      const t = await napraviTank(tx);
+      const p1 = await napraviPartiju(tx, "Prva");
+      const p2 = await napraviPartiju(tx, "Druga");
+
+      await kretanje(tx, p1.id, null, a.id, 1000, 0);
+      await mjeri(tx, a.id, 1, { secer: 80 });
+      // Cijeli A ide u T u satu 5 — A je time ispraznjen.
+      await kretanje(tx, p1.id, a.id, t.id, 1000, 5);
+      await mjeri(tx, t.id, 7, { secer: 40 });
+      // Druga partija ulazi u T tek poslije trazenog trenutka.
+      await kretanje(tx, p2.id, null, t.id, 500, 8);
+
+      // 1. "sada": partije iz knjige do trenutka — druga partija jos ne postoji.
+      const t6 = await parametriVinaIzKnjige(tx, t.id, { doTrenutka: u(6) });
+      jednako(t6?.ukupnoL, 1000, "u satu 6 T ima samo prvu partiju");
+
+      // 3. "sada": mjerenje iz sata 7 jos se nije dogodilo.
+      jednako(t6?.poPolju.secer?.vrijednost, 80, "mjerenje poslije trenutka ne ulazi u vrijednost");
+      jednako(t6?.niz.secer?.length, 1, "ni u graf");
+
+      // 2. "sada" (boravak otvoren u trenutku zatvara se na njemu) i 3. (rez
+      // mjerenja) su DVIJE BRANE ZA ISTO: svaka sama drzi mjerenje iz sata 7
+      // vani. Tvrdnje iznad padaju tek kad nestanu obje — izmjereno
+      // mutacijama 28.09.2026. — pa se ni jedna ne smije maknuti uz izgovor
+      // da test i dalje prolazi.
+      const bezOpcije = await parametriVinaIzKnjige(tx, t.id);
+      jednako(bezOpcije?.poPolju.secer?.vrijednost, 40, "bez opcije vrijedi najnovije mjerenje, kao i prije");
+      jednako(bezOpcije?.ukupnoL, 1500, "bez opcije obje partije, kao i prije");
+
+      // Ispraznjen izvor: granica je UKLJUCIVA. Na sam trenutak cina A je
+      // prazan; milisekundu prije ima cijelo vino.
+      const naCinu = await parametriVinaIzKnjige(tx, a.id, { doTrenutka: u(5) });
+      jednako(naCinu, null, "na trenutak cina ispraznjen izvor nema vina");
+      const prije = await parametriVinaIzKnjige(tx, a.id, {
+        doTrenutka: new Date(u(5).getTime() - 1),
+      });
+      jednako(prije?.ukupnoL, 1000, "milisekundu prije cina izvor ima cijelo vino");
+      jednako(prije?.poPolju.secer?.vrijednost, 80, "i svoje mjerenje");
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  await scenarij(
+    "9. doTrenutka: posuda koja je dala vino tek POSLIJE trenutka nije u lancu",
+    async (tx) => {
+      const a = await napraviTank(tx);
+      const x = await napraviTank(tx);
+      const t = await napraviTank(tx);
+      const p = await napraviPartiju(tx, "Razdijeljena");
+
+      // Ista partija u dvije posude; X je izmjeren PRIJE trazenog trenutka.
+      await kretanje(tx, p.id, null, a.id, 1000, 0);
+      await kretanje(tx, p.id, null, x.id, 500, 0);
+      await mjeri(tx, x.id, 2, { alkohol: 9 });
+      await mjeri(tx, a.id, 2, { secer: 30 });
+      await kretanje(tx, p.id, a.id, t.id, 1000, 5);
+      // X da vino u T tek u satu 8 — u satu 6 to vino jos nije ondje.
+      await kretanje(tx, p.id, x.id, t.id, 500, 8);
+
+      const t6 = await parametriVinaIzKnjige(tx, t.id, { doTrenutka: u(6) });
+      jednako(t6?.poPolju.secer?.vrijednost, 30, "posuda iz koje je vino tada vec doslo ostaje");
+      jednako(t6?.poPolju.alkohol, undefined, "posuda koja ce dati vino tek poslije NE ulazi");
+
+      const danas = await parametriVinaIzKnjige(tx, t.id);
+      jednako(danas?.poPolju.alkohol?.vrijednost, 9, "bez opcije ta posuda ulazi, kao i prije");
+    }
+  );
+
+  // -------------------------------------------------------------------------
   console.log("");
   console.log(`proslo: ${proslo}, palo: ${pao}`);
 
