@@ -312,11 +312,70 @@ export async function DELETE(req: Request) {
   }
 }
 
+/**
+ * Sto bi brisanje cijele arhive tanka odnijelo — za potvrdu prije brisanja.
+ *
+ * "Bez originala" znaci da izvornog retka vise nema u `Mjerenje` / `Zadatak`:
+ * staro arhiviranje je originale brisalo, pa je arhivska kopija JEDINA.
+ * Arhivski redak bez `izvornoMjerenjeId` broji se takoder: originala nema.
+ * Mjereno 29.09.2026: takvih je 269 mjerenja (jedno bez izvornog id-a) i 68
+ * zadataka u cijeloj arhivi.
+ *
+ * Upiti idu redom, ne u Promise.all — pooler drzi 15 veza za cijelu aplikaciju.
+ */
+async function sadrzajArhiveTanka(tankId: string) {
+  const zapisa = await prisma.arhivaVina.count({ where: { tankId } });
+
+  const mjerenja = await prisma.arhivaVinaMjerenje.findMany({
+    where: { arhivaVina: { tankId } },
+    select: { izvornoMjerenjeId: true },
+  });
+  const izvornaMjerenja = mjerenja
+    .map((m) => m.izvornoMjerenjeId)
+    .filter((x): x is string => !!x);
+  const zivihMjerenja =
+    izvornaMjerenja.length > 0
+      ? await prisma.mjerenje.count({ where: { id: { in: izvornaMjerenja } } })
+      : 0;
+
+  const zadaci = await prisma.arhivaVinaZadatak.findMany({
+    where: { arhivaVina: { tankId } },
+    select: { izvorniZadatakId: true },
+  });
+  const izvorniZadaci = zadaci
+    .map((z) => z.izvorniZadatakId)
+    .filter((x): x is string => !!x);
+  const zivihZadataka =
+    izvorniZadaci.length > 0
+      ? await prisma.zadatak.count({ where: { id: { in: izvorniZadaci } } })
+      : 0;
+
+  return {
+    zapisa,
+    mjerenjaBezOriginala: mjerenja.length - zivihMjerenja,
+    zadatakaBezOriginala: zadaci.length - zivihZadataka,
+  };
+}
+
+/**
+ * "Obrisi sve za tank".
+ *
+ * Do 29.09.2026. ova ruta NIJE provjeravala rolu: svaki prijavljeni korisnik,
+ * i PREGLED, mogao ju je pozvati izravno — dok je brisanje JEDNOG zapisa
+ * (DELETE iznad) trazilo ADMIN. Sada trazi isto sto i DELETE.
+ *
+ * `samoBroji: true` ne brise nista, nego vraca `sadrzajArhiveTanka` — stranica
+ * to pokazuje u potvrdi prije pravog poziva.
+ */
 export async function PATCH(req: Request) {
   const user = await getAuthUser();
 
   if (!user) {
     return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+  }
+
+  if (user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Nemaš pravo pristupa." }, { status: 403 });
   }
 
   try {
@@ -328,6 +387,10 @@ export async function PATCH(req: Request) {
         { error: "tankId je obavezan." },
         { status: 400 }
       );
+    }
+
+    if (body?.samoBroji === true) {
+      return NextResponse.json(await sadrzajArhiveTanka(tankId));
     }
 
     const rezultat = await prisma.arhivaVina.deleteMany({

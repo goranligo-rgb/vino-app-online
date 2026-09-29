@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { dohvatiAuthUserKlijent } from "@/lib/auth-klijent";
 
 type Arhiva = {
   id: string;
@@ -81,6 +82,22 @@ export default function ArhivaPage() {
   const router = useRouter();
   const [data, setData] = useState<Arhiva[]>([]);
   const [poruka, setPoruka] = useState("");
+  const [jeAdmin, setJeAdmin] = useState(false);
+
+  // "Obrisi sve za tank" smije samo ADMIN (PATCH /api/arhiva), pa ga samo on i
+  // vidi. Uloga se pita server (GET /api/me); ovo sluzi SAMO za prikaz, pravu
+  // zastitu radi ruta.
+  useEffect(() => {
+    let otkazano = false;
+
+    dohvatiAuthUserKlijent().then((user) => {
+      if (!otkazano) setJeAdmin(user?.role === "ADMIN");
+    });
+
+    return () => {
+      otkazano = true;
+    };
+  }, []);
 
   async function ucitajArhivu() {
     try {
@@ -128,14 +145,35 @@ export default function ArhivaPage() {
   }
 
   async function obrisiSveZaTank(tankId: string, brojTanka: number) {
-    const potvrda = confirm(
-      `Obrisati cijelu arhivu za tank ${brojTanka}? Ovo je trajno.`
-    );
-    if (!potvrda) return;
-
     setPoruka("");
 
     try {
+      // Prvo se pita STO bi se obrisalo, pa tek onda potvrda: mjerenja i
+      // zadaci kojima nema originala postoje samo u arhivi.
+      const resBroj = await fetch("/api/arhiva", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ tankId, samoBroji: true }),
+      });
+
+      const sadrzaj = await resBroj.json().catch(() => null);
+
+      if (!resBroj.ok) {
+        setPoruka(sadrzaj?.error || "Brisanje arhive za tank nije uspjelo.");
+        return;
+      }
+
+      const potvrda = confirm(
+        `Obrisati cijelu arhivu za tank ${brojTanka}?\n\n` +
+          `Arhivskih zapisa: ${sadrzaj?.zapisa ?? 0}\n` +
+          `Mjerenja kojima nema originala: ${sadrzaj?.mjerenjaBezOriginala ?? 0}\n` +
+          `Zadataka kojima nema originala: ${sadrzaj?.zadatakaBezOriginala ?? 0}\n\n` +
+          `Ta mjerenja i zadaci postoje SAMO u arhivi. Brisanje je trajno i ne može se vratiti.`
+      );
+      if (!potvrda) return;
+
       const res = await fetch("/api/arhiva", {
         method: "PATCH",
         headers: {
@@ -332,15 +370,17 @@ export default function ArhivaPage() {
                               Obriši zapis
                             </button>
 
-                            <button
-                              type="button"
-                              onClick={() =>
-                                obrisiSveZaTank(row.tankId, row.brojTanka)
-                              }
-                              className="inline-flex items-center justify-center border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-medium text-red-700 transition hover:bg-red-100"
-                            >
-                              Obriši sve za tank
-                            </button>
+                            {jeAdmin ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  obrisiSveZaTank(row.tankId, row.brojTanka)
+                                }
+                                className="inline-flex items-center justify-center border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-medium text-red-700 transition hover:bg-red-100"
+                              >
+                                Obriši sve za tank
+                              </button>
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -404,13 +444,15 @@ export default function ArhivaPage() {
                         Obriši zapis
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => obrisiSveZaTank(row.tankId, row.brojTanka)}
-                        className="inline-flex items-center justify-center border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-medium text-red-700 transition hover:bg-red-100"
-                      >
-                        Obriši sve za tank
-                      </button>
+                      {jeAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => obrisiSveZaTank(row.tankId, row.brojTanka)}
+                          className="inline-flex items-center justify-center border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-medium text-red-700 transition hover:bg-red-100"
+                        >
+                          Obriši sve za tank
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 ))}
