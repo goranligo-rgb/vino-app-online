@@ -20,7 +20,16 @@
  *   - izvor koji se ispraznio vise nema `VinoRadnja` (snimka je dakle jedini
  *     zapis) i imao ih je prije cina — inace test ne bi dokazivao redoslijed.
  *
- * MUTACIJA: bez poziva snimke u motoru ili u filtraciji test mora pasti.
+ *   - izvrsi, ponisti, izvrsi ponovno: ponistavanje filtracije brise snimku
+ *     tog cina, pa drugo izvrsenje prolazi i ima tocno jednu, svjezu snimku.
+ *
+ * MUTACIJA: bez poziva snimke u motoru ili u filtraciji test mora pasti; bez
+ * brisanja snimke u `ponistiFiltraciju` takodjer.
+ *
+ * NIJE POKRIVENO: brisanje snimke pri ponistavanju PRETOKA. Ono zivi u
+ * rukovatelju rute (app/api/pretok/undo/route.ts), koji trazi prijavu i ne da
+ * se zvati iz skripte. Kod pretoka zaostala snimka ne rusi nista (ponovljeni
+ * pretok dobiva novi pretokId), nego ostaje trag ponistenog cina.
  *
  * NIJE POKRIVENO (29.09.2026.): podrijetlo KNJIGA. Nijedan od izabranih
  * tankova danas nema polje iz knjige — pokriveni su MJERENO, PRENESENO,
@@ -43,7 +52,11 @@ import { vrijednostiMonitora } from "../lib/monitor-vina";
 import { parametriVinaIzKnjige } from "../lib/parametri-vina";
 import { punjenjaTrenutnogVina } from "../lib/punjenje-vina";
 import { izvrsiPretok } from "../lib/pretok-motor";
-import { FiltracijaGreska, izvrsiFiltraciju } from "../lib/filtracija";
+import {
+  FiltracijaGreska,
+  izvrsiFiltraciju,
+  ponistiFiltraciju,
+} from "../lib/filtracija";
 
 type Tx = Prisma.TransactionClient;
 
@@ -400,6 +413,37 @@ async function main() {
           `T${r.broj}: nakon filtracije nema VinoRadnja — snimka je jedini zapis`
         );
         filtracijaProvjerena = true;
+
+        // 3. IZVRSI, PONISTI, IZVRSI PONOVNO. Ponistavanje vraca zadatak u
+        //    OTVOREN; zaostala snimka bi drugo izvrsenje srusila na
+        //    jedinstvenosti (zadatakId, tankId).
+        console.log(`\n3. FILTRACIJA: izvrsi, ponisti, izvrsi ponovno (T${izvor.broj})`);
+        await ponistiFiltraciju(tx, { zadatakId: zadatak.id });
+        jednako(
+          await tx.snimkaVina.count({ where: { zadatakId: zadatak.id } }),
+          0,
+          "nakon ponistavanja nema snimke tog cina"
+        );
+
+        const r2 = await referenca(tx, izvor.id, litre, new Date());
+        let drugoIzvrsenje: string | null = null;
+        try {
+          // Unutarnja tocka spremanja: pad drugog izvrsenja ne smije
+          // pokvariti vanjsku transakciju, nego se zabiljeziti kao PAO.
+          await tx.$executeRawUnsafe("SAVEPOINT drugo_izvrsenje");
+          await izvrsiFiltraciju(tx, {
+            zadatakId: zadatak.id,
+            izvrsioKorisnikId: korisnik.id,
+          });
+          await tx.$executeRawUnsafe("RELEASE SAVEPOINT drugo_izvrsenje");
+        } catch (e: any) {
+          await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT drugo_izvrsenje");
+          drugoIzvrsenje = String(e?.code ?? e?.message ?? e).slice(0, 200);
+        }
+        jednako(drugoIzvrsenje, null, "drugo izvrsenje prolazi");
+        if (drugoIzvrsenje == null) {
+          await provjeriSnimku(tx, { zadatakId: zadatak.id }, "FILTRACIJA", r2);
+        }
       });
     } catch (e: any) {
       // Redoslijed zadataka na PRAVOM tanku smije odbiti kandidata; sve

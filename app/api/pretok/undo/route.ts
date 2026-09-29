@@ -335,6 +335,15 @@ export async function POST(req: Request) {
         where: { pretokId: pretok.id },
       });
 
+      // 3b) obriši snimke vina ovog pretoka. Poništen čin ne ostavlja trag —
+      //     isto pravilo kao za automatska mjerenja (vlasnik, 29.09.2026.).
+      //     Snimka NEMA strani ključ na Pretok (mora preživjeti brisanje
+      //     arhive), pa je kaskada ne bi odnijela; polja i radnje idu
+      //     kaskadom sa snimke.
+      await tx.snimkaVina.deleteMany({
+        where: { pretokId: pretok.id },
+      });
+
       // 4) obriši pretok (cascade briše izvore i snapshot relacije)
       await tx.pretok.delete({
         where: { id: pretok.id },

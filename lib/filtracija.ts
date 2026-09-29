@@ -1990,6 +1990,13 @@ export async function ponistiFiltraciju(
 
   await tx.radnja.deleteMany({ where: { zadatakId: zadatak.id } });
 
+  // SNIMKA VINA OVOG CINA se brise — ponisten cin ne ostavlja trag, isto
+  // pravilo kao za automatska mjerenja (vlasnik, 29.09.2026.). Nije samo
+  // red: zadatak se ovdje vraca u OTVOREN, a ponovno izvrsenje upisuje
+  // snimku s istim (zadatakId, tankId) — zaostala bi srusila cijeli prijenos
+  // na jedinstvenosti. Polja i radnje snimke idu kaskadom.
+  await tx.snimkaVina.deleteMany({ where: { zadatakId: zadatak.id } });
+
   // RADNJE KOJE PUTUJU S VINOM — preracunaj pogodjene tankove iz knjige.
   //
   // Ide IZA `radnja.deleteMany`: radnje ovog zadatka vise ne postoje, pa ih
