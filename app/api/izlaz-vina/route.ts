@@ -5,12 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { citajSesiju } from "@/lib/auth-sesija";
 import { imenaPodruma } from "@/lib/ime-vina";
 import { jeL12 } from "@/lib/auth-role";
-import {
-  IzlazGreska,
-  izvrsiIzlaz,
-  pripremiIzlaz,
-  type PripremljenIzlaz,
-} from "@/lib/izlaz-vina";
+import { IzlazGreska, izvrsiIzlaz } from "@/lib/izlaz-vina";
 
 type AuthUser = {
   id: string;
@@ -104,19 +99,32 @@ export async function POST(req: Request) {
       );
     }
 
-    // Tank, provjera stanja i izracun — lib/izlaz-vina.ts. Greska nosi isti
-    // status i istu poruku kao dosadasnji odgovori ove rute.
-    let pripremljen: PripremljenIzlaz;
+    // Cijeli izlaz — zakljucavanje tanka, provjera stanja, izlaz, snimka vina,
+    // knjiga, arhiva — u JEDNOJ transakciji (lib/izlaz-vina.ts). Greska
+    // provjere nosi isti status i istu poruku kao dosadasnji odgovori rute.
+    //
+    // TIMEOUT 30 s (do 29.09.2026. zadanih 5 s), kao pretok. Izmjereno:
+    // zavrsni izlaz sa snimkom 2,1–3,1 s s lokalnog racunala; vidi komentar
+    // uz snimku u lib/izlaz-vina.ts. maxWait 5 s: cekanje na vezu iz poola.
+    let rezultat: Awaited<ReturnType<typeof izvrsiIzlaz>>;
     try {
-      pripremljen = await pripremiIzlaz(prisma, {
-        tankId,
-        tip,
-        datum,
-        kolicinaLitara,
-        brojBocaRaw,
-        volumenBoce,
-        korisnickaNapomena,
-      });
+      rezultat = await prisma.$transaction(
+        (tx) =>
+          izvrsiIzlaz(
+            tx,
+            {
+              tankId,
+              tip,
+              datum,
+              kolicinaLitara,
+              brojBocaRaw,
+              volumenBoce,
+              korisnickaNapomena,
+            },
+            { id: user.id, ime: user.ime ?? null }
+          ),
+        { timeout: 30_000, maxWait: 5_000 }
+      );
     } catch (e) {
       if (e instanceof IzlazGreska) {
         return NextResponse.json({ error: e.message }, { status: e.status });
@@ -124,11 +132,7 @@ export async function POST(req: Request) {
       throw e;
     }
 
-    const { tank, trenutnoLitara, novoStanje } = pripremljen;
-
-    const rezultat = await prisma.$transaction((tx) =>
-      izvrsiIzlaz(tx, pripremljen, { id: user.id, ime: user.ime ?? null })
-    );
+    const { tank, trenutnoLitara, novoStanje } = rezultat.pripremljen;
 
 
     return NextResponse.json({

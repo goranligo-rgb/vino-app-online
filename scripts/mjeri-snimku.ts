@@ -5,6 +5,9 @@
  *
  * Pokretanje:  npx tsx scripts/mjeri-snimku.ts
  *
+ * Od koraka 5c mjeri i ZAVRSNI IZLAZ (lib/izlaz-vina.ts): 29.09.2026. sa
+ * snimkom i kopiranjem u arhivu 2,8–3,1 s na T42 (vidi komentar uz snimku).
+ *
  * SIGURNOST: svaka transakcija na kraju NAMJERNO PUKNE (Rollback), pa u bazi
  * ne ostaje nijedan redak — na kraju se to i provjeri. Pretok dira PRAVE
  * tankove i drzi ih zakljucane dok transakcija traje (nekoliko sekundi).
@@ -29,6 +32,7 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { izvrsiPretok } from "../lib/pretok-motor";
 import { procitajMonitorVina, snimiVinoKojeIzlazi } from "../lib/snimka-vina";
+import { izvrsiIzlaz } from "../lib/izlaz-vina";
 
 type Tx = Prisma.TransactionClient;
 
@@ -272,9 +276,28 @@ async function main() {
     );
   }
 
+  // 4. ZAVRSNI IZLAZ (punjenje cijelog tanka), pravi put: izvrsiIzlaz sa
+  //    zakljucavanjem, snimkom i arhiviranjem. Dvaput po tanku.
+  for (const broj of [42, 43, 5]) {
+    const t = poBroju.get(broj)!;
+    for (let k = 0; k < 2; k++) {
+      const r = await uRollbacku((tx) =>
+        mjeri(() =>
+          izvrsiIzlaz(
+            tx,
+            { tankId: t.id, tip: "PUNJENJE", datum: new Date(), kolicinaLitara: Number(t.kolicinaVinaUTanku), brojBocaRaw: null, volumenBoce: 0.75, korisnickaNapomena: "MJERENJE — rollback" },
+            { id: korisnik.id, ime: null }
+          )
+        )
+      );
+      console.log(`
+4. ZAVRSNI IZLAZ T${broj}: ${f(r.ms)} / ${r.upita} upita (arhiva ${r.r.arhivaId ? "da" : "NE"})`);
+    }
+  }
+
   // Dokaz da nista nije ostalo.
   const [ostalo] = await db.$queryRawUnsafe<any[]>(
-    `SELECT (SELECT count(*) FROM "SnimkaVina")::int AS snimke, (SELECT count(*) FROM "Pretok" WHERE napomena LIKE 'MJERENJE%')::int AS pretoci`
+    `SELECT (SELECT count(*) FROM "SnimkaVina")::int AS snimke, (SELECT count(*) FROM "Pretok" WHERE napomena LIKE 'MJERENJE%')::int AS pretoci, (SELECT count(*) FROM "IzlazVina" WHERE napomena LIKE 'MJERENJE%')::int AS izlazi`
   );
   console.log("\nOSTALO U BAZI:", ostalo);
 }

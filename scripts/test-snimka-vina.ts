@@ -59,6 +59,7 @@ import {
 } from "../lib/filtracija";
 import { citajUlazneCine, vinoUTanku } from "../lib/identitet-vina";
 import { snimkaKucice } from "../lib/snimka-vina";
+import { IzlazGreska, izvrsiIzlaz } from "../lib/izlaz-vina";
 
 type Tx = Prisma.TransactionClient;
 
@@ -199,7 +200,7 @@ async function referenca(
 // ---------------------------------------------------------------------------
 async function provjeriSnimku(
   tx: Tx,
-  where: { pretokId: string } | { zadatakId: string },
+  where: { pretokId: string } | { zadatakId: string } | { izlazVinaId: string },
   cin: string,
   r: Referenca
 ) {
@@ -346,6 +347,8 @@ async function main() {
     orderBy: { broj: "asc" },
   });
   const korisnik = await prisma.user.findFirstOrThrow({ select: { id: true } });
+  const arhivaPrije = await prisma.arhivaVina.count();
+  const izlazaPrije = await prisma.izlazVina.count();
 
   const puni = tankovi.filter((t) => Number(t.kolicinaVinaUTanku ?? 0) > 0);
   const prazni = tankovi
@@ -538,14 +541,95 @@ async function main() {
   tvrdi(filtracijaProvjerena, "filtracija je provjerena na barem jednom tanku");
 
   // -------------------------------------------------------------------------
+  // 4. IZLAZ, DJELOMICAN — prodaja iz tanka s najvise blend izvora, kroz
+  //    izvrsiIzlaz (lib/izlaz-vina.ts), kako ga zove POST /api/izlaz-vina.
+  // -------------------------------------------------------------------------
+  console.log(`\n4. IZLAZ (prodaja, djelomicno): T${djelomicni.broj} 100 L`);
+  await uRollbacku(async (tx) => {
+    const datum = new Date();
+    const r = await referenca(tx, djelomicni.id, 100, datum);
+    const rez = await izvrsiIzlaz(
+      tx,
+      { tankId: djelomicni.id, tip: "PRODAJA", datum, kolicinaLitara: 100, brojBocaRaw: null, volumenBoce: null, korisnickaNapomena: null },
+      { id: korisnik.id, ime: null }
+    );
+    await provjeriSnimku(tx, { izlazVinaId: rez.izlaz.id }, "PRODAJA", r);
+    jednako(rez.arhivaId, null, `T${r.broj}: djelomican izlaz nema arhive`);
+    const s = await tx.snimkaVina.findFirst({ where: { izlazVinaId: rez.izlaz.id } });
+    jednako(s?.arhivaVinaId ?? null, null, `T${r.broj}: snimka djelomicnog izlaza nema arhivaVinaId`);
+  });
+
+  // -------------------------------------------------------------------------
+  // 5. IZLAZ, ZAVRSNI — punjenje cijelog tanka u boce. Tank s kvascem i s
+  //    vlastitim vrijednostima monitora: samo tako pada snimka koja bi se
+  //    uzela POSLIJE knjige (monitor bi vidio prazan tank) ili POSLIJE
+  //    praznjenja (`VinoRadnja` bi bile obrisane).
+  // -------------------------------------------------------------------------
+  const zavrsni = kandidati[0];
+  const litreZavrsnog = Number(zavrsni.kolicinaVinaUTanku);
+  console.log(`\n5. IZLAZ (punjenje, zavrsno): T${zavrsni.broj} sve (${litreZavrsnog} L)`);
+  await uRollbacku(async (tx) => {
+    const datum = new Date();
+    const r = await referenca(tx, zavrsni.id, litreZavrsnog, datum);
+    tvrdi(
+      r.monitor.izbor.some((o) => o.vrijednost != null),
+      `T${r.broj}: prije izlaza monitor ima barem jednu vrijednost (inace test ne dokazuje redoslijed)`
+    );
+    tvrdi(r.vinoRadnje.some((v) => v.jeKvasac), `T${r.broj}: prije izlaza ima kvasac`);
+
+    const rez = await izvrsiIzlaz(
+      tx,
+      { tankId: zavrsni.id, tip: "PUNJENJE", datum, kolicinaLitara: litreZavrsnog, brojBocaRaw: null, volumenBoce: 0.75, korisnickaNapomena: null },
+      { id: korisnik.id, ime: null }
+    );
+    await provjeriSnimku(tx, { izlazVinaId: rez.izlaz.id }, "PUNJENJE", r);
+    tvrdi(!!rez.arhivaId, `T${r.broj}: zavrsni izlaz stvara arhivu`);
+    const s = await tx.snimkaVina.findFirst({ where: { izlazVinaId: rez.izlaz.id } });
+    jednako(s?.arhivaVinaId ?? null, rez.arhivaId, `T${r.broj}: snimka nosi arhivaVinaId arhive istog izlaza`);
+    jednako(
+      await tx.vinoRadnja.count({ where: { tankId: zavrsni.id } }),
+      0,
+      `T${r.broj}: nakon zavrsnog izlaza nema VinoRadnja — snimka je jedini zapis`
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // 6. IZLAZ VECI OD STANJA — provjera pod zakljucavanjem, ista greska kao
+  //    prije (IzlazGreska 400), i nista se ne upisuje.
+  // -------------------------------------------------------------------------
+  console.log(`\n6. IZLAZ veci od stanja: T${zavrsni.broj}`);
+  {
+    let greska: any = null;
+    try {
+      await prisma.$transaction((tx) =>
+        izvrsiIzlaz(
+          tx,
+          { tankId: zavrsni.id, tip: "PRODAJA", datum: new Date(), kolicinaLitara: 9_999_999, brojBocaRaw: null, volumenBoce: null, korisnickaNapomena: null },
+          { id: korisnik.id, ime: null }
+        )
+      );
+    } catch (e) {
+      greska = e;
+    }
+    tvrdi(greska instanceof IzlazGreska && greska.status === 400, `izlaz veci od stanja: IzlazGreska 400 (dobiveno ${greska?.name} ${greska?.status})`);
+    jednako(
+      String(greska?.message ?? "").startsWith("Nema dovoljno vina u tanku. Trenutno stanje je "),
+      true,
+      "izlaz veci od stanja: ista poruka kao prije"
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Nista nije ostalo.
   // -------------------------------------------------------------------------
   const [ostalo] = await prisma.$queryRawUnsafe<any[]>(
     `SELECT (SELECT count(*) FROM "SnimkaVina")::int AS snimke,
             (SELECT count(*) FROM "Pretok" WHERE napomena LIKE 'TEST snimka%')::int AS pretoci,
-            (SELECT count(*) FROM "Zadatak" WHERE naslov LIKE 'TEST snimka%')::int AS zadaci`
+            (SELECT count(*) FROM "Zadatak" WHERE naslov LIKE 'TEST snimka%')::int AS zadaci,
+            (SELECT count(*) FROM "ArhivaVina")::int AS arhiva`
   );
-  jednako(ostalo, { snimke: 0, pretoci: 0, zadaci: 0 }, "u bazi nije nista ostalo");
+  jednako(ostalo, { snimke: 0, pretoci: 0, zadaci: 0, arhiva: arhivaPrije }, "u bazi nije nista ostalo");
+  jednako(await prisma.izlazVina.count(), izlazaPrije, "nijedan izlaz nije ostao");
 
   console.log(`\n${proslo} proslo, ${pao} palo`);
   if (pao > 0) process.exitCode = 1;

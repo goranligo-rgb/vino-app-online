@@ -1,11 +1,12 @@
 import { Prisma } from "@prisma/client";
 import { citajGranicuArhive, odGranice } from "@/lib/granica-arhive";
-import { uLitre, uMl, podijeliMl } from "@/lib/filtracija";
+import { podijeliMl, uLitre, uMl, zakljucajTankove } from "@/lib/filtracija";
 import { zabiljeziIzlaz } from "@/lib/berba-knjiga";
 import { stanjeTanka } from "@/lib/berba-model";
 import { upisiVinoRadnju } from "@/lib/vino-radnja";
 import { isprazniTank } from "@/lib/prazni-tank";
 import { imeVinaSada } from "@/lib/ime-vina";
+import { snimiVinoKojeIzlazi } from "@/lib/snimka-vina";
 
 /**
  * IZLAZ VINA — punjenje u boce i prodaja rinfuze.
@@ -394,13 +395,20 @@ export type PripremljenIzlaz = UnosIzlaza & {
   trenutnoLitara: number;
   brojBoca: number | null;
   novoStanje: number;
+  /**
+   * Je li izlaz ispraznio tank (`novoStanje <= PRAZNO_PRAG`). Racuna se
+   * JEDNOM, ovdje; iz njega citaju i snimka vina i arhiviranje, pa ne mogu
+   * reci dvije razlicite stvari o istom izlazu.
+   */
+  ispraznjen: boolean;
   izlazNapomena: string;
   opisRadnje: string;
 };
 
 /**
- * Tank, provjera stanja i izracun napomena — izvan transakcije, kao i do
- * sada. (U koraku 5c ovo seli u transakciju, pod zakljucavanje tanka.)
+ * Tank, provjera stanja i izracun napomena. Od koraka 5c zove se UNUTAR
+ * transakcije, nakon zakljucavanja tanka (`izvrsiIzlaz`); izvezena je i
+ * sama, za testove.
  */
 export async function pripremiIzlaz(
   db: { tank: Tx["tank"] },
@@ -465,21 +473,32 @@ export async function pripremiIzlaz(
     trenutnoLitara,
     brojBoca,
     novoStanje,
+    ispraznjen: novoStanje <= PRAZNO_PRAG,
     izlazNapomena,
     opisRadnje,
   };
 }
 
 /**
- * Izlaz u transakciji: zapis izlaza, stanje tanka, radnja, knjiga berbe i —
- * kad tank padne na nulu — arhiva i praznjenje. Tijelo je doslovno ono koje
- * je stajalo u ruti.
+ * Izlaz u transakciji: zakljucavanje tanka, provjera stanja, zapis izlaza,
+ * snimka vina, stanje tanka, radnja, knjiga berbe i — kad tank padne na nulu
+ * — arhiva i praznjenje.
+ *
+ * ZAKLJUCAVANJE (korak 5c, 29.09.2026.). Do tada se kolicina u tanku citala
+ * i provjeravala IZVAN transakcije, bez zakljucavanja: dva istovremena izlaza
+ * iz istog tanka mogla su zajedno izdati vise nego sto u njemu ima. Sada se
+ * tank zakljuca (isti `zakljucajTankove` kao motor pretoka) i tek onda cita.
+ * Greska provjere (`IzlazGreska`) ponistava transakciju; ruta je vraca s
+ * istim statusom i porukom kao prije.
  */
 export async function izvrsiIzlaz(
   tx: Tx,
-  p: PripremljenIzlaz,
+  unos: UnosIzlaza,
   user: { id: string; ime?: string | null }
 ) {
+  await zakljucajTankove(tx, [unos.tankId]);
+  const p = await pripremiIzlaz(tx, unos);
+
   const {
     tankId,
     tip,
@@ -490,10 +509,10 @@ export async function izvrsiIzlaz(
     tank,
     trenutnoLitara,
     novoStanje,
+    ispraznjen,
     izlazNapomena,
     opisRadnje,
   } = p;
-
 
   const izlaz = await tx.izlazVina.create({
     data: {
@@ -507,10 +526,43 @@ export async function izvrsiIzlaz(
       // na pripadnoj Radnja.
       korisnikId: user.id,
       napomena:
-        novoStanje <= PRAZNO_PRAG
+        ispraznjen
           ? `${izlazNapomena} • završni izlaz • tank ispražnjen • arhivirano`
           : izlazNapomena,
     },
+  });
+
+  // SNIMKA VINA KOJE IZLAZI (lib/snimka-vina.ts) — pri SVAKOM izlazu, i
+  // djelomicnom. Razina 1 arhive: puna evidencija vina napunjenog u boce ili
+  // prodanog (AGENTS.md) cita se iz nje.
+  //
+  // MJESTO: odmah nakon `izlazVina.create` (CHECK trazi `izlazVinaId`), a
+  // PRIJE `upisiVinoRadnju` i `zabiljeziIzlaz`. Poslije knjige bi zavrsni
+  // izlaz vidio prazan tank — granica vina PRAZAN — i monitor ne bi snimio
+  // nista; poslije `isprazniTank` (arhiviranje nize) ne bi bilo ni
+  // `VinoRadnja`, jedinog tocnog izvora udjela kvasca. Ako snimka padne,
+  // pada i izlaz: izlaz bez snimke je trajna rupa.
+  //
+  // CIJENA — izmjereno 29.09.2026. (rollback, zavrsno punjenje cijelog
+  // tanka, s lokalnog racunala, ~22 ms po upitu):
+  //   - zavrsni izlaz danas (kopira u arhivu, bez snimke): 1,2–1,8 s;
+  //   - sa snimkom, s kopiranjem: 2,8–3,1 s (najgori slucaj, T42);
+  //   - nakon koraka 5d (bez kopiranja, sa snimkom): 2,1–2,4 s;
+  //   - prag vlasnika 10 s; timeout transakcije dignut je s 5 na 30 s;
+  //   - trosak raste s brojem BLEND IZVORA, ne s kolicinom vina: T42 ima
+  //     80.550 L, a skup je zbog blenda od 14 izvora;
+  //   - uklanjanje kopiranja u 5d skracuje izlaz otprilike za pola i stedi
+  //     17–41 upit.
+  // Kad se usporenje pojavi na produkciji: scripts/mjeri-snimku.ts.
+  const snimkaId = await snimiVinoKojeIzlazi(tx, {
+    cin: tip,
+    izlazVinaId: izlaz.id,
+    tankId,
+    dogodenoAt: datum,
+    litrePrije: trenutnoLitara,
+    litreOtislo: kolicinaLitara,
+    ispraznjen,
+    korisnikId: user.id,
   });
 
   await tx.tank.update({
@@ -544,7 +596,7 @@ export async function izvrsiIzlaz(
   //
   // Kad tank padne na nulu, ovo se preskace: `arhivirajPrazanTank` nize
   // ionako brise sve retke blenda.
-  if (novoStanje > PRAZNO_PRAG && trenutnoLitara > 0) {
+  if (!ispraznjen && trenutnoLitara > 0) {
     const blendIzvori = await tx.blendIzvor.findMany({
       where: { ciljTankId: tankId },
       orderBy: { id: "asc" },
@@ -620,7 +672,7 @@ export async function izvrsiIzlaz(
 
   let arhivaId: string | null = null;
 
-  if (novoStanje <= PRAZNO_PRAG) {
+  if (ispraznjen) {
     const arhiva = await arhivirajPrazanTank(
       tx,
       tankId,
@@ -628,6 +680,15 @@ export async function izvrsiIzlaz(
       trenutnoLitara
     );
     arhivaId = arhiva?.id ?? null;
+
+    // Snimka dobiva vezu na arhivu tek sada, kad arhiva postoji. Bez FK
+    // (lib/snimka-vina.ts): snimka mora prezivjeti brisanje arhive.
+    if (arhivaId) {
+      await tx.snimkaVina.update({
+        where: { id: snimkaId },
+        data: { arhivaVinaId: arhivaId },
+      });
+    }
 
     // Tank je arhiviran i očišćen na nulu. Ako knjiga u njemu i dalje nešto
     // tvrdi — jer je imala više nego tank — taj bi ostatak visio na tanku
@@ -652,5 +713,5 @@ export async function izvrsiIzlaz(
     }
   }
 
-  return { izlaz, arhivaId };
+  return { izlaz, arhivaId, pripremljen: p };
 }
