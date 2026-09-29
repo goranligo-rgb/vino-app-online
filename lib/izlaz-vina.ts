@@ -37,20 +37,6 @@ function formatBrojTekst(v: number | null | undefined, decimals = 2) {
   });
 }
 
-function prikaziImeKorisnika(
-  korisnik:
-    | {
-        ime?: string | null;
-        username?: string | null;
-        email?: string | null;
-      }
-    | null
-    | undefined
-) {
-  if (!korisnik) return null;
-  return korisnik.ime ?? korisnik.username ?? korisnik.email ?? null;
-}
-
 // Izvezeno zbog scripts/test-arhiviranje-baza.ts, koji je od koraka 5b uvozi
 // preko app/api/izlaz-vina/route.ts (vidi ondje).
 export async function arhivirajPrazanTank(
@@ -81,37 +67,8 @@ export async function arhivirajPrazanTank(
           },
         },
       },
-      mjerenja: {
-        orderBy: { izmjerenoAt: "desc" },
-      },
-      radnje: {
-        orderBy: { createdAt: "asc" },
-        include: {
-          korisnik: true,
-          preparat: true,
-          jedinica: true,
-        },
-      },
       izlaziVina: {
         orderBy: { datum: "asc" },
-      },
-      zadaci: {
-        orderBy: { zadanoAt: "desc" },
-        include: {
-          stavke: {
-            orderBy: { redoslijed: "asc" },
-            include: {
-              preparat: true,
-              jedinica: true,
-              izlaznaJedinica: true,
-            },
-          },
-          zadaoKorisnik: true,
-          izvrsioKorisnik: true,
-          preparat: true,
-          jedinica: true,
-          izlaznaJedinica: true,
-        },
       },
     },
   });
@@ -185,71 +142,22 @@ export async function arhivirajPrazanTank(
     }
   }
 
-  if (tank.mjerenja.length > 0) {
-    await tx.arhivaVinaMjerenje.createMany({
-      data: tank.mjerenja.map((m: any) => ({
-        arhivaVinaId: arhiva.id,
-        izvornoMjerenjeId: m.id,
-        tankId: tank.id,
-        korisnikId: m.korisnikId,
-        alkohol: m.alkohol,
-        ukupneKiseline: m.ukupneKiseline,
-        hlapiveKiseline: m.hlapiveKiseline,
-        slobodniSO2: m.slobodniSO2,
-        ukupniSO2: m.ukupniSO2,
-        secer: m.secer,
-        ph: m.ph,
-        temperatura: m.temperatura,
-        bentotestDatum: m.bentotestDatum,
-        bentotestStatus: m.bentotestStatus,
-        napomena: m.napomena,
-        izmjerenoAt: m.izmjerenoAt,
-      })),
-    });
-  }
-
-  for (const z of tank.zadaci) {
-    await tx.arhivaVinaZadatak.create({
-      data: {
-        arhivaVinaId: arhiva.id,
-        izvorniZadatakId: z.id,
-        tankId: tank.id,
-        vrsta: z.vrsta,
-        status: z.status,
-        naslov: z.naslov,
-        napomena: z.napomena,
-        doza: z.doza,
-        volumenUTanku: z.volumenUTanku,
-        izracunataKolicina: z.izracunataKolicina,
-        preparatId: z.preparatId,
-        preparatNaziv: z.preparat?.naziv ?? null,
-        jedinicaId: z.jedinicaId,
-        jedinicaNaziv: z.jedinica?.naziv ?? null,
-        izlaznaJedinicaId: z.izlaznaJedinicaId,
-        izlaznaJedinicaNaziv: z.izlaznaJedinica?.naziv ?? null,
-        zadaoKorisnikId: z.zadaoKorisnikId,
-        zadaoKorisnikIme: prikaziImeKorisnika(z.zadaoKorisnik),
-        izvrsioKorisnikId: z.izvrsioKorisnikId,
-        izvrsioKorisnikIme: prikaziImeKorisnika(z.izvrsioKorisnik),
-        zadanoAt: z.zadanoAt,
-        izvrsenoAt: z.izvrsenoAt,
-        stavke: {
-          create: z.stavke.map((s: any) => ({
-            preparatId: s.preparatId,
-            preparatNaziv: s.preparat?.naziv ?? null,
-            doza: s.doza,
-            volumenUTanku: s.volumenUTanku,
-            izracunataKolicina: s.izracunataKolicina,
-            jedinicaId: s.jedinicaId,
-            jedinicaNaziv: s.jedinica?.naziv ?? null,
-            izlaznaJedinicaId: s.izlaznaJedinicaId,
-            izlaznaJedinicaNaziv: s.izlaznaJedinica?.naziv ?? null,
-            redoslijed: s.redoslijed ?? 0,
-          })),
-        },
-      },
-    });
-  }
+  // MJERENJA, ZADACI I RADNJE SE VISE NE KOPIRAJU (korak 5d, 29.09.2026.).
+  //
+  // Kopirali su se SVI retci posude, bez granice vina — dakle i od svih
+  // prethodnih vina u njoj — a originali od faze F ostaju. Svako punjenje u
+  // boce udvostrucilo bi tako cijelu povijest posude kod citaca koji ne
+  // uklanjaju dvojnike (citajMjerenja, parametri-vina, /prosli-tank,
+  // arhiveStabla), a u ArhivaVinaRadnja dodalo jos tudjeg vina (vec 156 od
+  // 254 retka). Vlasnik, 29.09.: "kopiranje prestaje kad originali ostaju".
+  //
+  // Originali ostaju na tanku (Mjerenje, Zadatak, Radnja), a puna evidencija
+  // vina koje je izaslo cita se iz SNIMKE vina (lib/snimka-vina.ts) i iz
+  // originala po prozoru vina — razina 1 arhive. Stare arhive i njihove
+  // kopije se ne diraju.
+  //
+  // Mjereno 29.09.: bez kopiranja je zavrsni izlaz otprilike upola kraci i
+  // trosi 17–41 upit manje (vidi komentar uz snimku u izvrsiIzlaz).
 
   if (tank.udjeliSorti.length > 0) {
     await tx.arhivaVinaUdioSorte.createMany({
@@ -280,41 +188,18 @@ export async function arhivirajPrazanTank(
     });
   }
 
-  // RADNJE I IZLAZI U ARHIVU — SAMO KOPIJA, ORIGINALI OSTAJU.
+  // IZLAZI U ARHIVU — SAMO KOPIJA, ORIGINALI OSTAJU. (Radnje su do koraka 5d
+  // isle istim putem; vidi biljesku iznad.)
   //
-  // Isti blok kao u `arhivirajPotroseniTank` (app/api/pretok/route.ts). Dvije
-  // kopije arhiviranja trebalo bi spojiti u jednu funkciju, ali ne usred
-  // sezone — do tada svaka izmjena ide u OBJE, inače se raziđu (upravo se to
-  // dogodilo s punjenjima: ovdje su se pisala, ondje nisu).
+  // Isti blok kao u `arhivirajPotroseniTank` (lib/pretok-arhiviranje.ts). Dvije
+  // kopije arhiviranja trebalo bi spojiti u jednu funkciju — do tada svaka
+  // izmjena ide u OBJE, inače se raziđu. (Od 5d se namjerno razlikuju:
+  // `arhivirajPotroseniTank` zove samo rucno arhiviranje, koje jos brise
+  // originale, pa mu je kopija jedini zapis — to je korak rucnog arhiviranja.)
   //
-  // Ne briše se ništa. `ArhivaVina` se pri poništavanju ne vraća, pa bi
-  // brisanje originala bio tihi gubitak.
-  //
-  // Izlaz koji je upravo napravljen i njegova radnja već postoje u bazi (oba se
-  // upisuju prije poziva ove funkcije), pa oboje ulazi u arhivu — završni izlaz
+  // Ne briše se ništa. Izlaz koji je upravo napravljen već postoji u bazi
+  // (upisuje se prije poziva ove funkcije), pa ulazi u arhivu — završni izlaz
   // pripada baš tom vinu.
-  if (tank.radnje.length > 0) {
-    await tx.arhivaVinaRadnja.createMany({
-      data: tank.radnje.map((r: any) => ({
-        arhivaVinaId: arhiva.id,
-        izvornaRadnjaId: r.id,
-        izvorniZadatakId: r.zadatakId,
-        tankId: tank.id,
-        vrsta: r.vrsta,
-        opis: r.opis,
-        napomena: r.napomena,
-        preparatId: r.preparatId,
-        preparatNaziv: r.preparat?.naziv ?? null,
-        jedinicaId: r.jedinicaId,
-        jedinicaNaziv: r.jedinica?.naziv ?? null,
-        kolicina: r.kolicina,
-        korisnikId: r.korisnikId,
-        korisnikIme: prikaziImeKorisnika(r.korisnik),
-        createdAt: r.createdAt,
-      })),
-    });
-  }
-
   if (tank.izlaziVina.length > 0) {
     await tx.arhivaVinaIzlaz.createMany({
       data: tank.izlaziVina.map((i: any) => ({
@@ -343,9 +228,10 @@ export async function arhivirajPrazanTank(
   // (sastav, porijeklo, udjeli radnji, identitet). To radi `isprazniTank`,
   // ISTA funkcija koju zove i pretok — jedno pravilo na jednom mjestu.
   //
-  // Sto vise NE: mjerenja, zadaci, dokumenti i punjenja ostaju na tanku.
-  // Ekran ih rezuje granicom vina (lib/granica-vina.ts), a arhiva ionako ima
-  // svoju kopiju — dvije kopije su bolje od jedne kopije i rupe.
+  // Sto vise NE: mjerenja, zadaci, radnje, dokumenti i punjenja ostaju na
+  // tanku. Ekran ih rezuje granicom vina (lib/granica-vina.ts). Od koraka 5d
+  // arhiva mjerenja, zadatke i radnje vise NE kopira (vidi biljesku iznad):
+  // druga kopija se citala dvaput.
   //
   // `tankContent` se i dalje brise: to je trenutni sadrzaj posude, ne povijest.
   await tx.tankContent.deleteMany({ where: { tankId } });

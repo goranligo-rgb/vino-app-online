@@ -576,6 +576,8 @@ async function main() {
       `T${r.broj}: prije izlaza monitor ima barem jednu vrijednost (inace test ne dokazuje redoslijed)`
     );
     tvrdi(r.vinoRadnje.some((v) => v.jeKvasac), `T${r.broj}: prije izlaza ima kvasac`);
+    const mjerenjaPrije = await tx.mjerenje.count({ where: { tankId: zavrsni.id } });
+    tvrdi(mjerenjaPrije > 0, `T${r.broj}: prije izlaza ima mjerenja (inace kopija ne bi imala sto kopirati)`);
 
     const rez = await izvrsiIzlaz(
       tx,
@@ -590,6 +592,22 @@ async function main() {
       await tx.vinoRadnja.count({ where: { tankId: zavrsni.id } }),
       0,
       `T${r.broj}: nakon zavrsnog izlaza nema VinoRadnja — snimka je jedini zapis`
+    );
+
+    // Korak 5d: arhiva izlaza mjerenja, zadatke i radnje vise NE kopira —
+    // originali ostaju, a druga kopija se citala dvaput.
+    const arhivaId = rez.arhivaId ?? "-";
+    for (const [tablica, n] of [
+      ["ArhivaVinaMjerenje", await tx.arhivaVinaMjerenje.count({ where: { arhivaVinaId: arhivaId } })],
+      ["ArhivaVinaZadatak", await tx.arhivaVinaZadatak.count({ where: { arhivaVinaId: arhivaId } })],
+      ["ArhivaVinaRadnja", await tx.arhivaVinaRadnja.count({ where: { arhivaVinaId: arhivaId } })],
+    ] as const) {
+      jednako(n, 0, `T${r.broj}: ${tablica} — nijedan kopirani redak`);
+    }
+    jednako(
+      await tx.mjerenje.count({ where: { tankId: zavrsni.id } }),
+      mjerenjaPrije,
+      `T${r.broj}: originalna mjerenja ostaju (${mjerenjaPrije})`
     );
   });
 

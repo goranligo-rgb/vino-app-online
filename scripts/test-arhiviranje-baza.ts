@@ -17,6 +17,9 @@
  * STO SE DOKAZUJE. Arhiviranje je dosad `Radnja` ostavljalo netaknutom, a
  * `IzlazVina` brisalo bez kopije — tank 16 je imao radnju "Prodano rinfuza
  * 1.000 L" i nula izlaza. Sada oboje ide u arhivu, a originali OSTAJU.
+ * (Od koraka 5d, 29.09.2026., izlaz vina mjerenja, zadatke i radnje vise NE
+ * kopira — originali ostaju, a druga kopija se citala dvaput. DOKAZ 2 to sada
+ * tvrdi; `arhivirajPotroseniTank` i dalje kopira sve.)
  * Ovaj test bi inace bio prvo pravo arhiviranje nakon izmjene, pa se radije
  * odigrava ovdje nego na pravom vinu.
  *
@@ -240,13 +243,53 @@ async function provjeriArhivu(
   s: Awaited<ReturnType<typeof napraviPunTank>>,
   imeFunkcije: string
 ) {
-  // --- RADNJE ---
-  const radnje = await tx.arhivaVinaRadnja.findMany({
-    where: { arhivaVinaId: arhivaId },
-    orderBy: { createdAt: "asc" },
-  });
+  // --- MJERENJA, ZADACI I RADNJE: IZLAZ IH VISE NE KOPIRA (korak 5d) ---
+  //
+  // NAMJERNA IZMJENA TVRDNJE (29.09.2026.). Do koraka 5d ovaj je test za
+  // `arhivirajPrazanTank` (izlaz-vina) tvrdio da su obje radnje u arhivi.
+  // Izlaz je kopirao SVE retke posude, bez granice vina, a originali od faze
+  // F ostaju — pa se svako mjerenje citalo dvaput, a u ArhivaVinaRadnja se
+  // gomilalo tudje vino. Vlasnik: "kopiranje prestaje kad originali ostaju".
+  // Sada test tvrdi obrnuto: za izlaz NIJEDAN redak mjerenja, zadatka ni
+  // radnje u arhivi — a originali ostaju (provjera nize).
+  //
+  // `arhivirajPotroseniTank` (pretok) zove samo rucno arhiviranje, koje jos
+  // brise originale; njemu je kopija jedini zapis i tvrdnje ostaju iste.
+  if (imeFunkcije === "izlaz-vina") {
+    jednako(
+      await tx.arhivaVinaMjerenje.count({ where: { arhivaVinaId: arhivaId } }),
+      0,
+      `${imeFunkcije}: mjerenja se NE kopiraju u arhivu (original ostaje)`
+    );
+    jednako(
+      await tx.arhivaVinaZadatak.count({ where: { arhivaVinaId: arhivaId } }),
+      0,
+      `${imeFunkcije}: zadaci se NE kopiraju u arhivu (original ostaje)`
+    );
+    jednako(
+      await tx.arhivaVinaRadnja.count({ where: { arhivaVinaId: arhivaId } }),
+      0,
+      `${imeFunkcije}: radnje se NE kopiraju u arhivu (original ostaje)`
+    );
+    jednako(
+      await tx.mjerenje.count({ where: { tankId: s.tank.id } }),
+      1,
+      `${imeFunkcije}: originalno mjerenje NIJE obrisano`
+    );
+  }
 
-  jednako(radnje.length, 2, `${imeFunkcije}: obje radnje su u arhivi`);
+  // --- RADNJE (samo rucno arhiviranje; vidi iznad) ---
+  const radnje =
+    imeFunkcije === "izlaz-vina"
+      ? []
+      : await tx.arhivaVinaRadnja.findMany({
+          where: { arhivaVinaId: arhivaId },
+          orderBy: { createdAt: "asc" },
+        });
+
+  if (imeFunkcije !== "izlaz-vina") {
+    jednako(radnje.length, 2, `${imeFunkcije}: obje radnje su u arhivi`);
+  }
 
   const sZadatkom = radnje.find(
     (r) => r.izvornaRadnjaId === s.radnjaSaZadatkom.id
@@ -255,8 +298,10 @@ async function provjeriArhivu(
     (r) => r.izvornaRadnjaId === s.radnjaBezZadatka.id
   );
 
-  tvrdi(!!sZadatkom, `${imeFunkcije}: radnja sa zadatkom je nadjena po izvornom id-u`);
-  tvrdi(!!bezZadatka, `${imeFunkcije}: radnja bez zadatka je nadjena po izvornom id-u`);
+  if (imeFunkcije !== "izlaz-vina") {
+    tvrdi(!!sZadatkom, `${imeFunkcije}: radnja sa zadatkom je nadjena po izvornom id-u`);
+    tvrdi(!!bezZadatka, `${imeFunkcije}: radnja bez zadatka je nadjena po izvornom id-u`);
+  }
 
   if (sZadatkom) {
     // OVO JE POANTA: veza na zadatak je spremljena prije nego su zadaci obrisani.
@@ -480,7 +525,7 @@ async function main() {
 
   // -------------------------------------------------------------------------
   await scenarij(
-    "DOKAZ 2: arhivirajPrazanTank (izlaz-vina) pise isto",
+    "DOKAZ 2: arhivirajPrazanTank (izlaz-vina): izlazi i punjenja u arhivu, mjerenja/zadaci/radnje NE",
     async (tx) => {
       const s = await napraviPunTank(tx, "izlaz");
 
