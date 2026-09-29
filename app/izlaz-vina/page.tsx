@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { dohvatiAuthUserKlijent } from "@/lib/auth-klijent";
+import { jeL12 } from "@/lib/auth-role";
 
 type TankApiRow = {
   id: string;
@@ -129,6 +131,21 @@ export default function IzlazVinaPage() {
   const [greska, setGreska] = useState("");
   const [warning, setWarning] = useState("");
   const [isMobile, setIsMobile] = useState(false);
+  const [smijeUpisati, setSmijeUpisati] = useState(false);
+
+  // Obrazac smiju ADMIN i PODRUM (POST /api/izlaz-vina). Uloga se pita server
+  // (GET /api/me); ovo sluzi SAMO za prikaz, pravu zastitu radi ruta.
+  useEffect(() => {
+    let otkazano = false;
+
+    dohvatiAuthUserKlijent().then((user) => {
+      if (!otkazano) setSmijeUpisati(jeL12(user?.role));
+    });
+
+    return () => {
+      otkazano = true;
+    };
+  }, []);
 
   const [tankId, setTankId] = useState("");
   const [tip, setTip] = useState<"PRODAJA" | "PUNJENJE">("PRODAJA");
@@ -312,6 +329,10 @@ export default function IzlazVinaPage() {
           </Link>
         </div>
 
+        {/* Obrazac i njegov izracun vidi samo tko ga smije poslati (ADMIN,
+            PODRUM) — isto pravilo kao POST /api/izlaz-vina. ENOLOG vidi
+            popis i poveznice. Vidljivost i ovlast uskladjene, kao na /arhiva. */}
+        {smijeUpisati ? (
         <div
           style={{
             ...topSectionStyle,
@@ -529,6 +550,7 @@ export default function IzlazVinaPage() {
             </div>
           </aside>
         </div>
+        ) : null}
 
         <section style={cardStyle}>
           <div style={cardTitleStyle}>Zadnji izlazi vina</div>

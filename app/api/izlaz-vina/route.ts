@@ -10,6 +10,7 @@ import { stanjeTanka } from "@/lib/berba-model";
 import { upisiVinoRadnju } from "@/lib/vino-radnja";
 import { isprazniTank } from "@/lib/prazni-tank";
 import { imeVinaSada, imenaPodruma } from "@/lib/ime-vina";
+import { jeL12 } from "@/lib/auth-role";
 
 type AuthUser = {
   id: string;
@@ -379,6 +380,15 @@ export async function POST(req: Request) {
         { error: "Niste prijavljeni." },
         { status: 401 }
       );
+    }
+
+    // ROLA. Do 29.09.2026. ruta je provjeravala samo prijavu, pa je izlaz
+    // (punjenje u boce, prodaju — i arhiviranje tanka koje ga prati) mogao
+    // upisati i PREGLED. Ista rupa kao PATCH /api/arhiva. Izlaz upisuju ADMIN
+    // i PODRUM; ENOLOG stranicu /izlaz-vina vidi, ali samo popis i poveznice
+    // (obrazac je skriven istim pravilom). Provjera ide PRIJE citanja tijela.
+    if (!jeL12(user.role)) {
+      return NextResponse.json({ error: "Nemaš pravo pristupa." }, { status: 403 });
     }
 
     const body = await req.json();

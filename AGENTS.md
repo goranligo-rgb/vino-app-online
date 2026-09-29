@@ -64,9 +64,12 @@ napunjeno u boce ili prodano. Preseljenje u praznu posudu NIJE kraj vina.
 
 **Dvije razine arhive:**
 
-1. **Sortno vino napunjeno u boce ili prodano** — puna evidencija: kvasci s
-   postotkom, zadaci, miješanja, kronologija, parametri, graf. Čita snimku +
-   žive `Radnja` i `Zadatak`, koji od 11.09.2026. preživljavaju pražnjenje.
+1. **SVAKO vino koje izađe kroz izlaz (boce ili rinfuza)** — i sortno i
+   cuvée — puna evidencija: kvasci s postotkom, zadaci, miješanja,
+   kronologija, parametri, graf. Čita snimku + žive `Radnja` i `Zadatak`,
+   koji od 11.09.2026. preživljavaju pražnjenje. (Ranije je ovdje pisalo
+   „sortno vino"; to je bilo suprotstavljeno komponenti koja je otišla u
+   cuvée, a ne cuvéeu koji se puni — vlasnik, 29.09.2026.)
 2. **Komponenta koja je otišla u cuvée** — čita SAMO snimku. Povijest te
    komponente stoji na stablu cuvéea, klikom na kućicu.
 

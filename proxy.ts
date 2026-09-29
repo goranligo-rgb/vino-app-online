@@ -82,6 +82,10 @@ export async function proxy(req: NextRequest) {
       // inace bi ga, kao kod /arhiva, klik vracao na /dashboard. Tocan match:
       // ruta nema podstranica, sve je u parametrima upita.
       pathname === "/prosli-tank" ||
+      // Izlaz vina: ondje vodi poveznica na punu evidenciju vina koje je
+      // napunjeno u boce ili prodano. Je li postupak valjao enologov je posao
+      // (vlasnik, 29.09.2026.). Tocan match: ruta nema podstranica.
+      pathname === "/izlaz-vina" ||
       /^\/tankovi\/[^/]+$/.test(pathname);
 
     if (!allowed) {
