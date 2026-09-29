@@ -2262,6 +2262,118 @@ model VinoRadnja {
   @@index([izvornaRadnjaId])
 }
 
+/// SNIMKA VINA u trenutku kad (dio) vina napusta posudu: pri svakom pretoku,
+/// filtraciji/flotaciji/talozenju i izlazu, za svaki izvor, i djelomicno.
+/// Nastaje u istoj transakciji kao cin i PRIJE `ocistiVinoRadnje`.
+///
+/// Tank i cin su goli stupci, bez FK: snimka mora prezivjeti brisanje tanka,
+/// ponistavanje cina i brisanje arhive — za komponentu cuveea (razina 2) ona
+/// je jedini zapis. Isti obrazac kao ImeVina.pretokId i ArhivaVina.tankId.
+model SnimkaVina {
+  id        String        @id @default(uuid())
+  tankId    String
+  brojTanka Int?
+  cin       CinSnimkeVina
+
+  /// Tocno jedan je popunjen (CHECK u migraciji, Prisma ga ne vidi).
+  pretokId    String?
+  zadatakId   String?
+  izlazVinaId String?
+
+  /// Arhiva nastala istim cinom, ako je izvor ostao prazan. Bez FK.
+  arhivaVinaId String?
+
+  /// Trenutak cina (ne trenutak upisa).
+  dogodenoAt DateTime @db.Timestamptz(6)
+
+  /// Litre u izvoru prije cina i koliko je UKUPNO izaslo (s kalom).
+  litrePrije  Float
+  litreOtislo Float
+  /// Je li izvor ostao prazan — o tome ovisi arhiva.
+  ispraznjen  Boolean
+
+  /// Ime i sorta kakvi su bili u trenutku cina (ImeVina), godiste s tanka.
+  nazivVina String?
+  sorta     String?
+  godiste   Int?
+
+  korisnikId String?
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  polja  SnimkaVinaPolje[]
+  radnje SnimkaVinaRadnja[]
+
+  @@unique([pretokId, tankId])
+  @@unique([zadatakId, tankId])
+  @@unique([izlazVinaId, tankId])
+  @@index([tankId, dogodenoAt])
+  @@index([arhivaVinaId])
+}
+
+enum CinSnimkeVina {
+  PRETOK
+  FILTRACIJA
+  FLOTACIJA
+  TALOZENJE
+  PUNJENJE
+  PRODAJA
+}
+
+/// Vrijednost monitora za jedno polje, tocno kako ju je stranica tanka
+/// pokazivala (lib/monitor-vina.ts). Redak postoji za SVAKO polje, i kad
+/// vrijednosti nema: `podrijetlo = NEMA` razlikuje "nije bilo" od "nije snimljeno".
+model SnimkaVinaPolje {
+  id           String           @id @default(uuid())
+  snimkaVinaId String
+  kljuc        String
+  vrijednost   Float?
+  podrijetlo   PodrijetloSnimke
+  /// Kad je vrijednost izmjerena (vlastito mjerenje ili najnovije iz knjige).
+  izmjerenoAt  DateTime?        @db.Timestamptz(6)
+
+  snimkaVina SnimkaVina @relation(fields: [snimkaVinaId], references: [id], onDelete: Cascade)
+
+  @@unique([snimkaVinaId, kljuc])
+}
+
+enum PodrijetloSnimke {
+  MJERENO
+  PRENESENO
+  BLEND
+  KNJIGA
+  NEMA
+}
+
+/// Prijepis `VinoRadnja` izvora u trenutku cina, s `udio` i `jeKvasac`.
+/// VinoRadnja je jedini tocan izvor udjela kvasca; odigravanje knjige grijesi.
+model SnimkaVinaRadnja {
+  id           String @id @default(uuid())
+  snimkaVinaId String
+
+  izvornaRadnjaId  String
+  izvorniTankId    String
+  izvorniBrojTanka Int?
+
+  preparatId    String?
+  preparatNaziv String?
+  jedinicaNaziv String?
+  korisnikIme   String?
+
+  vrsta    VrstaRadnje
+  opis     String?
+  napomena String?
+  kolicina Float?
+
+  jeKvasac   Boolean
+  udio       Float
+  dogodenoAt DateTime @db.Timestamptz(6)
+
+  snimkaVina SnimkaVina @relation(fields: [snimkaVinaId], references: [id], onDelete: Cascade)
+
+  @@unique([snimkaVinaId, izvornaRadnjaId])
+  @@index([izvornaRadnjaId])
+}
+
 enum IzvorImenaVina {
   /// Covjek je upisao ime. Jedini izvor koji smije popraviti tipfeler.
   RUCNO
