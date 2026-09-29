@@ -25,7 +25,7 @@ import { granicaVina, odGraniceVina } from "@/lib/granica-vina";
 import { punjenjaTrenutnogVina } from "@/lib/punjenje-vina";
 import { imeVina, jeBezImena, usporediSaSastavom } from "@/lib/ime-vina";
 import { parametriVinaIzKnjige } from "@/lib/parametri-vina";
-import { stanjeVina, razlogSkrivanja } from "@/lib/vino-fermentira";
+import { vrijednostiMonitora } from "@/lib/monitor-vina";
 import {
   podrijetloTanka,
   sastavIzPodrijetla,
@@ -1741,83 +1741,28 @@ export default async function TankPregledPage({
 
   const poPolju = sloziPoPolju(mjerenjaZaParametre);
 
-  // FERMENTIRA LI VINO — po VLASTITOM seceru ovog tanka, unutar granice vina.
-  // Racuna se jednom, prije mreze parametara. Nema upita: `poPolju` je vec
-  // slozen iz mjerenja procitanih u prvom valu.
-  const stanjeFermentacije = stanjeVina(
-    poPolju.vrijednosti.secer,
-    poPolju.izvorPolja.secer?.izmjerenoAt ?? null
-  );
+  // IZBOR VRIJEDNOSTI PO POLJU — lib/monitor-vina.ts. Isti izbor sprema i
+  // snimka vina kad napusta posudu, pa ne smije postojati druga kopija ovdje.
+  // Stranica dodaje samo ono sto je prikaz: graf i detalje blenda.
+  const izbor = vrijednostiMonitora({
+    poPolju,
+    blend,
+    parametriVina,
+    tankBezVina,
+  });
 
-  const OPIS_POLJA: Array<{
-    kljuc: keyof typeof poPolju.vrijednosti;
-    naziv: string;
-    jedinica: string;
-  }> = [
-    { kljuc: "alkohol", naziv: "Alkohol", jedinica: "%" },
-    { kljuc: "secer", naziv: "Šećer", jedinica: "" },
-    { kljuc: "ukupneKiseline", naziv: "Ukupne kiseline", jedinica: "" },
-    { kljuc: "hlapiveKiseline", naziv: "Hlapive kiseline", jedinica: "" },
-    { kljuc: "slobodniSO2", naziv: "Slobodni SO₂", jedinica: "" },
-    { kljuc: "ukupniSO2", naziv: "Ukupni SO₂", jedinica: "" },
-    { kljuc: "ph", naziv: "pH", jedinica: "" },
-    { kljuc: "temperatura", naziv: "Temperatura", jedinica: "°C" },
-  ];
-
-  const parametri: ParametarPrikaz[] = OPIS_POLJA.map((o) => {
-    const izvor = poPolju.izvorPolja[o.kljuc];
-    const vlastita = poPolju.vrijednosti[o.kljuc];
-    // Prazan tank: ni procjene iz blenda ni vrijednosti iz knjige. `BlendIzvor`
-    // retci ostaju na ispraznjenom tanku i opisuju vino koje je otislo.
-    const b = tankBezVina ? null : (blend?.poPolju[o.kljuc] ?? null);
-
-    // TRECI IZVOR, kad prva dva sute: vrijednost izmjerena na OVOM vinu dok
-    // je bilo u ranijoj posudi. Nije racun nego mjerenje, pa stoji ispred
-    // "nema" — a iza vlastitog i iza blenda, koji su blizi ovom tanku.
-    const izKnjigeSirovo = tankBezVina
-      ? null
-      : (parametriVina?.poPolju[o.kljuc] ?? null);
-
-    // FERMENTACIJA GASI NASLIJEDJENU VRIJEDNOST.
-    //
-    // Vino usred fermentacije svaki dan ima drugi alkohol i drugi SO2, pa
-    // vrijednost naslijedjena iz neke ranije posude opisuje vino koje je tada
-    // bilo ondje, a ne ovo. Pravilo i njegova iznimka (svjezija vrijednost
-    // ostaje) stoje u lib/vino-fermentira.ts.
-    //
-    // Gasi SAMO naslijedjeno iz knjige. Vlastito mjerenje i procjena iz blenda
-    // se ne diraju: prvo je mjereno na ovom vinu, drugo je racun nad danasnjim
-    // sastavnicama.
-    const razlogNeprikaza = izKnjigeSirovo
-      ? razlogSkrivanja(o.kljuc, izKnjigeSirovo.najnovijeAt, stanjeFermentacije)
-      : null;
-
-    const izKnjige = razlogNeprikaza ? null : izKnjigeSirovo;
-
-    // "preneseno" = vlastiti redak koji je upisao pretok (jeRucno = false).
-    // Ni to nitko nije izmjerio, pa ide u isti vizualni razred kao blend.
-
-    const podrijetlo: ParametarPrikaz["podrijetlo"] =
-      vlastita != null
-        ? izvor?.jeRucno === false
-          ? "preneseno"
-          : "mjereno"
-        : b?.vrijednost != null
-          ? "blend"
-          : izKnjige != null
-            ? "knjiga"
-            : "nema";
+  const parametri: ParametarPrikaz[] = izbor.map((o) => {
+    const izvor = o.vlastito;
+    const b = o.blend;
+    const izKnjige = o.izKnjige;
 
     return {
       kljuc: o.kljuc,
       naziv: o.naziv,
       jedinica: o.jedinica,
-      vrijednost:
-        vlastita != null
-          ? vlastita
-          : (b?.vrijednost ?? izKnjige?.vrijednost ?? null),
-      podrijetlo,
-      neprikazano: razlogNeprikaza,
+      vrijednost: o.vrijednost,
+      podrijetlo: o.podrijetlo,
+      neprikazano: o.neprikazano,
       izKnjige: izKnjige
         ? {
             mjerenoAt: izKnjige.najnovijeAt.toISOString(),

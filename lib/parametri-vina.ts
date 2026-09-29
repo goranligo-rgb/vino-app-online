@@ -350,41 +350,43 @@ export async function parametriVinaIzKnjige(
   );
 
   // Mjerenja svih posuda odjednom — dva upita, ne dva po boravku.
+  //
+  // REDOM, NE U Promise.all: snimka vina ovo zove unutar transakcije pretoka,
+  // a Promise.all salje dva upita istovremeno preko JEDNE veze transakcije —
+  // pg to vec javlja kao zastarjelo i u pg@9 prestaje raditi.
   const imaPolje = POLJA_MJERENJA.map((p) => ({ [p]: { not: null } }));
-  const [ziva, arhivska] = await Promise.all([
-    db.mjerenje.findMany({
-      where: { tankId: { in: [...posude] }, OR: imaPolje as never },
-      select: {
-        id: true,
-        tankId: true,
-        izmjerenoAt: true,
-        alkohol: true,
-        ukupneKiseline: true,
-        hlapiveKiseline: true,
-        slobodniSO2: true,
-        ukupniSO2: true,
-        secer: true,
-        ph: true,
-        temperatura: true,
-      },
-    }),
-    db.arhivaVinaMjerenje.findMany({
-      where: { tankId: { in: [...posude] }, OR: imaPolje as never },
-      select: {
-        id: true,
-        tankId: true,
-        izmjerenoAt: true,
-        alkohol: true,
-        ukupneKiseline: true,
-        hlapiveKiseline: true,
-        slobodniSO2: true,
-        ukupniSO2: true,
-        secer: true,
-        ph: true,
-        temperatura: true,
-      },
-    }),
-  ]);
+  const ziva = await db.mjerenje.findMany({
+    where: { tankId: { in: [...posude] }, OR: imaPolje as never },
+    select: {
+      id: true,
+      tankId: true,
+      izmjerenoAt: true,
+      alkohol: true,
+      ukupneKiseline: true,
+      hlapiveKiseline: true,
+      slobodniSO2: true,
+      ukupniSO2: true,
+      secer: true,
+      ph: true,
+      temperatura: true,
+    },
+  });
+  const arhivska = await db.arhivaVinaMjerenje.findMany({
+    where: { tankId: { in: [...posude] }, OR: imaPolje as never },
+    select: {
+      id: true,
+      tankId: true,
+      izmjerenoAt: true,
+      alkohol: true,
+      ukupneKiseline: true,
+      hlapiveKiseline: true,
+      slobodniSO2: true,
+      ukupniSO2: true,
+      secer: true,
+      ph: true,
+      temperatura: true,
+    },
+  });
 
   const svaMjerenja = [
     ...ziva.map((m) => ({ ...m, izArhive: false })),
