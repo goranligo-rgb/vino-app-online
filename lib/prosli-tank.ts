@@ -101,10 +101,15 @@ export type KvasacKucice<T> = {
 /**
  * KVASCI KUCICE — iz `VinoRadnja` KORIJENA, prevedeni na komponentu.
  *
- * ZASTO PRIJEVOD, A NE VLASTITI ZAPIS. Snimka udjela u trenutku pretoka
- * (`snimiVinoRadnje`, korak 6b motora u lib/pretok-motor.ts) se NE SPREMA:
- * redci izvora brisu se pri praznjenju, a u cilju su spojeni po
- * `izvornaRadnjaId`. Tocna brojka za komponentu bez upisa zato ne postoji.
+ * SAMO ZA KUCICE BEZ SNIMKE. Od 29.09.2026. svaki izlazak vina sprema
+ * snimku s tocnim udjelima (`SnimkaVinaRadnja`, lib/snimka-vina.ts); kucica
+ * koja je ima cita kvasce iz nje (`kvasciIzSnimke`), a ovaj prijevod se za
+ * nju ne racuna — dva broja bila bi dvije tvrdnje o istom vinu.
+ *
+ * ZASTO PRIJEVOD, A NE VLASTITI ZAPIS (za starije kucice). Do koraka 2
+ * snimka udjela u trenutku pretoka (`snimiVinoRadnje`, korak 6b motora) se
+ * nije spremala: redci izvora brisu se pri praznjenju, a u cilju su spojeni
+ * po `izvornaRadnjaId`. Tocna brojka za te komponente zato ne postoji.
  * Iz odigravanja knjige se NE racuna: rucni racun od 28.09.2026. potvrdio je
  * zapis `VinoRadnja` za pet od sest kvasaca u T20 i T7 do decimale, a
  * odigravanje grijesi zbog tri retka knjige u krivom fizickom redoslijedu.

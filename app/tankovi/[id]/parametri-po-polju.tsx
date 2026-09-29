@@ -279,6 +279,17 @@ function Graf({ niz, jedinica }: { niz: TockaGrafa[]; jedinica: string }) {
 function RacunBlenda({ p }: { p: ParametarPrikaz }) {
   const b = p.blend;
 
+  // Procjena bez racuna: snimka vina (/prosli-tank) sprema samo vrijednost koju
+  // je monitor pokazivao, ne i sastavnice iz kojih je izracunata.
+  if (!b && p.podrijetlo === "blend" && p.vrijednost != null) {
+    return (
+      <div style={tihoStil}>
+        Snimka čuva vrijednost koju je monitor tada pokazivao, ne i račun iz
+        kojeg je nastala.
+      </div>
+    );
+  }
+
   if (!b || b.doprinosi.length === 0) {
     return (
       <div style={tihoStil}>
@@ -450,7 +461,10 @@ export default function ParametriPoPolju({
                           : "")
                     : p.podrijetlo === "preneseno"
                       ? "procjena · pretok " + fDanKratko(p.datum)
-                      : p.blend && p.blend.postotak >= 99.5
+                      : !p.blend
+                        ? // Snimka vina (/prosli-tank) nosi procjenu, ne i racun.
+                          "procjena iz blenda"
+                      : p.blend.postotak >= 99.5
                         ? "procjena · cijeli blend"
                         : "procjena · iz " +
                           fBroj(p.blend ? p.blend.postotak : 0, 0) +

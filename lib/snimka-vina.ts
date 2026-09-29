@@ -14,6 +14,7 @@ import {
 } from "@/lib/monitor-vina";
 import { parametriVinaIzKnjige } from "@/lib/parametri-vina";
 import { punjenjaTrenutnogVina } from "@/lib/punjenje-vina";
+import { rastaviKljucCina } from "@/lib/prosli-tank";
 
 /**
  * SNIMKA VINA KOJE IZLAZI — vino kakvo je bilo u trenutku kad (dio) napusta
@@ -272,4 +273,112 @@ export async function snimiVinoKojeIzlazi(
   }
 
   return snimka.id;
+}
+
+// ===========================================================================
+// CITANJE — snimka za kucicu u sastavu (razina 2 arhive, /prosli-tank).
+// ===========================================================================
+
+/** Snimka sa svim poljima i radnjama. */
+export type SnimkaSRetcima = Prisma.SnimkaVinaGetPayload<{
+  include: { polja: true; radnje: true };
+}>;
+
+/** Vrste kretanja u knjizi koje nose snimku, i cini snimke koji im odgovaraju. */
+const CINI_PO_VRSTI_KRETANJA: Record<string, ReadonlyArray<string>> = {
+  PRETOK: ["PRETOK"],
+  // Knjiga sva tri prijenosa bilježi kao FILTRACIJA (lib/filtracija.ts, 8b).
+  FILTRACIJA: ["FILTRACIJA", "FLOTACIJA", "TALOZENJE"],
+};
+
+/**
+ * Moze li kucica uopce imati snimku — cisti racun, bez upita.
+ *
+ * NE MOZE:
+ *   - vino koje je u posudi vec bilo (`izTankId` je sam roditelj): ono nije
+ *     izaslo, rodni cin ga je samo razrijedio;
+ *   - kretanje koje nije izlazak vina: PONISTENJE i ISPRAVAK nose istu vezu
+ *     kao cin koji ispravljaju, ULAZ i IZLAZ nisu prijenos medju posudama;
+ *   - kljuc koji se ne da rastaviti, ili ciljni tank u kljucu nije roditelj
+ *     (kucica i kljuc tada ne govore o istom ulasku).
+ */
+export function vezaZaSnimku(u: {
+  kljucCina: string;
+  izTankId: string;
+  roditeljTankId: string;
+}): { veza: string; vrsta: string } | null {
+  if (u.izTankId === u.roditeljTankId) return null;
+
+  const cin = rastaviKljucCina(u.kljucCina);
+  if (!cin) return null;
+  if (cin.ciljTankId !== u.roditeljTankId) return null;
+  if (!(cin.vrsta in CINI_PO_VRSTI_KRETANJA)) return null;
+
+  return { veza: cin.veza, vrsta: cin.vrsta };
+}
+
+/**
+ * SNIMKA KUCICE — vino onakvo kakvo je bilo kad je izaslo iz `izTankId`
+ * cinom iz `kljucCina`. `null` kad je nema; tada kucica radi kao prije
+ * (knjiga, prijevod kvasaca). Staro se ne spasava, ali se ni ne skriva.
+ *
+ * JEDNOZNACNOST: veza je `pretokId` ili `zadatakId` (UUID, ne sudaraju se),
+ * a jedinstveni indeksi (pretokId, tankId) i (zadatakId, tankId) jamce
+ * najvise jedan redak. Cin u snimci mora odgovarati vrsti kretanja. Ako
+ * ista od toga ne stoji — dva retka, krivi cin — vraca se `null`: bolje
+ * kucica iz knjige nego pogodjena snimka.
+ *
+ * Jedan upit kad snimke nema, tri kad je ima (glava, polja, radnje).
+ */
+export async function snimkaKucice(
+  db: { snimkaVina: Tx["snimkaVina"] },
+  u: { kljucCina: string; izTankId: string; roditeljTankId: string }
+): Promise<SnimkaSRetcima | null> {
+  const v = vezaZaSnimku(u);
+  if (!v) return null;
+
+  const nadjene = await db.snimkaVina.findMany({
+    where: {
+      tankId: u.izTankId,
+      OR: [{ pretokId: v.veza }, { zadatakId: v.veza }],
+    },
+    include: { polja: true, radnje: true },
+    take: 2,
+  });
+
+  if (nadjene.length !== 1) return null;
+  const s = nadjene[0];
+  if (!CINI_PO_VRSTI_KRETANJA[v.vrsta].includes(s.cin)) return null;
+  return s;
+}
+
+/** Ime iz snimke u obliku koji `imeZaPrikaz` prima. */
+export function imeIzSnimke(s: Pick<SnimkaSRetcima, "nazivVina" | "sorta">): ImeVina {
+  return {
+    naziv: s.nazivVina,
+    deklariranaSorta: s.sorta,
+    odAt: null,
+    izvor: null,
+    razlog: s.nazivVina ? "IMENOVANO" : "BEZIMENO",
+    zapisId: null,
+  };
+}
+
+/**
+ * KVASCI IZ SNIMKE — udio je udio u vinu IZVORA u trenutku izlaska. Vino
+ * koje izlazi je homogeno, pa je to tocno udio u vinu kucice: bez dijeljenja
+ * s udjelom kucice u korijenu, bez "vise putova" i bez "nesklada".
+ *
+ * ZAMJENJUJE prijevod (`kvasciKucice`, lib/prosli-tank.ts) za kucicu sa
+ * snimkom; ne stoji uz njega (vlasnik, 29.09.2026.) — dva broja bila bi dvije
+ * tvrdnje o istom vinu. Snimka zapis ne popravlja nego ga zamrzava: kriva
+ * tvrdnja u `VinoRadnja` (npr. FC-513) prenosi se jednako kao i danas.
+ *
+ * `jeKvasac` je oznaka iz trenutka cina; naknadno oznacavanje u katalogu
+ * je ne mijenja (isto pravilo kao `VinoRadnja`).
+ */
+export function kvasciIzSnimke(s: Pick<SnimkaSRetcima, "radnje">) {
+  return s.radnje
+    .filter((r) => r.jeKvasac)
+    .sort((a, b) => a.dogodenoAt.getTime() - b.dogodenoAt.getTime());
 }

@@ -16,6 +16,7 @@ import {
 } from "../lib/identitet-vina";
 import { podrijetloTanka } from "../lib/berba-model";
 import { kvasciKucice, pojaveKucice, prozoriKucice, rastaviKljucCina } from "../lib/prosli-tank";
+import { vezaZaSnimku } from "../lib/snimka-vina";
 
 let proslo = 0;
 let palo = 0;
@@ -155,6 +156,24 @@ async function main() {
     tvrdi(r?.veza === "3fb62b47-3a74" && r.ciljTankId === "070b0410-e3b5" && r.vrsta === "PRETOK", "kljuc se rastavlja na vezu, cilj i vrstu");
     tvrdi(rastaviKljucCina("sam:abc:T1:ULAZ")?.veza === "sam:abc", "veza s dvotockom ostaje cijela");
     tvrdi(rastaviKljucCina("krivo") === null, "neispravan kljuc daje null");
+  }
+
+  // Koja kucica uopce smije imati snimku (lib/snimka-vina.ts). Upis i nalazenje
+  // prave snimke provjerava scripts/test-snimka-vina.ts, u transakciji koja se
+  // vraca — ovaj test samo cita.
+  console.log("\nKUCICA I SNIMKA (sinteticki)");
+  {
+    const v = (kljucCina: string, izTankId: string, roditeljTankId: string) =>
+      vezaZaSnimku({ kljucCina, izTankId, roditeljTankId });
+    const p = v("p-1:R:PRETOK", "S", "R");
+    tvrdi(p?.veza === "p-1" && p.vrsta === "PRETOK", "pretok iz druge posude smije imati snimku");
+    tvrdi(v("z-1:R:FILTRACIJA", "S", "R")?.veza === "z-1", "filtracija (i flotacija, talozenje) smije imati snimku");
+    tvrdi(v("p-1:R:PRETOK", "R", "R") === null, "prethodno vino (posuda je roditelj) nema snimku — nije izaslo");
+    tvrdi(v("p-1:R:PONISTENJE", "S", "R") === null, "ponistenje nosi istu vezu, ali nema snimku");
+    tvrdi(v("p-1:R:ISPRAVAK", "S", "R") === null, "ispravak nema snimku");
+    tvrdi(v("u-1:R:ULAZ", "S", "R") === null, "ulaz berbe nema snimku");
+    tvrdi(v("p-1:Q:PRETOK", "S", "R") === null, "kljuc s drugim ciljem ne govori o ovom ulasku");
+    tvrdi(v("krivo", "S", "R") === null, "neispravan kljuc nema snimku");
   }
 
   console.log("\nNAD PRAVOM BAZOM (samo citanje)");

@@ -57,6 +57,8 @@ import {
   izvrsiFiltraciju,
   ponistiFiltraciju,
 } from "../lib/filtracija";
+import { citajUlazneCine, vinoUTanku } from "../lib/identitet-vina";
+import { snimkaKucice } from "../lib/snimka-vina";
 
 type Tx = Prisma.TransactionClient;
 
@@ -256,6 +258,72 @@ async function provjeriSnimku(
   );
 }
 
+// ---------------------------------------------------------------------------
+// KUCICA U STABLU CILJA nalazi SVOJU snimku (korak 3, /prosli-tank).
+// Stablo se gradi istim putem kao /prosli-tank, unutar iste transakcije,
+// pa vidi upravo upisana kretanja.
+// ---------------------------------------------------------------------------
+async function provjeriKuciceUStablu(
+  tx: Tx,
+  roditeljTankId: string,
+  brojRoditelja: number,
+  veza: { pretokId: string } | { zadatakId: string },
+  izvori: Array<{ tankId: string; broj: number }>
+) {
+  const tankovi = await tx.tank.findMany({ select: { id: true, kolicinaVinaUTanku: true } });
+  const sorte = new Map(
+    (await tx.berba.findMany({ select: { id: true, nazivSorte: true } })).map(
+      (b) => [b.id, b.nazivSorte] as const
+    )
+  );
+  const { cini } = await citajUlazneCine(tx, tankovi.map((t) => t.id));
+  const litre = Number(tankovi.find((t) => t.id === roditeljTankId)?.kolicinaVinaUTanku ?? 0);
+  const korijen = vinoUTanku(cini, sorte, roditeljTankId, Date.now(), { dubina: 1 }, [], litre);
+  const sastavnice = korijen.vrsta === "spoj" ? korijen.sastavnice : [];
+
+  for (const iz of izvori) {
+    const t = `T${iz.broj} u T${brojRoditelja}`;
+    const kucica = sastavnice.find(
+      (s) => s.vino.vrsta !== "partija" && s.vino.tankId === iz.tankId
+    );
+    tvrdi(!!kucica, `${t}: kucica postoji u stablu cilja`);
+    if (!kucica) continue;
+
+    const ocekivana = await tx.snimkaVina.findFirstOrThrow({
+      where: { ...veza, tankId: iz.tankId },
+      select: { id: true },
+    });
+    const nadjena = await snimkaKucice(tx, {
+      kljucCina: kucica.kljucCina,
+      izTankId: iz.tankId,
+      roditeljTankId,
+    });
+    jednako(nadjena?.id ?? null, ocekivana.id, `${t}: kucica nalazi SVOJU snimku`);
+
+    // Ista veza, krivi tank: snimka tuđeg izvora ne smije doći na ovu kućicu.
+    const drugi = izvori.find((x) => x.tankId !== iz.tankId);
+    if (drugi) {
+      const tuda = await snimkaKucice(tx, {
+        kljucCina: kucica.kljucCina,
+        izTankId: drugi.tankId,
+        roditeljTankId,
+      });
+      tvrdi(
+        tuda === null || tuda.tankId === drugi.tankId,
+        `${t}: pod tankom T${drugi.broj} ne dolazi snimka T${iz.broj}`
+      );
+    }
+
+    // Ponistenje nosi istu vezu kao cin — snimku ne smije naci.
+    const ponistenje = kucica.kljucCina.replace(/:[A-Z]+$/, ":PONISTENJE");
+    jednako(
+      await snimkaKucice(tx, { kljucCina: ponistenje, izTankId: iz.tankId, roditeljTankId }),
+      null,
+      `${t}: kljuc PONISTENJA ne nalazi snimku`
+    );
+  }
+}
+
 async function uRollbacku(fn: (tx: Tx) => Promise<void>) {
   try {
     await prisma.$transaction(
@@ -352,6 +420,12 @@ async function main() {
       izvori.length,
       "pretok: snimka za svaki izvor, nijedna za cilj"
     );
+
+    console.log(`   kucice u stablu T${cilj.broj}:`);
+    await provjeriKuciceUStablu(tx, cilj.id, cilj.broj, { pretokId: pretok.id }, [
+      { tankId: djelomicni.id, broj: djelomicni.broj },
+      { tankId: cijeli.id, broj: cijeli.broj },
+    ]);
   });
 
   // -------------------------------------------------------------------------
@@ -413,6 +487,11 @@ async function main() {
           `T${r.broj}: nakon filtracije nema VinoRadnja — snimka je jedini zapis`
         );
         filtracijaProvjerena = true;
+
+        console.log(`   kucica u stablu T${cilj.broj}:`);
+        await provjeriKuciceUStablu(tx, cilj.id, cilj.broj, { zadatakId: zadatak.id }, [
+          { tankId: izvor.id, broj: izvor.broj },
+        ]);
 
         // 3. IZVRSI, PONISTI, IZVRSI PONOVNO. Ponistavanje vraca zadatak u
         //    OTVOREN; zaostala snimka bi drugo izvrsenje srusila na

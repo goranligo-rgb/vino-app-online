@@ -21,6 +21,8 @@ import {
   prozoriKucice,
   rastaviKljucCina,
 } from "@/lib/prosli-tank";
+import { imeIzSnimke, kvasciIzSnimke, snimkaKucice } from "@/lib/snimka-vina";
+import { POLJA_MONITORA } from "@/lib/monitor-vina";
 import { Card } from "@/app/tankovi/[id]/kartica";
 import ParametriPoPolju, {
   type ParametarPrikaz,
@@ -47,6 +49,19 @@ import ParametriPoPolju, {
  *    punjenje mijenja i ovaj prikaz proslosti — namjerno: ispravak podataka
  *    mora popraviti i proslost. Ne shvatiti kao kvar.
  *
+ *    OD 29.09.2026. IZNIMKA: kucica koja ima SNIMKU (lib/snimka-vina.ts,
+ *    nastaje pri svakom izlasku vina od koraka 2) cita iz nje ime, sortu,
+ *    parametre i kvasce. Berba, litre i dodaci i dalje dolaze iz knjige.
+ *    Kucice bez snimke (sve starije) rade kao prije — staro se ne spasava,
+ *    ali se ni ne skriva.
+ *
+ *    OZNAKA "iz snimke" / "iz knjige" JE OBAVEZNA, NE UKRAS. Snimka sprema
+ *    ono sto je monitor pokazivao: primjenjuje pravilo fermentacije i
+ *    procjenu iz blenda, a knjiga ne. Mjereno 29.09.2026: na 8 od 38 tankova
+ *    bi se vrijednosti razlikovale (T7 alkohol 11,3 iz knjige skriven jer
+ *    vino fermentira; T43 secer 5,43 iz knjige, 3,5 iz blenda). Bez oznake bi
+ *    dvije kucice pokazivale razlicito bez vidljivog razloga.
+ *
  * 3. PRAGA NEMA. Poveznicu ima svaka kucica — i progutano dolijevanje od
  *    1 % (T35 u T42) je vino s poviscu.
  *
@@ -58,8 +73,10 @@ import ParametriPoPolju, {
  * iz 10 posuda. Mjereno 28.09.2026: s pragom T5 ima tri krivulje (T11, T41,
  * T5), T8 tri, T35 dvije.
  *
- * KVASCI: udio iz `VinoRadnja` korijena, preveden na kucicu samo gdje je
- * prijevod tocan — obrazlozenje i mjerenje stoje uz `kvasciKucice`
+ * KVASCI: kucica sa snimkom ih cita IZ SNIMKE, s tocnim udjelom u vinu
+ * kucice (`kvasciIzSnimke`) — to ZAMJENJUJE prijevod, ne stoji uz njega.
+ * Kucica bez snimke: udio iz `VinoRadnja` korijena, preveden na kucicu samo
+ * gdje je prijevod tocan — obrazlozenje i mjerenje stoje uz `kvasciKucice`
  * (lib/prosli-tank.ts). Kucica bez ijednog kvasca pise "bez zapisa": 135 od
  * 161 kucice u T42 nema kvasac, vecinom zateceno vino iz 2025, i to je
  * ispravno stanje, ne rupa.
@@ -159,8 +176,19 @@ export default async function ProsliTankPage({
   const vecBiloUPosudi = izTankId === roditeljTankId;
   const trenutak = new Date(kucica.usloAt.getTime() - 1);
 
+  // SNIMKA — vino kakvo je bilo kad je izaslo iz posude (razina 2 arhive).
+  // `null` za sve kucice od prije koraka 2, za vino koje je u posudi vec bilo
+  // i za kretanja koja nisu izlazak; tada sve ide iz knjige kao prije.
+  const snimka = await snimkaKucice(prisma, { kljucCina, izTankId, roditeljTankId });
+
   const granica = await granicaVina(prisma, izTankId, { doTrenutka: trenutak, zadnjeVino: true });
-  const ime = imeZaPrikaz(await imeVina(prisma, izTankId, granica, { doTrenutka: trenutak }));
+  const ime = imeZaPrikaz(
+    snimka
+      ? imeIzSnimke(snimka)
+      : await imeVina(prisma, izTankId, granica, { doTrenutka: trenutak })
+  );
+  // Iz knjige i kad snimka postoji: iz nje dolazi GRAF (niz mjerenja kroz
+  // vrijeme), a snimka nosi samo vrijednosti u jednom trenutku.
   const parametri = await parametriVinaIzKnjige(prisma, izTankId, { doTrenutka: trenutak });
 
   // VINO KOJE JE USLO I OTISLO ISTIM TRENUTKOM. Milisekundu prije cina knjiga
@@ -237,11 +265,41 @@ export default async function ProsliTankPage({
       .sort((a, b) => b.litre - a.litre);
   }
 
-  const kvasciKorijena = await prisma.vinoRadnja.findMany({
-    where: { tankId: korijenId, jeKvasac: true },
-    orderBy: { dogodenoAt: "asc" },
-  });
-  const kvasci = kvasciKucice(korijen, izTankId, kljucCina, kvasciKorijena);
+  // KVASCI: iz snimke kad je ima (tocan udio, bez prijevoda), inace prijevod
+  // iz `VinoRadnja` korijena kao prije. Nikad oboje — vidi `kvasciIzSnimke`.
+  type KvasacPrikaz = {
+    id: string;
+    naziv: string;
+    brojTanka: number | null;
+    dogodenoAt: Date;
+    udio: number | null;
+    zasto: null | "vise_putova" | "nesklad";
+  };
+  const kvasci: KvasacPrikaz[] = snimka
+    ? kvasciIzSnimke(snimka).map((r) => ({
+        id: r.id,
+        naziv: r.preparatNaziv ?? r.opis ?? "kvasac",
+        brojTanka: r.izvorniBrojTanka,
+        dogodenoAt: r.dogodenoAt,
+        udio: r.udio,
+        zasto: null,
+      }))
+    : kvasciKucice(
+        korijen,
+        izTankId,
+        kljucCina,
+        await prisma.vinoRadnja.findMany({
+          where: { tankId: korijenId, jeKvasac: true },
+          orderBy: { dogodenoAt: "asc" },
+        })
+      ).map((k) => ({
+        id: k.redak.id,
+        naziv: k.redak.preparatNaziv ?? k.redak.opis ?? "kvasac",
+        brojTanka: k.redak.izvorniBrojTanka,
+        dogodenoAt: k.redak.dogodenoAt,
+        udio: k.udio,
+        zasto: k.zasto,
+      }));
 
   // DODACI I HRANA: sve sto je dodano ovom vinu, i vinima od kojih je
   // nastalo, prije nego je uslo u roditelja. Iz `Radnja`, ne iz `VinoRadnja`
@@ -328,7 +386,45 @@ export default async function ProsliTankPage({
   const sDodacima = povijesti.filter((p) => p.dodaci.length > 0);
   const rupe = povijesti.filter((p) => p.stanje === "rupa");
 
-  const prikazParametara: ParametarPrikaz[] = POLJA.map((o): ParametarPrikaz => {
+  // Graf je iz knjige u obje grane: snimka je jedan trenutak, ne niz.
+  const nizZaGraf = (kljuc: keyof NonNullable<typeof parametri>["niz"]) =>
+    (parametri?.niz[kljuc] ?? [])
+      .filter((x) => x.postotak >= PRAG_GRAFA)
+      .map((x) => ({
+        t: x.izmjerenoAt.toISOString(),
+        v: x.vrijednost,
+        rucno: false,
+        posuda: x.brojTanka != null ? `tank ${x.brojTanka}` : "nepoznatoj posudi",
+      }));
+
+  // IZ SNIMKE: svih osam polja monitora, redom kao na stranici tanka, s
+  // podrijetlom kakvo je monitor tada pokazivao. Snimka ne nosi racun blenda
+  // ni posude iz knjige, pa ih ploca ne tvrdi (`blend`/`izKnjige` bez detalja).
+  const poljaSnimke = new Map((snimka?.polja ?? []).map((p) => [p.kljuc, p]));
+  const prikazIzSnimke: ParametarPrikaz[] = POLJA_MONITORA.map((o): ParametarPrikaz => {
+    const p = poljaSnimke.get(o.kljuc);
+    const podrijetlo = (p?.podrijetlo.toLowerCase() ?? "nema") as ParametarPrikaz["podrijetlo"];
+    const datum = p?.izmjerenoAt ? p.izmjerenoAt.toISOString() : null;
+    return {
+      kljuc: o.kljuc,
+      naziv: o.naziv,
+      jedinica: o.jedinica,
+      vrijednost: p?.vrijednost ?? null,
+      podrijetlo,
+      datum: podrijetlo === "mjereno" || podrijetlo === "preneseno" ? datum : null,
+      // NEMA u snimci ne znaci "nije mjereno": monitor je vrijednost iz knjige
+      // mogao i sakriti jer je vino fermentiralo. Razlog snimka ne nosi, pa se
+      // kaze samo ono sto se zna.
+      neprikazano:
+        p?.vrijednost == null ? "monitor je u trenutku izlaska nije pokazivao" : null,
+      // `postotak` ploca ne prikazuje (tip ga trazi); posude snimka ne nosi.
+      izKnjige: podrijetlo === "knjiga" ? { mjerenoAt: datum, posude: [], postotak: 100 } : null,
+      niz: nizZaGraf(o.kljuc),
+      blend: null,
+    };
+  });
+
+  const prikazParametara: ParametarPrikaz[] = snimka ? prikazIzSnimke : POLJA.map((o): ParametarPrikaz => {
     const polje = parametri?.poPolju[o.kljuc] ?? null;
     return {
       kljuc: o.kljuc,
@@ -351,14 +447,7 @@ export default async function ProsliTankPage({
             postotak: polje.postotak,
           }
         : null,
-      niz: (parametri?.niz[o.kljuc] ?? [])
-        .filter((x) => x.postotak >= PRAG_GRAFA)
-        .map((x) => ({
-          t: x.izmjerenoAt.toISOString(),
-          v: x.vrijednost,
-          rucno: false,
-          posuda: x.brojTanka != null ? `tank ${x.brojTanka}` : "nepoznatoj posudi",
-        })),
+      niz: nizZaGraf(o.kljuc),
       blend: null,
     };
   });
@@ -387,9 +476,31 @@ export default async function ProsliTankPage({
           {/* fDatum vec zavrsava tockom ("21. 09. 2026."). */}
           {granica.odAt ? ` U tanku ${brIz} od ${fDatum(granica.odAt)}` : ""}
         </div>
+        {snimka ? (
+          // Litre ove kucice (gore) su iz knjige: ono sto je USLO u ovaj tank.
+          // Snimka broji sto je izaslo iz posude — za sve ciljeve cina i s
+          // kalom — pa stoji kao zaseban redak, ne umjesto.
+          <div style={podnaslovStil}>
+            U tanku {brIz} prije: {fBroj(snimka.litrePrije)} L · otišlo{" "}
+            {fBroj(snimka.litreOtislo)} L
+            {snimka.ispraznjen ? " · posuda ispražnjena" : ""}
+          </div>
+        ) : null}
         <div style={napomenaStil}>
-          Samo za gledanje. Čita se iz knjige kretanja, ne iz snimke: ispravak
-          podataka mijenja i ovaj prikaz prošlosti.
+          {snimka ? (
+            <>
+              Samo za gledanje. Ime, parametri i kvasci su{" "}
+              <strong>iz snimke u trenutku izlaska</strong> (
+              {fDatumSat(snimka.dogodenoAt)}): onako kako ih je monitor tada
+              pokazivao. Berba, litre i dodaci su iz knjige kretanja — ispravak
+              podataka mijenja njih, snimku ne.
+            </>
+          ) : (
+            <>
+              Samo za gledanje. Čita se <strong>iz knjige</strong> kretanja, ne iz
+              snimke: ispravak podataka mijenja i ovaj prikaz prošlosti.
+            </>
+          )}
         </div>
       </div>
 
@@ -428,16 +539,21 @@ export default async function ProsliTankPage({
       </Card>
 
       <Card title="Kvasci" broj={kvasci.length}>
+        <div style={izvorStil}>
+          {snimka
+            ? "iz snimke u trenutku izlaska — udio u vinu ove kućice"
+            : `iz knjige — udio iz zapisa tanka ${brKorijen}, preveden na ovu kućicu`}
+        </div>
         {kvasci.length === 0 ? (
           <div style={praznoStil}>bez zapisa</div>
         ) : (
           <div style={{ display: "grid", gap: 6, padding: 10 }}>
             {kvasci.map((k) => (
-              <div key={k.redak.id} style={redakStil}>
+              <div key={k.id} style={redakStil}>
                 <div style={{ display: "grid", gap: 2 }}>
-                  <strong>{k.redak.preparatNaziv ?? k.redak.opis ?? "kvasac"}</strong>
+                  <strong>{k.naziv}</strong>
                   <span style={tihoStil}>
-                    dodan u tank {k.redak.izvorniBrojTanka ?? "?"} · {fDatum(k.redak.dogodenoAt)}
+                    dodan u tank {k.brojTanka ?? "?"} · {fDatum(k.dogodenoAt)}
                   </span>
                 </div>
                 <div style={{ textAlign: "right" }}>
@@ -492,7 +608,16 @@ export default async function ProsliTankPage({
       </Card>
 
       <Card title="Parametri">
-        {parametri ? (
+        <div style={izvorStil}>
+          {snimka
+            ? "vrijednosti iz snimke u trenutku izlaska (s pravilom fermentacije i procjenom iz blenda, kao monitor) · graf kroz vrijeme iz knjige"
+            : "iz knjige — mjerenja ovog vina kroz sve posude, bez pravila fermentacije i bez procjene iz blenda"}
+        </div>
+        {snimka ? (
+          <div style={{ padding: 10 }}>
+            <ParametriPoPolju parametri={prikazParametara} />
+          </div>
+        ) : parametri ? (
           <div style={{ padding: 10 }}>
             <ParametriPoPolju parametri={prikazParametara} />
           </div>
@@ -561,6 +686,13 @@ const napomenaStil: React.CSSProperties = {
 };
 const tihoStil: React.CSSProperties = { fontSize: 13, color: "#6b7280", padding: "2px 0" };
 const praznoStil: React.CSSProperties = { ...tihoStil, padding: 10 };
+/** Oznaka izvora na kartici — obavezna, vidi zaglavlje (odluka 2). */
+const izvorStil: React.CSSProperties = {
+  fontSize: 12,
+  color: "#6b7280",
+  padding: "8px 10px 0",
+  fontStyle: "italic",
+};
 const poveznicaStil: React.CSSProperties = { color: "#1f6f8b", fontSize: 14 };
 const redakStil: React.CSSProperties = {
   display: "flex",
