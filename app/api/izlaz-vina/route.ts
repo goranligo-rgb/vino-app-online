@@ -170,8 +170,31 @@ export async function POST(req: Request) {
   }
 }
 
+/**
+ * Tko smije CITATI popis izlaza — iste role koje proxy.ts pusta na stranicu
+ * /izlaz-vina: ADMIN, PODRUM i ENOLOG. Pisanje (POST) je uze, `jeL12`.
+ *
+ * Namjerno izricit popis, a ne `smijeUPodrumu` (lib/auth-role.ts): skup je
+ * danas isti, ali to pravilo kaze "smije raditi u podrumu". Ovo je pravilo
+ * stranice, i mijenja se zajedno s proxy.ts, ne s njim.
+ */
+function smijeCitatiIzlaze(rola: string | null | undefined): boolean {
+  return rola === "ADMIN" || rola === "PODRUM" || rola === "ENOLOG";
+}
+
 export async function GET(req: Request) {
   try {
+    // PRIJAVA I ROLA. Do 29.09.2026. GET nije trazio NISTA — popis izlaza
+    // (tankovi, litre, boce, napomene) dohvatio je bilo tko tko zna adresu.
+    // proxy.ts stiti samo stranice, ne /api/*, pa brava mora biti ovdje.
+    const user = await getAuthUser();
+    if (!user?.id) {
+      return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+    }
+    if (!smijeCitatiIzlaze(user.role)) {
+      return NextResponse.json({ error: "Nemaš pravo pristupa." }, { status: 403 });
+    }
+
     const { searchParams } = new URL(req.url);
 
     const tankId = searchParams.get("tankId")?.trim() || undefined;
