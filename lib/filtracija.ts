@@ -25,6 +25,7 @@ import {
 } from "@/lib/berba-knjiga";
 import { stanjeTanka } from "@/lib/berba-model";
 import { imeVinaSada, zabiljeziImenovanje } from "@/lib/ime-vina";
+import { snimiVinoKojeIzlazi } from "@/lib/snimka-vina";
 import {
   upisiVinoRadnju,
   prenesiVinoRadnje,
@@ -1217,6 +1218,25 @@ export async function izvrsiFiltraciju(
   // mjerenja. Time granica u ponistavanju (izmjerenoAt > izvrsenoAt) ne moze
   // uhvatiti nasa mjerenja ni kad se satovi baze i aplikacije razidju.
   const datumIzvrsenja = new Date();
+
+  // 5b) SNIMKA VINA KOJE IZLAZI (lib/snimka-vina.ts) — prije koraka 6, jer
+  //     se izvor ondje pocinje umanjivati, a u 7b mu se brisu `VinoRadnja`.
+  //     Ako snimka padne, pada i prijenos. "Pao na nulu" je isti racun kao
+  //     gore, u mililitrima.
+  await snimiVinoKojeIzlazi(tx, {
+    // CAST. Jamci ga `jePrijenosVina` na ulazu funkcije — ali samo dok
+    // VrstaZadatka i CinSnimkeVina nose ISTA tri naziva. Preimenuje li se
+    // ili doda vrsta prijenosa u jednom enumu a ne u drugom, tsc to ne vidi
+    // i pukne tek u radu, na upisu snimke.
+    cin: zadatak.vrsta as "FILTRACIJA" | "FLOTACIJA" | "TALOZENJE",
+    zadatakId: zadatak.id,
+    tankId: izvor.id,
+    dogodenoAt: datumIzvrsenja,
+    litrePrije: uLitre(izvorUkupnoPrijeMl),
+    litreOtislo: uLitre(unos.kolicinaIzlazMl),
+    ispraznjen: izvorPaoNaNulu,
+    korisnikId: args.izvrsioKorisnikId,
+  });
 
   // 6) Izvorni tank.
   if (izvorPaoNaNulu) {

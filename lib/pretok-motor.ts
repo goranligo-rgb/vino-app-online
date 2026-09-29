@@ -77,6 +77,7 @@ import {
   type Nadopuna,
 } from "@/lib/berba-knjiga";
 import { prenesiVinoRadnje, snimiVinoRadnje } from "@/lib/vino-radnja";
+import { snimiVinoKojeIzlazi } from "@/lib/snimka-vina";
 import { zabiljeziImenovanje } from "@/lib/ime-vina";
 import { stanjeTanka } from "@/lib/berba-model";
 
@@ -567,6 +568,33 @@ export async function izvrsiPretok(
     tx,
     provjeren.izvori.map((i) => i.tankId)
   );
+
+  // 6c) SNIMKA VINA KOJE IZLAZI — za SVAKI izvor, i djelomican (lib/snimka-vina.ts).
+  //
+  //     Prije koraka 7 iz istog razloga kao 6b: `isprazniTank` brise
+  //     `VinoRadnja`, jedini tocan izvor udjela kvasca. Ako snimka padne, pada
+  //     i pretok — pretok bez snimke je trajna rupa.
+  //
+  //     Samo uz `pretokId`, isto pravilo kao knjiga berbe: snimka se vjesa na
+  //     cin. Bez njega je jedini pozivatelj scripts/test-pretok-motor.ts.
+  //     "Pao na nulu" je ovdje isti racun kao u koraku 7, u mililitrima.
+  if (ulaz.pretokId) {
+    for (const i of provjeren.izvori) {
+      const t = izvorniTankovi.get(i.tankId)!;
+      const prijeMl = uMl(t.kolicinaVinaUTanku);
+
+      await snimiVinoKojeIzlazi(tx, {
+        cin: "PRETOK",
+        pretokId: ulaz.pretokId,
+        tankId: t.id,
+        dogodenoAt: ulaz.dogodenoAt ?? new Date(),
+        litrePrije: uLitre(prijeMl),
+        litreOtislo: uLitre(i.ml),
+        ispraznjen: prijeMl - i.ml <= 0,
+        korisnikId: ulaz.korisnikId,
+      });
+    }
+  }
 
   // 7) IZVORI — umanji kolicinu i proporcionalno smanji blend.
   //
