@@ -350,6 +350,17 @@ export default async function ArhivaDetaljPage({
 
   if (!arhiva) return notFound();
 
+  // PUNA EVIDENCIJA VINA JE DRUGDJE (korak 5d, 29.09.2026.). Od tada izlaz
+  // vina mjerenja, zadatke i radnje vise NE kopira u arhivu — originali ostaju
+  // na posudi, a vino koje je izaslo ima svoju stranicu, sa snimkom i s
+  // originalima po prozoru vina. Ova arhiva zato za takvo vino pokazuje MANJE
+  // nego prije, namjerno; napomena to kaze i vodi na stranicu vina. Samo
+  // snimka IZLAZA: snimka pretoka je kucica u tudjem stablu (razina 2).
+  const snimkaIzlaza = await prisma.snimkaVina.findFirst({
+    where: { arhivaVinaId: id, izlazVinaId: { not: null } },
+    select: { id: true },
+  });
+
   const zadnje = arhiva.mjerenja[0] ?? null;
 
   const otvoreniZadaci = arhiva.zadaci.filter((z) => z.status === "OTVOREN");
@@ -460,6 +471,21 @@ export default async function ArhivaDetaljPage({
             )}`}</Oznaka>
           </div>
         </div>
+
+        {snimkaIzlaza ? (
+          <div className="mb-4 border border-sky-200 bg-sky-50 px-4 py-3 text-[14px] leading-6 text-sky-900">
+            Mjerenja, zadaci i radnje ovog vina više se ne kopiraju u arhivu —
+            ostaju na posudi, pa ih ovdje nema. Puna evidencija vina (kvasci s
+            postotkom, parametri, kronologija kroz sve posude) je na stranici
+            vina.{" "}
+            <Link
+              href={`/prosli-tank?snimka=${snimkaIzlaza.id}`}
+              className="font-semibold text-sky-800 underline"
+            >
+              Otvori evidenciju vina
+            </Link>
+          </div>
+        ) : null}
 
         <div className="mb-4 grid gap-3 md:grid-cols-4">
           <KarticaBroj

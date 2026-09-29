@@ -229,11 +229,22 @@ export async function GET(req: Request) {
     // IME TANKA JE IZVEDENO (faza 5) — `Tank.nazivVina` se vise ne pise. Pod
     // istim imenom polja kao do sada, da ekran ne treba mijenjati.
     const imena = await imenaPodruma(prisma);
+
+    // POVEZNICA NA EVIDENCIJU VINA (razina 1 arhive, /prosli-tank?snimka=).
+    // Snimka postoji za izlaze od koraka 5c (29.09.2026.); stariji je nemaju
+    // i ostaju bez poveznice — staro se ne spasava. Jedan upit za cijeli popis.
+    const snimke = await prisma.snimkaVina.findMany({
+      where: { izlazVinaId: { in: sirovi.map((r) => r.id) } },
+      select: { id: true, izlazVinaId: true },
+    });
+    const snimkaPoIzlazu = new Map(snimke.map((s) => [s.izlazVinaId, s.id]));
+
     const izlazi = sirovi.map((row) => ({
       ...row,
       tank: row.tank
         ? { ...row.tank, nazivVina: imena.get(row.tank.id)?.naziv ?? null }
         : row.tank,
+      snimkaId: snimkaPoIzlazu.get(row.id) ?? null,
     }));
 
     const ukupnoLitara = izlazi.reduce(

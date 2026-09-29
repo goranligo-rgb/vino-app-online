@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 /**
@@ -40,6 +41,8 @@ export type Dogadaj = {
   iznos?: string | null;
   detalji?: Array<{ label: string; value: string }>;
   upozorenje?: string | null;
+  /** Npr. izlaz sa snimkom -> evidencija vina (/prosli-tank?snimka=). */
+  poveznica?: { href: string; tekst: string } | null;
 };
 
 const OZNAKE: Record<VrstaDogadaja, { kratko: string; boja: string; pozadina: string }> = {
@@ -214,6 +217,12 @@ export default function Kronologija({ dogadaji }: { dogadaji: Dogadaj[] }) {
                         {d.upozorenje ? (
                           <div style={upozorenjeStil}>⚠ {d.upozorenje}</div>
                         ) : null}
+
+                        {d.poveznica ? (
+                          <Link href={d.poveznica.href} style={poveznicaStil}>
+                            {d.poveznica.tekst}
+                          </Link>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -363,6 +372,13 @@ const upozorenjeStil: React.CSSProperties = {
   border: "1px solid #fed7aa",
   padding: "4px 7px",
   marginTop: 6,
+};
+
+const poveznicaStil: React.CSSProperties = {
+  display: "inline-block",
+  fontSize: 12,
+  color: "#1f6f8b",
+  marginTop: 4,
 };
 
 const detaljiStil: React.CSSProperties = {

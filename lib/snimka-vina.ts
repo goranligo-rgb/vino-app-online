@@ -352,6 +352,24 @@ export async function snimkaKucice(
   return s;
 }
 
+/**
+ * SNIMKA IZLAZA po id-u — razina 1 arhive (/prosli-tank?snimka=).
+ *
+ * Samo snimka IZLAZA (punjenje u boce, prodaja). Snimka pretoka ili
+ * filtracije je kucica u necijem stablu i otvara se preko korijena (razina
+ * 2); ovdje bi vino bez stabla izgledalo kao da je otislo iz podruma.
+ * Jedan upit.
+ */
+export async function snimkaIzlazaPoId(
+  db: { snimkaVina: Tx["snimkaVina"] },
+  id: string
+): Promise<SnimkaSRetcima | null> {
+  return db.snimkaVina.findFirst({
+    where: { id, izlazVinaId: { not: null } },
+    include: { polja: true, radnje: true },
+  });
+}
+
 /** Ime iz snimke u obliku koji `imeZaPrikaz` prima. */
 export function imeIzSnimke(s: Pick<SnimkaSRetcima, "nazivVina" | "sorta">): ImeVina {
   return {

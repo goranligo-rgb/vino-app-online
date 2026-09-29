@@ -22,8 +22,9 @@ import {
   rastaviKljucCina,
 } from "@/lib/prosli-tank";
 import { imeIzSnimke, kvasciIzSnimke, snimkaKucice } from "@/lib/snimka-vina";
-import { POLJA_MONITORA } from "@/lib/monitor-vina";
 import { Card } from "@/app/tankovi/[id]/kartica";
+import { parametriIzSnimke } from "./parametri-iz-snimke";
+import VinoIzSnimke from "./vino-iz-snimke";
 import ParametriPoPolju, {
   type ParametarPrikaz,
 } from "@/app/tankovi/[id]/parametri-po-polju";
@@ -39,6 +40,10 @@ import ParametriPoPolju, {
  *   iz      — posuda iz koje je vino doslo (za vino koje je u posudi vec
  *             bilo: sama ta posuda);
  *   cin     — cin kojim je vino uslo (lib/identitet-vina.ts, `kljucCina`).
+ *
+ * Adresa: /prosli-tank?snimka=<SnimkaVina.id> — RAZINA 1 arhive: vino koje
+ * je izaslo kroz izlaz (boce ili rinfuza), puna evidencija. Vidi
+ * vino-iz-snimke.tsx; ovdje se samo grana.
  *
  * ODLUKE VLASNIKA (28.09.2026):
  *
@@ -135,6 +140,12 @@ export default async function ProsliTankPage({
   if (!prijavljeni) redirect("/login");
 
   const sp = await searchParams;
+
+  // RAZINA 1 — vino koje je izaslo kroz izlaz (boce ili rinfuza). Nema
+  // korijen: nije kucica ni u cijem stablu. Vidi vino-iz-snimke.tsx.
+  const snimkaId = jedan(sp.snimka);
+  if (snimkaId) return <VinoIzSnimke snimkaId={snimkaId} />;
+
   const korijenId = jedan(sp.korijen);
   const izTankId = jedan(sp.iz);
   const kljucCina = jedan(sp.cin);
@@ -397,34 +408,11 @@ export default async function ProsliTankPage({
         posuda: x.brojTanka != null ? `tank ${x.brojTanka}` : "nepoznatoj posudi",
       }));
 
-  // IZ SNIMKE: svih osam polja monitora, redom kao na stranici tanka, s
-  // podrijetlom kakvo je monitor tada pokazivao. Snimka ne nosi racun blenda
-  // ni posude iz knjige, pa ih ploca ne tvrdi (`blend`/`izKnjige` bez detalja).
-  const poljaSnimke = new Map((snimka?.polja ?? []).map((p) => [p.kljuc, p]));
-  const prikazIzSnimke: ParametarPrikaz[] = POLJA_MONITORA.map((o): ParametarPrikaz => {
-    const p = poljaSnimke.get(o.kljuc);
-    const podrijetlo = (p?.podrijetlo.toLowerCase() ?? "nema") as ParametarPrikaz["podrijetlo"];
-    const datum = p?.izmjerenoAt ? p.izmjerenoAt.toISOString() : null;
-    return {
-      kljuc: o.kljuc,
-      naziv: o.naziv,
-      jedinica: o.jedinica,
-      vrijednost: p?.vrijednost ?? null,
-      podrijetlo,
-      datum: podrijetlo === "mjereno" || podrijetlo === "preneseno" ? datum : null,
-      // NEMA u snimci ne znaci "nije mjereno": monitor je vrijednost iz knjige
-      // mogao i sakriti jer je vino fermentiralo. Razlog snimka ne nosi, pa se
-      // kaze samo ono sto se zna.
-      neprikazano:
-        p?.vrijednost == null ? "monitor je u trenutku izlaska nije pokazivao" : null,
-      // `postotak` ploca ne prikazuje (tip ga trazi); posude snimka ne nosi.
-      izKnjige: podrijetlo === "knjiga" ? { mjerenoAt: datum, posude: [], postotak: 100 } : null,
-      niz: nizZaGraf(o.kljuc),
-      blend: null,
-    };
-  });
-
-  const prikazParametara: ParametarPrikaz[] = snimka ? prikazIzSnimke : POLJA.map((o): ParametarPrikaz => {
+  // IZ SNIMKE: svih osam polja monitora (app/prosli-tank/parametri-iz-snimke.ts,
+  // zajednicko s razinom 1).
+  const prikazParametara: ParametarPrikaz[] = snimka
+    ? parametriIzSnimke(snimka, (k) => nizZaGraf(k as keyof NonNullable<typeof parametri>["niz"]))
+    : POLJA.map((o): ParametarPrikaz => {
     const polje = parametri?.poPolju[o.kljuc] ?? null;
     return {
       kljuc: o.kljuc,

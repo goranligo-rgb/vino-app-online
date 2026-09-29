@@ -2130,7 +2130,8 @@ export default async function TankPregledPage({
   // kronologija.tsx je klijentska samo zbog filtra i ne racuna nista.
   //
   // Svi izvori su vec dohvaceni gore i vec filtrirani granicom arhive, pa
-  // kronologija ne dodaje nijedan upit.
+  // kronologija ne dodaje nijedan upit — osim jednog za poveznice izlaza na
+  // evidenciju vina (vidi uz izlaze).
   //
   // MJERENJA NISU OVDJE: ostaju vlastita kartica sa svojim grafom po parametru.
   // ---------------------------------------------------------------------------
@@ -2516,8 +2517,27 @@ export default async function TankPregledPage({
     });
   }
 
+  // EVIDENCIJA VINA KOJE JE IZASLO (razina 1 arhive, /prosli-tank?snimka=).
+  // Jedini upit koji kronologija sama dodaje: snimke izlaza s popisa, jednim
+  // upitom. Izlazi prije 29.09.2026. snimku nemaju i ostaju bez poveznice.
+  // Na praznom tanku izlaza nema (`izlaziZaPrikaz`), pa ni upita.
+  const snimkaPoIzlazu = new Map(
+    izlaziZaPrikaz.length > 0
+      ? (
+          await prisma.snimkaVina.findMany({
+            where: { izlazVinaId: { in: izlaziZaPrikaz.map((x) => x.id) } },
+            select: { id: true, izlazVinaId: true },
+          })
+        ).map((s) => [s.izlazVinaId, s.id] as const)
+      : []
+  );
+
   for (const x of izlaziZaPrikaz) {
+    const snimkaId = snimkaPoIzlazu.get(x.id);
     dogadaji.push({
+      poveznica: snimkaId
+        ? { href: `/prosli-tank?snimka=${snimkaId}`, tekst: "evidencija vina koje je izašlo" }
+        : null,
       id: `iz-${x.id}`,
       vrsta: "IZLAZ",
       vrijeme: x.datum.toISOString(),

@@ -33,6 +33,8 @@ type IzlazRow = {
   brojBoca?: number | null;
   volumenBoce?: number | null;
   napomena?: string | null;
+  /** Snimka vina pri izlazu — poveznica na punu evidenciju (od 29.09.2026.). */
+  snimkaId?: string | null;
   tank?: {
     id: string;
     broj: number;
@@ -694,6 +696,12 @@ export default function IzlazVinaPage() {
                     <span style={mobileLabelStyle}>Napomena</span>
                     <span style={mobileValueStyle}>{row.napomena || "—"}</span>
                   </div>
+
+                  {row.snimkaId ? (
+                    <Link href={`/prosli-tank?snimka=${row.snimkaId}`} style={evidencijaLinkStyle}>
+                      evidencija vina
+                    </Link>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -776,6 +784,12 @@ export default function IzlazVinaPage() {
                   <div style={desktopExitNoteStyle}>
                     <strong>Napomena:</strong> {row.napomena || "—"}
                   </div>
+
+                  {row.snimkaId ? (
+                    <Link href={`/prosli-tank?snimka=${row.snimkaId}`} style={evidencijaLinkStyle}>
+                      evidencija vina
+                    </Link>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -1200,6 +1214,14 @@ const desktopMiniValueStyle: React.CSSProperties = {
   color: "#2f2f2f",
   fontWeight: 700,
   lineHeight: 1.4,
+};
+
+/** Poveznica na punu evidenciju vina koje je izaslo (razina 1 arhive). */
+const evidencijaLinkStyle: React.CSSProperties = {
+  display: "inline-block",
+  marginTop: 8,
+  fontSize: 13,
+  color: "#1f6f8b",
 };
 
 const desktopExitNoteStyle: React.CSSProperties = {
