@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
   izracunajStatus,
   stilZaStatus,
@@ -182,10 +182,18 @@ function Stepper({
 export default function TankKontrole({
   tank,
   smijeUpravljati,
+  istaknut = false,
 }: {
   tank: TankTile;
   smijeUpravljati: boolean;
+  /** Stranica je otvorena s ?tank=<id> ovog tanka — skoci na karticu. */
+  istaknut?: boolean;
 }) {
+  const omotacRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (istaknut) omotacRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [istaknut]);
+
   // Stvarno stanje kontrolera (iz zadnjeg ocitanja), a ne ono sto baza zeli.
   const iskljuceno = tank.hladjenjeIskljuceno;
 
@@ -261,6 +269,8 @@ export default function TankKontrole({
 
   return (
     <div
+      ref={omotacRef}
+      id={`tank-${tank.id}`}
       className="hlad-kartica"
       style={{
         background: stil.bg,

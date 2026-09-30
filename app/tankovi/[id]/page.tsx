@@ -18,7 +18,7 @@ import HladjenjeGraf from "./hladjenje-graf";
 import FermentacijaGumb from "./fermentacija-gumb";
 import { jeL12, smijeUPodrumu } from "@/lib/auth-role";
 import ImenujVino from "./imenuj-vino";
-import { jeHladjenjeIskljuceno } from "@/lib/tank-komanda";
+import { jeHladjenjeIskljuceno, smijeUpravljati } from "@/lib/tank-komanda";
 import { popisKvasacaSDopunom } from "@/lib/kvasci";
 import { kvasciPoPartiji } from "@/lib/kvasac-partija";
 import { granicaVina, odGraniceVina } from "@/lib/granica-vina";
@@ -3294,7 +3294,26 @@ export default async function TankPregledPage({
 
       <div id="hladjenje" style={{ scrollMarginTop: 16 }} />
 
-      <Card title="Temperatura" pod="samo prikaz">
+      {/* Precac na /dashboard/hladjenje, gdje se hladjenje podesava. Samo uz
+          isti uvjet kao `where` te stranice (modbus adresa I nadzor): tanka bez
+          njih ondje nema, pa bi gumb vodio u prazno. Tank ide kao parametar
+          upita, ne kao podstranica — ENOLOG smije samo tocnu adresu. */}
+      <Card
+        title="Temperatura"
+        pod="samo prikaz"
+        kontrola={
+          smijeUpravljati(prijavljeni.role) &&
+          tank.nadzorHladjenja &&
+          tank.modbusAdresa != null ? (
+            <Link
+              href={`/dashboard/hladjenje?tank=${tank.id}`}
+              style={linkButtonSecondaryStyle}
+            >
+              Podesi hlađenje
+            </Link>
+          ) : null
+        }
+      >
         <div style={{ display: "grid", gap: 14 }}>
           <div
             style={{

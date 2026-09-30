@@ -33,8 +33,17 @@ function formatDatum(d: Date | string | null | undefined): string {
   return Number.isNaN(x.getTime()) ? "—" : x.toLocaleString("hr-HR");
 }
 
-export default async function HladjenjeDashboard() {
+export default async function HladjenjeDashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   noStore();
+
+  // ?tank=<id> dolazi s gumba "Podesi hlađenje" na stranici tanka. Popis se NE
+  // filtrira — sazetak i dnevnik su zajednicki za cijeli podrum — nego se samo
+  // skoci na karticu tog tanka. Nepoznat ili visestruk parametar se zanemaruje.
+  const { tank: trazeniTank } = await searchParams;
 
   const user = await getAuthUser();
   if (!user) redirect("/login");
@@ -457,7 +466,12 @@ export default async function HladjenjeDashboard() {
 
         <div className="hlad-grid">
           {tiles.map((t) => (
-            <TankKontrole key={t.id} tank={t} smijeUpravljati={smije} />
+            <TankKontrole
+              key={t.id}
+              tank={t}
+              smijeUpravljati={smije}
+              istaknut={typeof trazeniTank === "string" && trazeniTank === t.id}
+            />
           ))}
         </div>
 
