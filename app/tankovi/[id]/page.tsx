@@ -3146,7 +3146,19 @@ export default async function TankPregledPage({
       </div>
       </div>
 
-      <Card title="Otvoreni zadaci" broj={otvoreniZadaci.length}>
+      {/* Precac na obrazac /zadaci s vec odabranim tankom. Samo ADMIN i
+          PODRUM: obrazac se ondje ionako prikazuje samo njima. */}
+      <Card
+        title="Otvoreni zadaci"
+        broj={otvoreniZadaci.length}
+        kontrola={
+          jeL12(prijavljeni.role) ? (
+            <Link href={`/zadaci?tank=${tank.id}`} style={linkButtonSecondaryStyle}>
+              Dodaj zadatak
+            </Link>
+          ) : null
+        }
+      >
         {otvoreniZadaci.length === 0 ? (
           <div style={mutedTextStyle}>Nema otvorenih zadataka.</div>
         ) : (

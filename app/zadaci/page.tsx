@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import KorekcijaModal from "@/components/KorekcijaModal";
 import {
@@ -530,6 +530,37 @@ export default function ZadaciPage() {
     setVezaniNaslov(naslovVezanogZadatka(vezanaVrsta));
   }, [vezanaVrsta]);
 
+  // ?tank=<id> dolazi s gumba "Dodaj zadatak" na stranici tanka. Primjenjuje
+  // se JEDNOM, kad se tankovi ucitaju, i postavlja isto sto i select: tank i
+  // kolicinu vina (bez nje se spremanje odbija). Cita se iz window.location, a
+  // ne preko useSearchParams, koji bi na prerenderiranoj stranici trazio
+  // <Suspense> oko cijelog stabla. Tank kojeg nema u selectu se zanemaruje.
+  const tankIzAdresePrimijenjen = useRef(false);
+  useEffect(() => {
+    if (tankIzAdresePrimijenjen.current || tankovi.length === 0) return;
+    tankIzAdresePrimijenjen.current = true;
+
+    const url = new URL(window.location.href);
+    const trazeni = url.searchParams.get("tank");
+    if (trazeni == null) return;
+
+    // Parametar se mice iz adrese cim je procitan (replaceState: bez novog
+    // unosa u povijesti i bez ucitavanja). Inace osvjezavanje vraca tank iz
+    // adrese i tiho brise tank koji je korisnik u meduvremenu odabrao rukom.
+    url.searchParams.delete("tank");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+
+    const tank = tankovi.find(
+      (t) => t.id === trazeni && t.broj > 0 && t.kapacitet > 0
+    );
+    if (!tank) return;
+
+    setOdabraniTankId(tank.id);
+    setKolicinaVinaUTanku(
+      tank.kolicinaVinaUTanku != null ? Number(tank.kolicinaVinaUTanku) : 0
+    );
+  }, [tankovi]);
+
   const trebaPreparat = vrstaZadatka === "DODAVANJE";
   const jeKorekcija = vrstaZadatka === "KOREKCIJA";
 
@@ -879,10 +910,10 @@ export default function ZadaciPage() {
         setPoruka("Novi zadatak je spremljen.");
       }
 
-      setOdabraniTankId("");
+      // Tank (i njegova kolicina) OSTAJE odabran: vise zadataka istom tanku
+      // ne trazi biranje ispocetka. Ostalo se vraca na pocetno.
       setVrstaZadatka("DODAVANJE");
       setStavke([praznaStavka()]);
-      setKolicinaVinaUTanku(null);
       setNaslov("Dodavanje preparata");
       setNapomena("");
 
