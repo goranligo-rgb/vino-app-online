@@ -2296,6 +2296,9 @@ model SnimkaVina {
   nazivVina String?
   sorta     String?
   godiste   Int?
+  /// Interna sifra vina u trenutku cina (ImeVina), ZAMRZNUTA: komponenta
+  /// koja ode u cuvée nosi je ovdje i ne prenosi je nikome.
+  sifra     String?
 
   korisnikId String?
   createdAt  DateTime @default(now()) @db.Timestamptz(6)
@@ -2308,6 +2311,7 @@ model SnimkaVina {
   @@unique([izlazVinaId, tankId])
   @@index([tankId, dogodenoAt])
   @@index([arhivaVinaId])
+  @@index([sifra])
 }
 
 enum CinSnimkeVina {
@@ -2436,6 +2440,17 @@ model ImeVina {
   /// Ono sto bi pisalo na etiketi. NIJE sastav — vidi biljesku iznad.
   deklariranaSorta String?
 
+  /// INTERNA SIFRA VINA, oblik prefiks-MMGG-broj (npr. 11-0926-3). Upisuje
+  /// se RUKOM, ne izvodi; MMGG je mjesec NASTANKA vina, ne upisa.
+  ///
+  /// NIJE UNIQUE, namjerno: vino razdvojeno u dvije prazne posude je jedno
+  /// vino u dvije posude i obje nose istu sifru. Obrazac upozorava na
+  /// duplikat, baza ga ne brani (brava pokriva tank, ne brojac).
+  ///
+  /// Zapis je POTPUNA SNIMKA kao i naziv: cin koji ne ponese sifru brise je
+  /// s ekrana. NULL = sifra nije upisana (sve do 30.09.2026.).
+  sifra String?
+
   izvor IzvorImenaVina @default(RUCNO)
 
   /// Cin kojim je ime nastalo, ako je nastalo strojno. Goli stupci, bez FK.
@@ -2462,4 +2477,5 @@ model ImeVina {
   @@index([tankId, odAt(sort: Desc)])
   @@index([odAt])
   @@index([pretokId])
+  @@index([sifra])
 }
