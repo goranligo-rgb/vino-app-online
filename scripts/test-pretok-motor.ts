@@ -124,6 +124,7 @@ async function napraviTank(
     kapacitet?: number;
     nazivVina?: string | null;
     stupacNazivVina?: string | null;
+    sifra?: string | null;
     sorta?: string | null;
     godiste?: number | null;
     sastav?: Array<{ nazivSorte: string; postotak: number }>;
@@ -169,8 +170,10 @@ async function napraviTank(
       odAt: POCETAK_VINA,
       naziv: p.nazivVina,
       deklariranaSorta: p.sorta,
+      sifra: p.sifra ?? null,
       izvor: "BACKFILL",
       bioPrazan: true,
+      prijeSifra: null,
     });
   }
 

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { akuzativVrste, genitivVrste, nazivVrste } from "@/lib/vrste-prijenosa";
+import { greskaSifre } from "@/lib/sifra-vina";
+import UnosSifreVina from "@/components/UnosSifreVina";
 
 /**
  * Forma za IZVRSENJE prijenosa vina: FILTRACIJA, FLOTACIJA ili TALOZENJE.
@@ -58,6 +60,8 @@ type Red = {
   ciljTankId: string;
   kolicina: string;
   noviNaziv: string;
+  /** Nova interna sifra — trazi se samo za cilj s drugim vinom. */
+  sifra: string | null;
 };
 
 function uMl(litre: number): number {
@@ -94,8 +98,9 @@ export default function FiltracijaForma({
           ciljTankId: s.ciljTankId,
           kolicina: String(s.kolicina),
           noviNaziv: "",
+          sifra: null,
         }))
-      : [{ ciljTankId: "", kolicina: "", noviNaziv: "" }]
+      : [{ ciljTankId: "", kolicina: "", noviNaziv: "", sifra: null }]
   );
 
   const [pregled, setPregled] = useState<Record<string, PregledCilja>>({});
@@ -182,6 +187,16 @@ export default function FiltracijaForma({
         `U tank ${p.brojTanka} stane još ${formatL(p.slobodnoLitara)} L.`
       );
     }
+    // Drugo vino = nastaje novo vino, pa mu treba nova sifra (isto pravilo
+    // provjerava i posluzitelj, prije ikakvog upisa).
+    if (p.drugoVino) {
+      if (!r.sifra) {
+        problemi.push(`Tank ${p.brojTanka}: upiši novu šifru vina.`);
+      } else {
+        const g = greskaSifre(r.sifra);
+        if (g) problemi.push(`Tank ${p.brojTanka}: ${g}`);
+      }
+    }
   }
 
   const smijeSlati = problemi.length === 0 && !salje;
@@ -204,6 +219,15 @@ export default function FiltracijaForma({
         }
       }
 
+      // Samo za cilj s drugim vinom — za ostale bi je posluzitelj ionako
+      // zanemario, a slati je znaci tvrditi nesto sto se ne upisuje.
+      const sifreVina: Record<string, string> = {};
+      for (const r of redovi) {
+        if (r.ciljTankId && r.sifra && pregled[r.ciljTankId]?.drugoVino) {
+          sifreVina[r.ciljTankId] = r.sifra;
+        }
+      }
+
       const res = await fetch("/api/zadatak/filtracija/izvrsi", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -217,6 +241,7 @@ export default function FiltracijaForma({
               kolicina: brojIzPolja(r.kolicina),
             })),
           naziviVina,
+          sifreVina,
         }),
       });
 
@@ -345,6 +370,18 @@ export default function FiltracijaForma({
                     placeholder="Novi naziv vina za taj tank (nije obavezno)"
                     style={{ ...poljeStyle, marginTop: 8 }}
                   />
+                  <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600 }}>
+                    Nova šifra vina (obavezno — nastaje novo vino)
+                  </div>
+                  <div style={{ marginTop: 4 }}>
+                    <UnosSifreVina
+                      key={red.ciljTankId}
+                      vrijednost={red.sifra}
+                      onPromjena={(sifra) => promijeni(index, { sifra })}
+                      tankId={red.ciljTankId}
+                      zadaniMjesec={new Date()}
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -356,7 +393,7 @@ export default function FiltracijaForma({
           onClick={() =>
             setRedovi((prev) => [
               ...prev,
-              { ciljTankId: "", kolicina: "", noviNaziv: "" },
+              { ciljTankId: "", kolicina: "", noviNaziv: "", sifra: null },
             ])
           }
           style={dodajStyle}

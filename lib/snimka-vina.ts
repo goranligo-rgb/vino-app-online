@@ -232,6 +232,9 @@ export async function snimiVinoKojeIzlazi(
       ispraznjen: u.ispraznjen,
       nazivVina: ime.naziv,
       sorta: ime.deklariranaSorta,
+      // ZAMRZNUTA: komponenta koja ode u cuvée nosi sifru ovdje i ne
+      // prenosi je nikome (odluka vlasnika 30.09.2026.).
+      sifra: ime.sifra,
       godiste: tank.godiste,
       korisnikId: u.korisnikId,
     },
@@ -371,10 +374,13 @@ export async function snimkaIzlazaPoId(
 }
 
 /** Ime iz snimke u obliku koji `imeZaPrikaz` prima. */
-export function imeIzSnimke(s: Pick<SnimkaSRetcima, "nazivVina" | "sorta">): ImeVina {
+export function imeIzSnimke(
+  s: Pick<SnimkaSRetcima, "nazivVina" | "sorta" | "sifra">
+): ImeVina {
   return {
     naziv: s.nazivVina,
     deklariranaSorta: s.sorta,
+    sifra: s.sifra,
     odAt: null,
     izvor: null,
     razlog: s.nazivVina ? "IMENOVANO" : "BEZIMENO",

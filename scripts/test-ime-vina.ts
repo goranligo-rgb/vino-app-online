@@ -52,6 +52,7 @@ function zapis(p: Partial<ZapisImena> & { odAt: Date }): ZapisImena {
     odAt: p.odAt,
     naziv: p.naziv ?? null,
     deklariranaSorta: p.deklariranaSorta ?? null,
+    sifra: p.sifra ?? null,
     izvor: p.izvor ?? "RUCNO",
     obrisano: p.obrisano ?? false,
     createdAt: p.createdAt ?? p.odAt,

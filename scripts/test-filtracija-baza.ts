@@ -99,6 +99,7 @@ async function napraviTank(
     nazivVina?: string | null;
     sorta?: string | null;
     godiste?: number | null;
+    sifra?: string | null;
   }
 ) {
   const tank = await tx.tank.create({
@@ -144,8 +145,10 @@ async function napraviTank(
       odAt: pocetak,
       naziv: podaci.nazivVina,
       deklariranaSorta: podaci.sorta,
+      sifra: podaci.sifra ?? null,
       izvor: "BACKFILL",
       bioPrazan: true,
+      prijeSifra: null,
     });
   }
 
@@ -317,9 +320,12 @@ async function main() {
         ciljevi: [{ tankId: cilj.id, kolicina: 700 }],
       });
 
+      // U cilju je drugo vino — od 30.09.2026. filtracija za njega trazi
+      // novu sifru (odluka vlasnika E). Ovaj dokaz je o prosjeku, ne o sifri.
       await izvrsiFiltraciju(tx, {
         zadatakId: zadatak.id,
         izvrsioKorisnikId: user.id,
+        sifreVina: { [cilj.id]: "11-0199-1" },
       });
 
       const novo = await tx.mjerenje.findFirstOrThrow({
@@ -787,6 +793,7 @@ async function main() {
         zadatakId: zadatak.id,
         izvrsioKorisnikId: user.id,
         naziviVina: { [cilj.id]: "TEST mjesavina" },
+        sifreVina: { [cilj.id]: "44-0199-1" },
       });
 
       jednako(rezultat.ciljevi.length, 1, "jedan cilj u rezultatu");
@@ -856,6 +863,118 @@ async function main() {
       jednako(imena.length, 1, "upisan tocno jedan cin imenovanja");
       jednako(imena[0]?.naziv, "TEST mjesavina", "zapis nosi zadani naziv");
       jednako(imena[0]?.izvor, "FILTRACIJA", "izvor imena je filtracija");
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  await scenarij(
+    "DOKAZ 7: sifra — prazan cilj nosi sifru izvora, isto vino zadrzava svoju, drugo vino trazi NOVU",
+    async (tx) => {
+      const user = await napraviKorisnika(tx);
+      const izvor = await napraviTank(tx, {
+        kapacitet: 5000,
+        kolicina: 3000,
+        nazivVina: "TEST Grasevina",
+        sorta: "Grasevina",
+        sifra: "11-0199-1",
+      });
+      const prazan = await napraviTank(tx, { kapacitet: 2000, kolicina: 0 });
+      const isto = await napraviTank(tx, {
+        kapacitet: 2000,
+        kolicina: 500,
+        nazivVina: "TEST Grasevina",
+        sorta: "Grasevina",
+        sifra: "11-0199-2",
+      });
+      const drugo = await napraviTank(tx, {
+        kapacitet: 2000,
+        kolicina: 500,
+        nazivVina: "TEST Sauvignon",
+        sorta: "Sauvignon",
+        sifra: "12-0199-1",
+      });
+
+      const sifraSada = async (id: string) => (await imeVinaSada(tx, id)).sifra;
+
+      // 1) Drugo vino BEZ sifre — odbijeno prije ikakvog upisa.
+      const z1 = await napraviZadatak(tx, {
+        izvorTankId: izvor.id,
+        userId: user.id,
+        kolicinaIzlaz: 300,
+        ciljevi: [
+          { tankId: prazan.id, kolicina: 100 },
+          { tankId: drugo.id, kolicina: 200 },
+        ],
+      });
+      let poruka: string | null = null;
+      try {
+        await izvrsiFiltraciju(tx, { zadatakId: z1.id, izvrsioKorisnikId: user.id });
+      } catch (e) {
+        if (!(e instanceof FiltracijaGreska)) throw e;
+        poruka = e.message;
+      }
+      jednako(
+        poruka,
+        `Tank ${drugo.broj} već sadrži drugo vino — nastaje novo vino i treba mu nova šifra.`,
+        "drugo vino bez sifre: odbijeno"
+      );
+      jednako(
+        (await tx.tank.findUniqueOrThrow({ where: { id: izvor.id } })).kolicinaVinaUTanku,
+        3000,
+        "odbijeno PRIJE upisa: izvor netaknut"
+      );
+      jednako(
+        (await tx.zadatak.findUniqueOrThrow({ where: { id: z1.id } })).status,
+        "OTVOREN",
+        "odbijeno PRIJE upisa: zadatak otvoren"
+      );
+
+      // 2) Kriva sifra — odbijena.
+      poruka = null;
+      try {
+        await izvrsiFiltraciju(tx, {
+          zadatakId: z1.id,
+          izvrsioKorisnikId: user.id,
+          sifreVina: { [drugo.id]: "44-199-1" },
+        });
+      } catch (e) {
+        if (!(e instanceof FiltracijaGreska)) throw e;
+        poruka = e.message;
+      }
+      jednako(
+        poruka,
+        `Tank ${drugo.broj}: Šifra „44-199-1” nije u obliku prefiks-MMGG-broj (npr. 11-0926-3).`,
+        "kriva sifra: odbijena"
+      );
+
+      // 3) Ispravno: prazan preuzima, drugo vino dobiva novu. Sifra poslana za
+      //    prazan cilj se zanemaruje — vino je isto, nosi svoju.
+      await izvrsiFiltraciju(tx, {
+        zadatakId: z1.id,
+        izvrsioKorisnikId: user.id,
+        sifreVina: { [drugo.id]: "44-0199-1", [prazan.id]: "11-0199-99" },
+      });
+      jednako(await sifraSada(prazan.id), "11-0199-1", "prazan cilj: sifra izvora");
+      jednako(await sifraSada(drugo.id), "44-0199-1", "drugo vino: nova sifra iz obrasca");
+      jednako(await sifraSada(izvor.id), "11-0199-1", "ostatak u izvoru zadrzava sifru");
+
+      // 4) Isto vino (isti naziv, sorta, godiste) — zadrzava SVOJU sifru, bez nove.
+      const z2 = await napraviZadatak(tx, {
+        izvorTankId: izvor.id,
+        userId: user.id,
+        kolicinaIzlaz: 100,
+        ciljevi: [{ tankId: isto.id, kolicina: 100 }],
+      });
+      await izvrsiFiltraciju(tx, { zadatakId: z2.id, izvrsioKorisnikId: user.id });
+      jednako(await sifraSada(isto.id), "11-0199-2", "isto vino: cilj zadrzava svoju sifru");
+
+      // Snimka izvora nosi sifru vina koje je izaslo.
+      const snimke = await tx.snimkaVina.findMany({ where: { tankId: izvor.id } });
+      jednako(
+        snimke.length > 0 && snimke.every((s) => s.sifra === "11-0199-1"),
+        true,
+        "snimke izvora nose njegovu sifru"
+      );
     }
   );
 

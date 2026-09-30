@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ocisti, usporediSaSastavom } from "@/lib/ime-vina-cisto";
+import { greskaSifre } from "@/lib/sifra-vina";
+import UnosSifreVina from "@/components/UnosSifreVina";
 
 /**
  * OBRAZAC ZA IMENOVANJE VINA (faza 5).
@@ -35,18 +37,23 @@ export default function ImenujVino({
   brojTanka,
   naziv,
   deklariranaSorta,
+  sifra,
   sastav,
 }: {
   tankId: string;
   brojTanka: number;
   naziv: string | null;
   deklariranaSorta: string | null;
+  sifra: string | null;
   sastav: StavkaSastavaZaObrazac[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [noviNaziv, setNoviNaziv] = useState(naziv ?? "");
   const [novaSorta, setNovaSorta] = useState(deklariranaSorta ?? "");
+  const [novaSifra, setNovaSifra] = useState<string | null>(sifra);
+  /** Svako otvaranje iznova sastavlja polja sifre iz onoga sto je SADA. */
+  const [otvaranje, setOtvaranje] = useState(0);
   const [razlog, setRazlog] = useState("");
   const [loading, setLoading] = useState(false);
   const [greska, setGreska] = useState("");
@@ -56,16 +63,24 @@ export default function ImenujVino({
 
   const nistaPromijenjeno =
     ocisti(noviNaziv) === ocisti(naziv) &&
-    ocisti(novaSorta) === ocisti(deklariranaSorta);
+    ocisti(novaSorta) === ocisti(deklariranaSorta) &&
+    ocisti(novaSifra) === ocisti(sifra);
   const praznoOboje = !ocisti(noviNaziv) && !ocisti(novaSorta);
+  const greskaSifreUnosa = greskaSifre(novaSifra);
   const mozeSpremiti =
-    !loading && !nistaPromijenjeno && !praznoOboje && Boolean(ocisti(razlog));
+    !loading &&
+    !nistaPromijenjeno &&
+    !praznoOboje &&
+    !greskaSifreUnosa &&
+    Boolean(ocisti(razlog));
 
   function otvori() {
     // Svako otvaranje krece od onoga sto je SADA na ekranu, ne od napola
     // utipkanog prethodnog pokusaja.
     setNoviNaziv(naziv ?? "");
     setNovaSorta(deklariranaSorta ?? "");
+    setNovaSifra(sifra);
+    setOtvaranje((n) => n + 1);
     setRazlog("");
     setGreska("");
     setOpen(true);
@@ -84,6 +99,9 @@ export default function ImenujVino({
           tankId,
           naziv: noviNaziv,
           deklariranaSorta: novaSorta,
+          // Salje se UVIJEK, i kad je prazna: obrazac zna sifru, pa prazno
+          // ovdje znaci „makni sifru", a ne „ne znam".
+          sifra: ocisti(novaSifra),
           razlog,
         }),
       });
@@ -192,6 +210,20 @@ export default function ImenujVino({
               ) : null}
             </label>
 
+            <div style={poljeStyle}>
+              <span style={oznakaStyle}>Interna šifra vina</span>
+              <UnosSifreVina
+                key={otvaranje}
+                vrijednost={sifra}
+                onPromjena={setNovaSifra}
+                tankId={tankId}
+                disabled={loading}
+              />
+              {novaSifra && greskaSifreUnosa ? (
+                <span style={neskladStyle}>{greskaSifreUnosa}</span>
+              ) : null}
+            </div>
+
             <label style={poljeStyle}>
               <span style={oznakaStyle}>Razlog promjene (obavezno)</span>
               <textarea
@@ -207,7 +239,7 @@ export default function ImenujVino({
             {praznoOboje ? (
               <div style={prigusenoStyle}>Upiši naziv vina ili deklariranu sortu.</div>
             ) : nistaPromijenjeno ? (
-              <div style={prigusenoStyle}>Naziv i sorta su isti kao sada.</div>
+              <div style={prigusenoStyle}>Naziv, sorta i šifra su isti kao sada.</div>
             ) : null}
 
             {greska ? <div style={greskaStyle}>{greska}</div> : null}

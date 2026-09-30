@@ -349,6 +349,8 @@ async function main() {
   const korisnik = await prisma.user.findFirstOrThrow({ select: { id: true } });
   const arhivaPrije = await prisma.arhivaVina.count();
   const izlazaPrije = await prisma.izlazVina.count();
+  // Produkcija ima prave snimke iz podruma: broji se razlika, ne apsolutna nula.
+  const snimkiPrije = await prisma.snimkaVina.count();
 
   const puni = tankovi.filter((t) => Number(t.kolicinaVinaUTanku ?? 0) > 0);
   const prazni = tankovi
@@ -646,7 +648,7 @@ async function main() {
             (SELECT count(*) FROM "Zadatak" WHERE naslov LIKE 'TEST snimka%')::int AS zadaci,
             (SELECT count(*) FROM "ArhivaVina")::int AS arhiva`
   );
-  jednako(ostalo, { snimke: 0, pretoci: 0, zadaci: 0, arhiva: arhivaPrije }, "u bazi nije nista ostalo");
+  jednako(ostalo, { snimke: snimkiPrije, pretoci: 0, zadaci: 0, arhiva: arhivaPrije }, "u bazi nije nista ostalo");
   jednako(await prisma.izlazVina.count(), izlazaPrije, "nijedan izlaz nije ostao");
 
   console.log(`\n${proslo} proslo, ${pao} palo`);

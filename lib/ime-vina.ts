@@ -5,6 +5,7 @@ import {
   type GranicaVina,
 } from "@/lib/granica-vina";
 import { ocisti } from "@/lib/ime-vina-cisto";
+import { sifraZaUpis } from "@/lib/sifra-vina";
 
 // Usporedba s knjigom i `ocisti` stoje u modulu bez ovisnosti, jer ih treba i
 // obrazac u pregledniku. Ovdje se prosljeduju da postojeci uvozi ostanu isti.
@@ -57,6 +58,8 @@ export type IzvorImena =
 export type ImeVina = {
   naziv: string | null;
   deklariranaSorta: string | null;
+  /** Interna sifra vina (lib/sifra-vina.ts). `null` = nije upisana. */
+  sifra: string | null;
   /** Kad je vino tako nazvano. `null` kad imena nema. */
   odAt: Date | null;
   izvor: IzvorImena | null;
@@ -78,6 +81,7 @@ export type ZapisImena = {
   odAt: Date;
   naziv: string | null;
   deklariranaSorta: string | null;
+  sifra: string | null;
   izvor: IzvorImena;
   obrisano: boolean;
   createdAt: Date;
@@ -86,6 +90,7 @@ export type ZapisImena = {
 const BEZ_IMENA: ImeVina = {
   naziv: null,
   deklariranaSorta: null,
+  sifra: null,
   odAt: null,
   izvor: null,
   razlog: "BEZIMENO",
@@ -127,6 +132,8 @@ export function izracunajImeVina(
   return {
     naziv: zadnji.naziv,
     deklariranaSorta: zadnji.deklariranaSorta,
+    // `?? null`: zapis iz testa ili starog oblika moze stici bez polja.
+    sifra: zadnji.sifra ?? null,
     odAt: zadnji.odAt,
     izvor: zadnji.izvor,
     razlog: "IMENOVANO",
@@ -352,6 +359,12 @@ export function vrijediUpisati(
  * i bez novoga bi vino koje je upravo uslo bilo bezimeno. Isto pravilo vrijedi
  * u backfillu (`scripts/backfill-ime-vina.ts`).
  *
+ * SIFRA JE OBAVEZAN ARGUMENT (i `sifra` i `prijeSifra`), ne opcijski. Zapis
+ * je POTPUNA SNIMKA: cin koji ne ponese sifru brise je s ekrana, jer se cita
+ * samo zadnji zapis u prozoru. Opcijski argument bi sljedeci pozivatelj
+ * presutio; ovako ga `tsc` natjera da kaze sto s njom — makar `null`.
+ * Promjena same sifre JEST promjena i pise zapis.
+ *
  * Vraca je li zapis nastao.
  */
 export async function zabiljeziImenovanje(
@@ -362,10 +375,13 @@ export async function zabiljeziImenovanje(
     odAt: Date;
     naziv: string | null | undefined;
     deklariranaSorta: string | null | undefined;
+    /** Sifra koju vino nosi NAKON cina — vidi „SIFRA JE OBAVEZAN ARGUMENT". */
+    sifra: string | null;
     izvor: IzvorImena;
     /** Stanje tanka NEPOSREDNO PRIJE ovog cina. Sluzi samo za usporedbu. */
     prijeNaziv?: string | null;
     prijeSorta?: string | null;
+    prijeSifra: string | null;
     /** Je li posuda bila prazna — vidi „IZUZETAK" iznad. */
     bioPrazan?: boolean;
     pretokId?: string | null;
@@ -377,11 +393,14 @@ export async function zabiljeziImenovanje(
 ): Promise<boolean> {
   const naziv = ocisti(arg.naziv);
   const sorta = ocisti(arg.deklariranaSorta);
+  const sifra = sifraZaUpis(arg.sifra);
 
   if (!vrijediUpisati(naziv, sorta)) return false;
 
   const isto =
-    naziv === ocisti(arg.prijeNaziv) && sorta === ocisti(arg.prijeSorta);
+    naziv === ocisti(arg.prijeNaziv) &&
+    sorta === ocisti(arg.prijeSorta) &&
+    sifra === ocisti(arg.prijeSifra);
   if (isto && !arg.bioPrazan) return false;
 
   await db.imeVina.create({
@@ -390,6 +409,7 @@ export async function zabiljeziImenovanje(
       odAt: arg.odAt,
       naziv,
       deklariranaSorta: sorta,
+      sifra,
       izvor: arg.izvor,
       pretokId: arg.pretokId ?? null,
       punjenjeId: arg.punjenjeId ?? null,

@@ -2754,6 +2754,7 @@ export default async function TankPregledPage({
               brojTanka={tank.broj}
               naziv={ime.naziv}
               deklariranaSorta={ime.deklariranaSorta}
+              sifra={ime.sifra}
               sastav={sastavKnjige.map((s) => ({
                 nazivSorte: s.nazivSorte,
                 litre: s.litre,

@@ -79,6 +79,7 @@ import {
 import { prenesiVinoRadnje, snimiVinoRadnje } from "@/lib/vino-radnja";
 import { snimiVinoKojeIzlazi } from "@/lib/snimka-vina";
 import { zabiljeziImenovanje } from "@/lib/ime-vina";
+import { greskaSifre } from "@/lib/sifra-vina";
 import { stanjeTanka } from "@/lib/berba-model";
 
 /** Sto se radi. Mehanika je za sve tri ISTA — razlikuje se samo identitet vina. */
@@ -127,6 +128,8 @@ export type UlazPretoka = {
     nazivVina: string;
     sorta: string;
     godiste?: number | null;
+    /** Interna sifra novog vina (lib/sifra-vina.ts). */
+    sifra?: string | null;
   } | null;
   /**
    * KAD SE CIN DOGODIO. Koristi se samo za godiste cuvéea (vidi `godinaCina`).
@@ -277,6 +280,8 @@ export function provjeriUlazPretoka(ulaz: UlazPretoka): ProvjereniUlaz {
     if (!norm(ulaz.noviIdentitet?.sorta)) {
       throw new FiltracijaGreska("Cuvée mora dobiti sortu novog vina.");
     }
+    const g = greskaSifre(ulaz.noviIdentitet?.sifra);
+    if (g) throw new FiltracijaGreska(g);
   }
 
   return { izvori, ciljevi, izlazMl, ulazMl, gubitakMl };
@@ -290,6 +295,12 @@ type Identitet = {
   nazivVina: string | null;
   sorta: string | null;
   godiste: number | null;
+  /**
+   * Interna sifra vina. PUTUJE s identitetom (prazan cilj je preuzima od
+   * izvora, pun zadrzava svoju), ali NE ULAZI u `istiIdentitetVina`: sifra
+   * je oznaka, ne identitet po kojem motor odlucuje (odluka vlasnika D).
+   */
+  sifra: string | null;
 };
 
 /**
@@ -302,6 +313,7 @@ function otisakIdentiteta(t: TankSaSastavom): Identitet {
     nazivVina: t.nazivVina ?? null,
     sorta: t.sorta ?? null,
     godiste: t.godiste ?? null,
+    sifra: t.sifra ?? null,
   };
 }
 
@@ -355,6 +367,9 @@ function identitetCilja(args: {
         // forma ga ne salje i ne treba mu polje — godina je cinjenica, ne
         // odluka, a godiste se uz to pise i u sam naziv ("Cuvee bijeli 2026").
         godiste: noviIdentitet?.godiste ?? godinaCina,
+        // Cuvée je NOVO vino: sifru dobiva samo iz obrasca, nikad od
+        // sastavnice. Bez nje ostaje bez sifre (obrazac je trazi od koraka 4).
+        sifra: norm(noviIdentitet?.sifra) || null,
       },
       biloDrugoVino,
     };
@@ -773,9 +788,13 @@ export async function izvrsiPretok(
       odAt: ulaz.dogodenoAt ?? new Date(),
       naziv: identitet.nazivVina,
       deklariranaSorta: identitet.sorta,
+      // Obican pretok i blend iste sorte: prazan cilj nosi sifru izvora, pun
+      // zadrzava svoju (identitetCilja). Cuvée: sifra iz obrasca.
+      sifra: identitet.sifra,
       izvor: ulaz.vrsta === "CUVEE" ? "CUVEE" : "PRETOK",
       prijeNaziv: otisakPrije.nazivVina,
       prijeSorta: otisakPrije.sorta,
+      prijeSifra: otisakPrije.sifra ?? null,
       bioPrazan: prijeMl <= 0,
       pretokId: ulaz.pretokId ?? null,
       korisnikId: ulaz.korisnikId,

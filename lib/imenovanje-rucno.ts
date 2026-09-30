@@ -9,6 +9,7 @@ import {
 } from "@/lib/ime-vina";
 import { razlikaPolja, zabiljeziIzmjene } from "@/lib/dnevnik-izmjena";
 import { zakljucajTankove } from "@/lib/filtracija";
+import { greskaSifre } from "@/lib/sifra-vina";
 
 /**
  * RUCNO IMENOVANJE VINA — jedini put kojim covjek daje vinu ime (faza 5).
@@ -45,6 +46,12 @@ export type UlazImenovanja = {
   tankId: string;
   naziv: string | null | undefined;
   deklariranaSorta: string | null | undefined;
+  /**
+   * Interna sifra vina. `undefined` = obrazac o sifri nista ne kaze, pa vino
+   * ZADRZAVA dosadasnju (zapis je potpuna snimka — bez ovoga bi preimenovanje
+   * obrisalo sifru). `null` ili "" = sifra se izricito brise.
+   */
+  sifra?: string | null;
   razlog: string | null | undefined;
   korisnikId: string;
   /** Trenutak cina. Zadaje ga samo test; ruta uzima sada. */
@@ -76,6 +83,11 @@ export async function imenujVinoRucno(
     throw new ImenovanjeGreska("Upiši naziv vina ili deklariranu sortu.");
   }
 
+  const greskaSifreUlaza = greskaSifre(ulaz.sifra);
+  if (greskaSifreUlaza) {
+    throw new ImenovanjeGreska(greskaSifreUlaza);
+  }
+
   // Postojanje se provjerava PRIJE brave samo radi poruke — `zakljucajTankove`
   // za nepostojeci tank baca gresku sročenu za filtraciju. Stanje stupaca se
   // cita tek POD bravom.
@@ -104,21 +116,27 @@ export async function imenujVinoRucno(
   const prije = await imeVina(tx, tank.id, granica);
   const sada = ulaz.sada ?? new Date();
 
+  // Sifra koju obrazac nije poslao ostaje kakva jest — vidi `UlazImenovanja`.
+  const sifra =
+    ulaz.sifra === undefined ? prije.sifra : ocisti(ulaz.sifra);
+
   const upisano = await zabiljeziImenovanje(tx, {
     tankId: tank.id,
     odAt: sada,
     naziv,
     deklariranaSorta: sorta,
+    sifra,
     izvor: "RUCNO",
     prijeNaziv: prije.naziv,
     prijeSorta: prije.deklariranaSorta,
+    prijeSifra: prije.sifra,
     korisnikId: ulaz.korisnikId,
     razlog,
   });
 
   if (!upisano) {
     throw new ImenovanjeGreska(
-      "Naziv i deklarirana sorta su isti kao sada — nema se što upisati."
+      "Naziv, deklarirana sorta i šifra su isti kao sada — nema se što upisati."
     );
   }
 

@@ -69,6 +69,17 @@ export async function POST(req: Request) {
       }
     }
 
+    // Nova interna sifra po ciljnom tanku — obavezna samo tamo gdje je
+    // zateceno drugo vino; to i oblik sifre provjerava izvrsiFiltraciju.
+    const sifreVina: Record<string, string> = {};
+
+    if (body?.sifreVina && typeof body.sifreVina === "object") {
+      for (const [ciljTankId, sifra] of Object.entries(body.sifreVina)) {
+        const ociscena = String(sifra ?? "").trim();
+        if (ociscena) sifreVina[String(ciljTankId)] = ociscena;
+      }
+    }
+
     // Stvarno izmjerene kolicine. Ako ih forma posalje, one su mjerodavne i
     // upisuju se natrag u zadatak (izvrsiFiltraciju to radi u istoj transakciji);
     // ako ih nema, vrijede planirane iz zadatka.
@@ -122,6 +133,7 @@ export async function POST(req: Request) {
           zadatakId: zadatak.id,
           izvrsioKorisnikId: user.id,
           naziviVina,
+          sifreVina,
           kolicinaIzlaz,
           stavke,
         });

@@ -736,9 +736,14 @@ export async function POST(req: Request) {
             odAt: datumPunjenja,
             naziv: nazivVina,
             deklariranaSorta: glavnaSorta,
+            // Dolijevanje ne mijenja sifru: puna posuda zadrzava svoju
+            // (odluka vlasnika F). Prazna ostaje bez sifre dok je obrazac
+            // punjenja ne pocne traziti (korak 4).
+            sifra: trenutnoUTanku <= 0 ? null : imePrije.sifra,
             izvor: "PUNJENJE",
             prijeNaziv: imePrije.naziv,
             prijeSorta: tank.sorta ?? null,
+            prijeSifra: imePrije.sifra,
             bioPrazan: trenutnoUTanku <= 0,
             punjenjeId: created.id,
             korisnikId,

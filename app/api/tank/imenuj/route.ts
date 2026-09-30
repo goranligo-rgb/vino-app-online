@@ -9,7 +9,7 @@ import { ImenovanjeGreska, imenujVinoRucno } from "@/lib/imenovanje-rucno";
 /**
  * POST — rucno imenovanje vina u tanku (faza 5).
  *
- * Tijelo: { tankId, naziv, deklariranaSorta, razlog }. Sva pravila (obavezan
+ * Tijelo: { tankId, naziv, deklariranaSorta, sifra?, razlog }. Sva pravila (obavezan
  * razlog, prazan tank, „nista se nije promijenilo") stoje u
  * lib/imenovanje-rucno.ts, da ih test nad bazom provjerava bez HTTP-a.
  *
@@ -50,6 +50,9 @@ export async function POST(req: Request) {
         tankId,
         naziv: tekst(body.naziv),
         deklariranaSorta: tekst(body.deklariranaSorta),
+        // Polje koje nije poslano ostavlja sifru kakva jest; poslano prazno
+        // je brise (lib/imenovanje-rucno.ts, `UlazImenovanja.sifra`).
+        sifra: "sifra" in body ? tekst(body.sifra) : undefined,
         razlog: tekst(body.razlog),
         korisnikId: user.id,
       })
@@ -58,6 +61,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       naziv: rezultat.poslije.naziv,
       deklariranaSorta: rezultat.poslije.deklariranaSorta,
+      sifra: rezultat.poslije.sifra,
     });
   } catch (error) {
     if (error instanceof ImenovanjeGreska) {

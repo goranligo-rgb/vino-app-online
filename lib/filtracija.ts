@@ -26,6 +26,7 @@ import {
 import { stanjeTanka } from "@/lib/berba-model";
 import { imeVinaSada, zabiljeziImenovanje } from "@/lib/ime-vina";
 import { snimiVinoKojeIzlazi } from "@/lib/snimka-vina";
+import { greskaSifre } from "@/lib/sifra-vina";
 import {
   upisiVinoRadnju,
   prenesiVinoRadnje,
@@ -214,6 +215,11 @@ export type TankOtisak = {
   kolicinaMl: number;
   sorta: string | null;
   nazivVina: string | null;
+  /**
+   * Interna sifra vina, izvedena kao i ime. Opcijska jer snimke upisane u
+   * `snapshotJson` prije 30.09.2026. polje nemaju.
+   */
+  sifra?: string | null;
   godiste: number | null;
   udjeliSorti: SortaUdio[];
   blendIzvori: BlendStavka[];
@@ -263,6 +269,8 @@ export type TankSaSastavom = {
   sorta: string | null;
   /** IZVEDENO ime vina (zadnji cin u prozoru), ne `Tank.nazivVina` — vidi `ucitajTank`. */
   nazivVina: string | null;
+  /** Interna sifra vina, iz istog cina kao ime. Stupca na `Tank` nema. */
+  sifra: string | null;
   godiste: number | null;
   udjeliSorti: Array<{ nazivSorte: string; postotak: number }>;
   blendIzvori: Array<{
@@ -446,9 +454,12 @@ export async function ucitajTank(tx: Tx, tankId: string): Promise<TankSaSastavom
   // mjesto kroz koje motor pretoka i filtracija uopce vide ime, pa se prebacuju
   // oba odjednom: identitet vina, "drugo vino", ime koje prazan cilj preuzima i
   // snimka "prije" za ponistavanje.
+  //
+  // SIFRA ide istim putem i iz istog zapisa: zapis imena je potpuna snimka,
+  // pa sve sto motor prenese s imenom mora prenijeti i sa sifrom.
   const ime = await imeVinaSada(tx, tank.id);
 
-  return { ...tank, nazivVina: ime.naziv } as TankSaSastavom;
+  return { ...tank, nazivVina: ime.naziv, sifra: ime.sifra } as TankSaSastavom;
 }
 
 export function napraviOtisak(tank: TankSaSastavom): TankOtisak {
@@ -458,6 +469,7 @@ export function napraviOtisak(tank: TankSaSastavom): TankOtisak {
     kolicinaMl: uMl(tank.kolicinaVinaUTanku),
     sorta: tank.sorta ?? null,
     nazivVina: tank.nazivVina ?? null,
+    sifra: tank.sifra ?? null,
     godiste: tank.godiste ?? null,
     udjeliSorti: tank.udjeliSorti.map((u) => ({
       nazivSorte: u.nazivSorte,
@@ -1029,6 +1041,13 @@ export async function izvrsiFiltraciju(
     zadatakId: string;
     izvrsioKorisnikId: string;
     naziviVina?: Record<string, string>;
+    /**
+     * { [ciljTankId]: "11-0926-3" } — NOVA interna sifra za cilj u kojem je
+     * zateceno DRUGO vino. Tamo je obavezna (odluka vlasnika E, 30.09.2026.:
+     * filtracija u posudu s drugim vinom trazi novu sifru, kao cuvée). Za
+     * prazan cilj i cilj s istim vinom se ignorira — vino nosi svoju.
+     */
+    sifreVina?: Record<string, string>;
     kolicinaIzlaz?: number | null;
     stavke?: StavkaUnos[] | null;
   }
@@ -1120,6 +1139,24 @@ export async function izvrsiFiltraciju(
   );
 
   provjeriProtivStanja(izvor, unos.kolicinaIzlazMl, ciljevi);
+
+  // SIFRA ZA CILJ S DRUGIM VINOM — provjerava se ovdje, PRIJE prvog upisa
+  // (isto pravilo kao motor pretoka: sve sto moze reci NE, kaze prije).
+  // „Drugo vino" je tocno isti racun kao u petlji ciljeva i u pregledu.
+  const izvorOtisakZaSifru = napraviOtisak(izvor);
+  for (const c of ciljevi) {
+    const prazan = uMl(c.tank.kolicinaVinaUTanku) === 0;
+    if (prazan || istiIdentitet(napraviOtisak(c.tank), izvorOtisakZaSifru)) continue;
+
+    const trazena = norm(args.sifreVina?.[c.tank.id]) || null;
+    if (!trazena) {
+      throw new FiltracijaGreska(
+        `Tank ${c.tank.broj} već sadrži drugo vino — nastaje novo vino i treba mu nova šifra.`
+      );
+    }
+    const g = greskaSifre(trazena);
+    if (g) throw new FiltracijaGreska(`Tank ${c.tank.broj}: ${g}`);
+  }
 
   // 4) Ako su brojke pri izvrsenju drukcije od planiranih, upisi ih natrag u
   //    zadatak — u istoj transakciji, tek nakon sto su prosle sve provjere.
@@ -1387,6 +1424,15 @@ export async function izvrsiFiltraciju(
       : (noviNazivVina ?? ciljPrije.nazivVina ?? null);
     imeNakonCina.set(cilj.tank.id, imeNakonPrijenosa);
 
+    // SIFRA: prazan cilj nosi sifru izvora (isto vino, druga posuda), cilj s
+    // istim vinom zadrzava svoju, cilj s DRUGIM vinom dobiva novu iz obrasca
+    // — da je ima, provjereno je prije prvog upisa (odluka vlasnika E).
+    const sifraNakonPrijenosa = praznCilj
+      ? (izvor.sifra ?? null)
+      : biloDrugoVino
+        ? norm(args.sifreVina?.[cilj.tank.id]) || null
+        : (ciljPrije.sifra ?? null);
+
     await zabiljeziImenovanje(tx, {
       tankId: cilj.tank.id,
       odAt: datumIzvrsenja,
@@ -1394,9 +1440,11 @@ export async function izvrsiFiltraciju(
       deklariranaSorta: praznCilj
         ? (izvor.sorta ?? null)
         : (ciljPrije.sorta ?? null),
+      sifra: sifraNakonPrijenosa,
       izvor: "FILTRACIJA",
       prijeNaziv: ciljPrije.nazivVina,
       prijeSorta: ciljPrije.sorta,
+      prijeSifra: ciljPrije.sifra ?? null,
       bioPrazan: praznCilj,
       korisnikId: args.izvrsioKorisnikId,
     });
