@@ -604,13 +604,31 @@ async function main() {
         "sifra komponente nije presla ni na jedan cilj"
       );
 
-      // Cuvée bez sifre: novo vino ostaje bez nje, NE nasljedjuje sastavnicu.
+      // Cuvée bez sifre se ODBIJA (korak 4) — i bez kljuca i s praznim
+      // stringom. Prije se tiho upisivao bez sifre.
       const g2 = await napraviTank(tx, 500, "TEST Grasevina 2", "Grasevina", "11-0926-2");
       const c3 = await napraviTank(tx, 0);
-      await pretoci(tx, u.id, "CUVEE", [{ tankId: g2.id, kolicina: 500 }], [
-        { tankId: c3.id, kolicina: 500 },
-      ], { nazivVina: "TEST Cuvee 2", sorta: "Cuvée" });
-      jednako((await ekran(tx, c3.id)).sifra, null, "cuvée bez sifre: bez sifre, ne od sastavnice");
+      for (const [opis, sifra] of [
+        ["bez kljuca", undefined],
+        ["null", null],
+        ["prazan string", "   "],
+      ] as const) {
+        let porukaBez: string | null = null;
+        try {
+          await pretoci(tx, u.id, "CUVEE", [{ tankId: g2.id, kolicina: 500 }], [
+            { tankId: c3.id, kolicina: 500 },
+          ], { nazivVina: "TEST Cuvee 2", sorta: "Cuvée", ...(sifra === undefined ? {} : { sifra }) });
+        } catch (e) {
+          porukaBez = (e as Error).message;
+        }
+        jednako(porukaBez, "Cuvée mora dobiti šifru novog vina.", `cuvée bez sifre (${opis}) odbijen`);
+      }
+      jednako(
+        (await tx.tank.findUniqueOrThrow({ where: { id: g2.id } })).kolicinaVinaUTanku,
+        500,
+        "izvor netaknut nakon cuvéea bez sifre"
+      );
+      jednako((await ekran(tx, c3.id)).sifra, null, "cilj bez ikakvog zapisa nakon odbijanja");
 
       // Kriva sifra cuvéea puca prije ikakvog upisa.
       const g3 = await napraviTank(tx, 500, "TEST Grasevina 3", "Grasevina");

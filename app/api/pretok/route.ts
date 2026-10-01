@@ -27,6 +27,7 @@ import {
 import { Prisma, TipPretokaDb } from "@prisma/client";
 import { izvrsiPretok } from "@/lib/pretok-motor";
 import { imeVinaSada } from "@/lib/ime-vina";
+import { sifraNovogVinaPretoka } from "@/lib/sifra-vina";
 
 type UlazPretoka = {
   tankId: string;
@@ -311,6 +312,14 @@ export async function POST(req: Request) {
         { error: "Sorta novog vina je obavezna." },
         { status: 400 }
       );
+    }
+
+    // SIFRA: samo cuvée, i tamo obavezna. Blend iste sorte je ne prima ni
+    // kad je stigla — sifra ondje putuje s vinom kroz motor (odluka C).
+    const sifraNovogVina = sifraNovogVinaPretoka(tipPretoka, body?.sifraNovogVina);
+
+    if (sifraNovogVina.greska) {
+      return NextResponse.json({ error: sifraNovogVina.greska }, { status: 400 });
     }
 
     if (tipPretoka === TipPretokaDb.OBICNI && izvori.length !== 1) {
@@ -689,6 +698,7 @@ export async function POST(req: Request) {
               nazivVina: nazivNovogVina,
               sorta: sortaNovogVina,
               godiste: godisteNovo ?? null,
+              sifra: sifraNovogVina.sifra,
             }
           : null,
       });

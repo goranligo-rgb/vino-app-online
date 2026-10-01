@@ -7,6 +7,8 @@ import {
   PRAG_GUBITKA,
   type NacinPretoka,
 } from "@/lib/pretok-gubitak";
+import { greskaSifre } from "@/lib/sifra-vina";
+import UnosSifreVina from "@/components/UnosSifreVina";
 
 type Tank = {
   id: string;
@@ -409,6 +411,11 @@ export default function PretokPage() {
   ]);
   const [nazivNovogVina, setNazivNovogVina] = useState("");
   const [sortaNovogVina, setSortaNovogVina] = useState("");
+  /**
+   * Sifra novog vina — SAMO cuvée. Kod blenda iste sorte sifra putuje s
+   * vinom (prazan cilj je preuzima od izvora), pa je obrazac ne trazi.
+   */
+  const [sifraNovogVina, setSifraNovogVina] = useState<string | null>(null);
   const [napomena, setNapomena] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingPretoci, setLoadingPretoci] = useState(false);
@@ -708,6 +715,18 @@ export default function PretokPage() {
       return;
     }
 
+    if (tipPretoka === "CUVEE") {
+      if (!sifraNovogVina) {
+        setPoruka("Upiši šifru novog vina.");
+        return;
+      }
+      const g = greskaSifre(sifraNovogVina);
+      if (g) {
+        setPoruka(g);
+        return;
+      }
+    }
+
     const potvrdaTekst = [
       "Potvrdi pretok / spajanje",
       "",
@@ -732,6 +751,9 @@ export default function PretokPage() {
         ? [
             `Naziv novog vina: ${nazivNovogVina}`,
             `Sorta novog vina: ${sortaNovogVina}`,
+            ...(tipPretoka === "CUVEE"
+              ? [`Šifra novog vina: ${sifraNovogVina}`]
+              : []),
             "",
           ]
         : []),
@@ -773,6 +795,7 @@ export default function PretokPage() {
           nacinNapomena: nacinNapomena.trim() || null,
           nazivNovogVina: trebaNovoVino ? nazivNovogVina.trim() : null,
           sortaNovogVina: trebaNovoVino ? sortaNovogVina.trim() : null,
+          sifraNovogVina: tipPretoka === "CUVEE" ? sifraNovogVina : null,
           napomena: napomena.trim() || null,
           izvori: cistiIzvori,
         }),
@@ -1020,6 +1043,20 @@ export default function PretokPage() {
                         className="w-full border border-orange-200 bg-white px-3 py-3 text-[14px] outline-none focus:border-orange-400"
                       />
                     </div>
+
+                    {tipPretoka === "CUVEE" && (
+                      <div className="md:col-span-2">
+                        <label className="mb-1 block text-[13px] font-semibold text-stone-700">
+                          Šifra novog vina (obavezno)
+                        </label>
+                        <UnosSifreVina
+                          vrijednost={sifraNovogVina}
+                          onPromjena={setSifraNovogVina}
+                          zadaniMjesec={new Date()}
+                          disabled={loading}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1310,6 +1347,13 @@ export default function PretokPage() {
                           <span className="text-stone-500">Sorta novog vina</span>
                           <strong>{sortaNovogVina || "-"}</strong>
                         </div>
+
+                        {tipPretoka === "CUVEE" && (
+                          <div className="flex items-center justify-between gap-4">
+                            <span className="text-stone-500">Šifra novog vina</span>
+                            <strong>{sifraNovogVina || "-"}</strong>
+                          </div>
+                        )}
                       </>
                     )}
 

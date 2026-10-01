@@ -16,6 +16,8 @@ import {
   odredistaIzForme,
   stanjePodjele,
 } from "@/lib/berba-polja";
+import { greskaSifre } from "@/lib/sifra-vina";
+import UnosSifreVina from "@/components/UnosSifreVina";
 
 type Tank = {
   id: string;
@@ -219,6 +221,8 @@ export default function PunjenjePage() {
   const [nazivVina, setNazivVina] = useState("");
   const [datumPunjenja, setDatumPunjenja] = useState(sadaZaDatetimeLocal());
   const [napomena, setNapomena] = useState("");
+  /** Sifra novog vina — trazi se samo kad ijedna posuda prima vino prazna. */
+  const [sifraVina, setSifraVina] = useState<string | null>(null);
 
   const [stavke, setStavke] = useState<StavkaPunjenja[]>([praznaStavka()]);
 
@@ -259,6 +263,7 @@ export default function PunjenjePage() {
     setNazivVina("");
     setDatumPunjenja(sadaZaDatetimeLocal());
     setNapomena("");
+    setSifraVina(null);
     setStavke([praznaStavka()]);
   }
 
@@ -607,6 +612,11 @@ export default function PunjenjePage() {
   }, [raspodjelaPoTankovima, tankovi]);
 
   const preopterećeni = stanjeTankova.filter((x) => x.prelazi);
+
+  // Prazne posude dobivaju sifru iz obrasca, pune zadrzavaju svoju. Isto
+  // pravilo, prema istom stanju tanka, primjenjuje i posluzitelj.
+  const prazneUPunjenju = stanjeTankova.filter((x) => x.tank && x.trenutno <= 0);
+  const punaUPunjenju = stanjeTankova.filter((x) => x.tank && x.trenutno > 0);
 
   /**
    * Stanje podjele jedne stavke — ono sto se ispisuje kao "upisano X od Y L".
@@ -989,6 +999,18 @@ export default function PunjenjePage() {
       return;
     }
 
+    if (prazneUPunjenju.length > 0) {
+      if (!sifraVina) {
+        setPoruka("Upiši šifru vina — puni se prazna posuda, nastaje novo vino.");
+        return;
+      }
+      const g = greskaSifre(sifraVina);
+      if (g) {
+        setPoruka(g);
+        return;
+      }
+    }
+
     // Secer, kiseline i pH upisani uz berbu MORAJU postati i `Mjerenje`, ne
     // samo stupci u `PunjenjeStavka`.
     //
@@ -1029,6 +1051,8 @@ export default function PunjenjePage() {
           nazivVina: nazivVina.trim() || null,
           datumPunjenja,
           napomena: napomena.trim() || null,
+          // Samo uz praznu posudu; puna zadrzava svoju i bez nje.
+          sifra: prazneUPunjenju.length > 0 ? sifraVina : null,
           stavke: cisteStavke,
           // Nema parametara -> kljuc se ne salje uopce, pa API ne stvara
           // mjerenje. Prazan objekt bi prosao kroz `typeof === "object"` i
@@ -1235,6 +1259,36 @@ export default function PunjenjePage() {
                     </span>
                   </label>
                 </div>
+
+                {/* SIFRA: samo kad ijedna posuda prima vino prazna — ondje
+                    nastaje novo vino. Jedno polje za cijeli obrazac: berba u
+                    vise tankova je jedno vino (odluka G). Puna posuda zadrzava
+                    svoju sifru (odluka F). */}
+                {prazneUPunjenju.length > 0 ? (
+                  <div style={labelStyle}>
+                    <span style={labelText}>Šifra vina (obavezno)</span>
+                    <UnosSifreVina
+                      key={spremljenoBrojac}
+                      vrijednost={sifraVina}
+                      onPromjena={setSifraVina}
+                      zadaniMjesec={
+                        Number.isNaN(new Date(datumPunjenja).getTime())
+                          ? new Date()
+                          : new Date(datumPunjenja)
+                      }
+                      disabled={saving}
+                    />
+                    <span style={upozorenjeVrijemeStyle}>
+                      Dobiva je{" "}
+                      {prazneUPunjenju.map((x) => `T${x.tank?.broj}`).join(", ")}
+                      {punaUPunjenju.length > 0
+                        ? `; ${punaUPunjenju
+                            .map((x) => `T${x.tank?.broj}`)
+                            .join(", ")} zadržava svoju (dolijevanje ne mijenja šifru).`
+                        : "."}
+                    </span>
+                  </div>
+                ) : null}
 
                 {/* Dok je stavka jedna — a to je gotovo uvijek — popis
                     tankova stoji ovdje, odmah uz odabir tanka. Cim se doda

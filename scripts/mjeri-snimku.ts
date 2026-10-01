@@ -160,7 +160,7 @@ async function transakcijaPretoka(
       korisnikId,
       pretokId: pretok.id,
       dogodenoAt: pretok.datum,
-      noviIdentitet: { nazivVina: "MJERENJE", sorta: "Cuvée", godiste: 2026 },
+      noviIdentitet: { nazivVina: "MJERENJE", sorta: "Cuvée", godiste: 2026, sifra: "44-0926-1" },
     })
   );
 

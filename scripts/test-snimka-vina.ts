@@ -405,7 +405,7 @@ async function main() {
       korisnikId: korisnik.id,
       pretokId: pretok.id,
       dogodenoAt: pretok.datum,
-      noviIdentitet: { nazivVina: "TEST snimka", sorta: "Cuvée", godiste: 2026 },
+      noviIdentitet: { nazivVina: "TEST snimka", sorta: "Cuvée", godiste: 2026, sifra: "44-0926-1" },
     });
 
     for (const r of reference) {

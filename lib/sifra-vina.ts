@@ -133,3 +133,64 @@ export function sljedeciBroj(
   }
   return najveci + 1;
 }
+
+/**
+ * SIFRA NOVOG VINA IZ OBRASCA PRETOKA — trazi je SAMO cuvée.
+ *
+ * Kod blenda iste sorte sifra putuje s vinom kroz motor (prazan cilj je
+ * preuzima od izvora, pun zadrzava svoju — odluka C) i obrazac je ne salje.
+ * Ako je ipak stigla, zanemaruje se: tvrdnja koja se ne smije upisati ne smije
+ * ni proci do motora, jer bi je `noviIdentitet` prenio dalje.
+ *
+ * Vraca `sifra: undefined` za vrste koje sifru ne primaju.
+ */
+export function sifraNovogVinaPretoka(
+  tipPretoka: string,
+  sifra: unknown
+): { sifra: string | undefined; greska: string | null } {
+  if (tipPretoka !== "CUVEE") return { sifra: undefined, greska: null };
+
+  const s = typeof sifra === "string" ? prazno(sifra) : null;
+  if (s == null) {
+    return { sifra: undefined, greska: "Šifra novog vina je obavezna za cuvée." };
+  }
+
+  const g = greskaSifre(s);
+  return g ? { sifra: undefined, greska: g } : { sifra: s, greska: null };
+}
+
+/**
+ * SIFRA IZ OBRASCA PUNJENJA — obavezna cim ijedna posuda prima vino prazna
+ * (tamo nastaje novo vino); kad su sve pune, obrazac je ne treba i ne salje.
+ * Jedno polje po obrascu, ne po tanku: jedna berba u vise tankova je jedno
+ * vino i nosi istu sifru (odluka G).
+ */
+export function sifraObrascaPunjenja(
+  imaPraznih: boolean,
+  sifra: unknown
+): { sifra: string | null; greska: string | null } {
+  if (!imaPraznih) return { sifra: null, greska: null };
+
+  const s = typeof sifra === "string" ? prazno(sifra) : null;
+  if (s == null) {
+    return {
+      sifra: null,
+      greska: "Šifra vina je obavezna kad se puni prazna posuda.",
+    };
+  }
+
+  const g = greskaSifre(s);
+  return g ? { sifra: null, greska: g } : { sifra: s, greska: null };
+}
+
+/**
+ * Sifra posude NAKON punjenja: prazna dobiva sifru iz obrasca, puna zadrzava
+ * svoju i kad obrazac nosi drugu — dolijevanje ne mijenja sifru (odluka F).
+ */
+export function sifraNakonPunjenja(arg: {
+  bioPrazan: boolean;
+  sifraObrasca: string | null;
+  sifraPrije: string | null;
+}): string | null {
+  return arg.bioPrazan ? arg.sifraObrasca : arg.sifraPrije;
+}

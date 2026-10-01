@@ -251,7 +251,7 @@ async function main() {
         vrsta: "CUVEE",
         nacin: "BEZ",
         korisnikId: u.id,
-        noviIdentitet: { nazivVina: "TEST cuvee", sorta: "Cuvee", godiste: 2026 },
+        noviIdentitet: { nazivVina: "TEST cuvee", sorta: "Cuvee", godiste: 2026, sifra: "44-0926-1" },
       });
 
       const uCilju = await redci(tx, cilj.id);
@@ -308,7 +308,7 @@ async function main() {
         vrsta: "CUVEE",
         nacin: "BEZ",
         korisnikId: u.id,
-        noviIdentitet: { nazivVina: "TEST cuvee", sorta: "Cuvee", godiste: 2026 },
+        noviIdentitet: { nazivVina: "TEST cuvee", sorta: "Cuvee", godiste: 2026, sifra: "44-0926-1" },
       });
 
       const uCuveeu = await redci(tx, cuvee.id);
@@ -355,7 +355,7 @@ async function main() {
         vrsta: "CUVEE",
         nacin: "BEZ",
         korisnikId: u.id,
-        noviIdentitet: { nazivVina: "TEST 1", sorta: "Cuvee", godiste: 2026 },
+        noviIdentitet: { nazivVina: "TEST 1", sorta: "Cuvee", godiste: 2026, sifra: "44-0926-1" },
       });
 
       const uB = await redci(tx, b.id);
@@ -370,7 +370,7 @@ async function main() {
         vrsta: "CUVEE",
         nacin: "BEZ",
         korisnikId: u.id,
-        noviIdentitet: { nazivVina: "TEST 2", sorta: "Cuvee", godiste: 2026 },
+        noviIdentitet: { nazivVina: "TEST 2", sorta: "Cuvee", godiste: 2026, sifra: "44-0926-1" },
       });
 
       const uC = await redci(tx, c.id);
@@ -455,7 +455,7 @@ async function main() {
         nacin: "BEZ",
         korisnikId: u.id,
         pretokId: zapisPretoka.id,
-        noviIdentitet: { nazivVina: "TEST", sorta: "Cuvee", godiste: 2026 },
+        noviIdentitet: { nazivVina: "TEST", sorta: "Cuvee", godiste: 2026, sifra: "44-0926-1" },
       });
 
       const prije = (await redci(tx, cilj.id)).map((r) => ({

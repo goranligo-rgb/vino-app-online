@@ -468,7 +468,7 @@ async function main() {
       nacin: "FILTRACIJA",
       nacinNapomena: "kroz plocasti filtar",
       korisnikId: u.id,
-      noviIdentitet: { nazivVina: "TEST cuvée", sorta: "Cuvée", godiste: 2025 },
+      noviIdentitet: { nazivVina: "TEST cuvée", sorta: "Cuvée", godiste: 2025, sifra: "44-0926-1" },
     });
 
     jednako(r.izasloLitara, 1000, "izaslo 1000 L");
@@ -774,7 +774,7 @@ async function main() {
       vrsta: "CUVEE",
       nacin: "BEZ",
       korisnikId: u.id,
-      noviIdentitet: { nazivVina: "TEST cuvée", sorta: "Cuvée" },
+      noviIdentitet: { nazivVina: "TEST cuvée", sorta: "Cuvée", sifra: "44-0926-1" },
     });
 
     const orakul = orakulNormaliziraj([
@@ -988,7 +988,7 @@ async function main() {
         vrsta: "CUVEE",
         nacin: "BEZ",
         korisnikId: u.id,
-        noviIdentitet: { nazivVina: "TEST cuvée", sorta: "Cuvée", godiste: 2025 },
+        noviIdentitet: { nazivVina: "TEST cuvée", sorta: "Cuvée", godiste: 2025, sifra: "44-0926-1" },
       });
 
       // --- 1) PRAZNJENJE BEZ ARHIVIRANJA (faza D) ---
@@ -1092,7 +1092,7 @@ async function main() {
         vrsta: "CUVEE",
         nacin: "BEZ",
         korisnikId: u.id,
-        noviIdentitet: { nazivVina: "TEST cuvée", sorta: "Cuvée" },
+        noviIdentitet: { nazivVina: "TEST cuvée", sorta: "Cuvée", sifra: "44-0926-1" },
       });
 
       const orakul = orakulSastav(
@@ -1178,7 +1178,7 @@ async function main() {
         nacin: "BEZ",
         korisnikId: u.id,
         dogodenoAt: cin,
-        noviIdentitet: { nazivVina: "TEST cuvée 2026", sorta: "Cuvée" },
+        noviIdentitet: { nazivVina: "TEST cuvée 2026", sorta: "Cuvée", sifra: "44-0926-1" },
       });
 
       const c1 = await stanje(tx, cilj.id, r);
@@ -1223,7 +1223,7 @@ async function main() {
         nacin: "BEZ",
         korisnikId: u.id,
         dogodenoAt: cin,
-        noviIdentitet: { nazivVina: "TEST cuvée 2026", sorta: "Cuvée" },
+        noviIdentitet: { nazivVina: "TEST cuvée 2026", sorta: "Cuvée", sifra: "44-0926-1" },
       });
 
       jednako(
@@ -1333,7 +1333,7 @@ async function main() {
         nacin: "BEZ",
         korisnikId: u.id,
         dogodenoAt: cin,
-        noviIdentitet: { nazivVina: "Cuvee bijeli 2026", sorta: "Cuvée" },
+        noviIdentitet: { nazivVina: "Cuvee bijeli 2026", sorta: "Cuvée", sifra: "44-0926-1" },
       });
 
       const zapisi = await imena(cilj.id);
@@ -1536,6 +1536,35 @@ async function main() {
       }),
     "dvaput",
     "isti izvor dvaput"
+  );
+
+  const cuvee = {
+    ...osnovni,
+    vrsta: "CUVEE" as const,
+    noviIdentitet: { nazivVina: "TEST cuvée", sorta: "Cuvée", sifra: "44-0926-1" },
+  };
+  provjeriUlazPretoka(cuvee);
+  proslo++;
+
+  for (const sifra of [undefined, null, "", "   "]) {
+    await ocekujGresku(
+      async () =>
+        provjeriUlazPretoka({
+          ...cuvee,
+          noviIdentitet: { ...cuvee.noviIdentitet, sifra },
+        }),
+      "šifru novog vina",
+      `cuvée bez sifre (${JSON.stringify(sifra)})`
+    );
+  }
+  await ocekujGresku(
+    async () =>
+      provjeriUlazPretoka({
+        ...cuvee,
+        noviIdentitet: { ...cuvee.noviIdentitet, sifra: "44-0926" },
+      }),
+    "prefiks-MMGG-broj",
+    "cuvée s nepotpunom sifrom"
   );
 
   console.log("");

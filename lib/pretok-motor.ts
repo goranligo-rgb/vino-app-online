@@ -280,6 +280,11 @@ export function provjeriUlazPretoka(ulaz: UlazPretoka): ProvjereniUlaz {
     if (!norm(ulaz.noviIdentitet?.sorta)) {
       throw new FiltracijaGreska("Cuvée mora dobiti sortu novog vina.");
     }
+    // Cuvée je NOVO vino i sifru dobiva samo iz obrasca — od koraka 4
+    // obavezno. Sastavnica mu je ne smije posuditi.
+    if (!norm(ulaz.noviIdentitet?.sifra)) {
+      throw new FiltracijaGreska("Cuvée mora dobiti šifru novog vina.");
+    }
     const g = greskaSifre(ulaz.noviIdentitet?.sifra);
     if (g) throw new FiltracijaGreska(g);
   }
@@ -368,7 +373,7 @@ function identitetCilja(args: {
         // odluka, a godiste se uz to pise i u sam naziv ("Cuvee bijeli 2026").
         godiste: noviIdentitet?.godiste ?? godinaCina,
         // Cuvée je NOVO vino: sifru dobiva samo iz obrasca, nikad od
-        // sastavnice. Bez nje ostaje bez sifre (obrazac je trazi od koraka 4).
+        // sastavnice. Obavezna je od koraka 4 (`provjeriUlazPretoka`).
         sifra: norm(noviIdentitet?.sifra) || null,
       },
       biloDrugoVino,

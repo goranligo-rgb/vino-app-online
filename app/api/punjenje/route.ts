@@ -9,6 +9,7 @@ import { pocetnoMjerenjeIzStavki } from "@/lib/berba-polja";
 import { BerbaGreska, zabiljeziUlazUVise } from "@/lib/berba-knjiga";
 import { upisiVinoRadnju, prenesiVinoRadnje } from "@/lib/vino-radnja";
 import { imeVinaSada, zabiljeziImenovanje } from "@/lib/ime-vina";
+import { sifraNakonPunjenja, sifraObrascaPunjenja } from "@/lib/sifra-vina";
 
 // Tko smije UPISATI punjenje. Isti popis koji proxy.ts pusta na stranicu
 // /punjenje — proxy stiti samo stranice, pa svaka ruta mora sama provjeriti
@@ -499,6 +500,19 @@ export async function POST(req: Request) {
       }
     }
 
+    // SIFRA. Jedna za cijeli obrazac: svaka posuda koja je bila prazna dobiva
+    // bas nju (jedna berba u vise tankova = isto vino, odluka G), puna
+    // zadrzava svoju (odluka F). Provjera ide prije transakcije, da odbijena
+    // sifra ne ostavi ni jedan redak.
+    const imaPraznih = sviTankIds.some(
+      (tid) => Number(tankPoId.get(tid)!.kolicinaVinaUTanku ?? 0) <= 0
+    );
+    const sifraObrasca = sifraObrascaPunjenja(imaPraznih, body.sifra);
+
+    if (sifraObrasca.greska) {
+      return NextResponse.json({ error: sifraObrasca.greska }, { status: 400 });
+    }
+
     /**
      * Dodatna polja mjerenja — ona koja NE ovise o tome u koji je tank vino
      * otislo. Forma ih danas ne salje, ali ruta ih od pocetka prima; kad
@@ -736,10 +750,13 @@ export async function POST(req: Request) {
             odAt: datumPunjenja,
             naziv: nazivVina,
             deklariranaSorta: glavnaSorta,
-            // Dolijevanje ne mijenja sifru: puna posuda zadrzava svoju
-            // (odluka vlasnika F). Prazna ostaje bez sifre dok je obrazac
-            // punjenja ne pocne traziti (korak 4).
-            sifra: trenutnoUTanku <= 0 ? null : imePrije.sifra,
+            // Prazna posuda: sifra iz obrasca. Puna: dolijevanje ne mijenja
+            // sifru (odluka vlasnika F).
+            sifra: sifraNakonPunjenja({
+              bioPrazan: trenutnoUTanku <= 0,
+              sifraObrasca: sifraObrasca.sifra,
+              sifraPrije: imePrije.sifra,
+            }),
             izvor: "PUNJENJE",
             prijeNaziv: imePrije.naziv,
             prijeSorta: tank.sorta ?? null,
