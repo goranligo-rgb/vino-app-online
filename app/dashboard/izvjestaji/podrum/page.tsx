@@ -249,7 +249,12 @@ function KarticaTanka({ k, odMs, doMs }: { k: Kartica; odMs: number; doMs: numbe
               k.opisVina
             )}
           </div>
+          {/* SIFRA stoji u podnaslovu, ne uz ime: zaseban podatak, a
+              kartica na papiru nema mjesta za novi redak. */}
           <div className="podnaslov">
+            <span className={k.bezSifre ? "bez-sifre" : "sifra"}>
+              {k.bezSifre ? k.opisSifre : `šifra ${k.opisSifre}`}
+            </span>
             {k.grana ? <span className="grana">grana {k.grana}</span> : null}
           </div>
 
@@ -706,6 +711,9 @@ const CSS = `
 }
 .podnaslov { font-size: 9px; color: #52514e; display: flex; gap: 3mm; }
 .grana { color: #8a8a85; }
+/* Sifra vina: tamna kad postoji, a bez nje lakse i u kurzivu, kao bezimeno. */
+.sifra { color: #1f1f1d; font-weight: 600; }
+.bez-sifre { font-style: italic; color: #8a8a85; }
 .kolicina { font-size: 10px; text-align: right; white-space: nowrap; }
 .kolicina strong { font-size: 13px; }
 .popunjenost { display: block; color: #6b7280; font-size: 9px; }

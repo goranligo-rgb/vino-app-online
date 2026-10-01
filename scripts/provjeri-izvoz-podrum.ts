@@ -47,6 +47,7 @@ function ok(uvjet: boolean, poruka: string, detalj = "") {
 
 /** Stupci koji su tekst, ili prazni — nikad prazan string. */
 const TEKSTUALNI: (keyof RedakIzvoza)[] = [
+  "sifra",
   "sorta",
   "sastav",
   "kvasac",
@@ -188,6 +189,7 @@ async function main() {
   const ws = wb.addWorksheet("Podrum");
   ws.columns = [
     { header: "Br. tanka", key: "broj" },
+    { header: "Šifra vina", key: "sifra" },
     { header: "Količina vina (L)", key: "kolicina" },
     { header: "Kapacitet (L)", key: "kapacitet" },
     { header: "Sorta", key: "sorta" },

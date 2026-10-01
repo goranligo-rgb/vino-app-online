@@ -37,6 +37,10 @@ export type TankTile = {
   bezimeno: boolean;
   /** Gotov jednoredni opis sa servera — vidi lib/ime-vina.ts `imeZaPrikaz`. */
   opisVina: string;
+  /** Gotov prikaz sifre sa servera — vidi lib/sifra-vina.ts `sifraZaPrikaz`. */
+  opisSifre: string;
+  /** Vino je u posudi, a sifra mu nije upisana. */
+  bezSifre: boolean;
   zadnjaTemp: number | null;
   // Zelja iz baze (upisana kod slanja komande). Moze zaostati za kontrolerom.
   zadanaTemp: number | null;
@@ -310,6 +314,26 @@ export default function TankKontrole({
               </span>
             ) : (
               tank.opisVina
+            )}
+          </div>
+          {/* SIFRA — zaseban redak ispod imena, ista pravila sirine. */}
+          <div
+            style={{
+              fontSize: 12,
+              color: "#555",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: 0,
+            }}
+          >
+            Šifra:{" "}
+            {tank.bezSifre ? (
+              <span style={{ fontStyle: "italic", color: "#9ca3af" }}>
+                {tank.opisSifre}
+              </span>
+            ) : (
+              tank.opisSifre
             )}
           </div>
         </div>

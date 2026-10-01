@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
+import { sifraZaPrikaz } from "@/lib/sifra-vina";
 import { zadnjaOcitanjaPoTanku } from "@/lib/zadnje-ocitanje";
 import { getAuthUser } from "@/lib/putnik-auth";
 import {
@@ -153,6 +154,9 @@ export default async function HladjenjeDashboard({
       bezimeno: jeBezImena(ime),
       /** Gotov jednoredni opis — vidi lib/ime-vina.ts `imeZaPrikaz`. */
       opisVina: imeZaPrikaz(ime).tekst,
+      /** Gotov prikaz sifre — vidi lib/sifra-vina.ts `sifraZaPrikaz`. */
+      opisSifre: sifraZaPrikaz(ime).tekst,
+      bezSifre: sifraZaPrikaz(ime).bezSifre,
       zadnjaTemp: o ? uBroj(o.temperatura) : null,
       zadanaTemp,
       zadanaNaKontroleru,

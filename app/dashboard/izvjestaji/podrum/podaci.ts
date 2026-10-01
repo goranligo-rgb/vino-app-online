@@ -17,6 +17,7 @@ import { kvasciPoPartiji, type KvasacPartije } from "@/lib/kvasac-partija";
 import { sastavSvihTankova } from "@/lib/berba-model";
 import { citajUlazneCine, type KnjigaIdentiteta } from "@/lib/identitet-vina";
 import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
+import { sifraZaPrikaz } from "@/lib/sifra-vina";
 import { zadnjaOcitanja, type ZadnjeOcitanje } from "@/lib/zadnje-ocitanje";
 
 /** Koliko dana unatrag gledaju traka i graf temperature/secera. */
@@ -196,6 +197,11 @@ export async function dohvatiPodrum() {
       bezimeno: jeBezImena(ime),
       /** Gotov jednoredni opis — vidi lib/ime-vina.ts `imeZaPrikaz`. */
       opisVina: imeZaPrikaz(ime).tekst,
+      /** Interna sifra vina; `null` = nije upisana. Excel je pise sirovu. */
+      sifra: ime?.sifra ?? null,
+      /** Gotov prikaz sifre — vidi lib/sifra-vina.ts `sifraZaPrikaz`. */
+      opisSifre: sifraZaPrikaz(ime).tekst,
+      bezSifre: sifraZaPrikaz(ime).bezSifre,
     };
   });
 

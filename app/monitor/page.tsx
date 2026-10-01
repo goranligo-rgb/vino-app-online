@@ -21,6 +21,10 @@ type Tank = {
   bezimeno: boolean;
   /** Gotov jednoredni opis sa servera — vidi lib/ime-vina.ts `imeZaPrikaz`. */
   opisVina: string;
+  /** Gotov prikaz sifre sa servera — vidi lib/sifra-vina.ts `sifraZaPrikaz`. */
+  opisSifre: string;
+  /** Vino je u posudi, a sifra mu nije upisana. */
+  bezSifre: boolean;
   zadnjaTemp: number | null;
   zadanaTemp: number | null;
   hladjenjeAktivno: boolean | null;
@@ -412,6 +416,25 @@ export default function MonitorPage() {
                       </span>
                     ) : (
                       tank.opisVina
+                    )}
+                  </div>
+
+                  {/* SIFRA — zaseban redak, isto pravilo kao ime: bez nje se
+                      kaze rijecima, ne crticom. */}
+                  <div
+                    style={{
+                      fontSize: 12,
+                      marginBottom: 3,
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    Šifra:{" "}
+                    {tank.bezSifre ? (
+                      <span style={{ color: "#9ca3af", fontStyle: "italic" }}>
+                        {tank.opisSifre}
+                      </span>
+                    ) : (
+                      tank.opisSifre
                     )}
                   </div>
 

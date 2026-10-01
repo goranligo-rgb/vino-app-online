@@ -156,6 +156,11 @@ export type Kartica = {
   bezimeno: boolean;
   /** Gotov jednoredni opis — vidi lib/ime-vina.ts `imeZaPrikaz`. */
   opisVina: string;
+  /** Interna sifra vina, sirova; `null` = nije upisana. */
+  sifra: string | null;
+  /** Gotov prikaz sifre — „11-0926-3" ili „bez šifre". */
+  opisSifre: string;
+  bezSifre: boolean;
   /**
    * Kad deklarirana sorta imenuje nesto drugo nego sto knjiga pokazuje kao
    * gotovo jedinu sortu. `null` kad nesklada nema ili kad je vino pravi blend,
@@ -633,6 +638,9 @@ export function sloziKartice(p: PodrumPodaci, sada = new Date()): Kartica[] {
       sorta: t.sorta,
       bezimeno: t.bezimeno,
       opisVina: t.opisVina,
+      sifra: t.sifra,
+      opisSifre: t.opisSifre,
+      bezSifre: t.bezSifre,
       sortaNesklad:
         usporedba.razilazi && usporedba.deklarirana && usporedba.glavna
           ? {

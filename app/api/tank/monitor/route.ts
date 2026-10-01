@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/zadatak-auth";
 import { stvarnaZadana, uBroj } from "@/lib/temperatura";
 import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
+import { sifraZaPrikaz } from "@/lib/sifra-vina";
 import { zadnjaOcitanjaPoTanku } from "@/lib/zadnje-ocitanje";
 import { NextResponse } from "next/server";
 
@@ -68,6 +69,9 @@ export async function GET() {
         bezimeno: jeBezImena(ime),
         /** Gotov jednoredni opis — vidi lib/ime-vina.ts `imeZaPrikaz`. */
         opisVina: imeZaPrikaz(ime).tekst,
+        /** Gotov prikaz sifre — vidi lib/sifra-vina.ts `sifraZaPrikaz`. */
+        opisSifre: sifraZaPrikaz(ime).tekst,
+        bezSifre: sifraZaPrikaz(ime).bezSifre,
         brojZadataka: t.zadaci.length,
         // Nadzor temperature
         zadnjaTemp: o ? uBroj(o.temperatura) : null,

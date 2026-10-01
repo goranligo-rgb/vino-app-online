@@ -85,6 +85,7 @@ export async function GET() {
 
     ws.columns = [
       { header: "Br. tanka", key: "broj", width: 10 },
+      { header: "Šifra vina", key: "sifra", width: 14 },
       { header: "Količina vina (L)", key: "kolicina", width: 16 },
       { header: "Kapacitet (L)", key: "kapacitet", width: 14 },
       { header: "Sorta", key: "sorta", width: 22 },

@@ -25,6 +25,7 @@ import {
   sifraNakonPunjenja,
   sifraNovogVinaPretoka,
   sifraObrascaPunjenja,
+  sifraZaPrikaz,
 } from "../lib/sifra-vina";
 import {
   procitajOdredista,
@@ -258,6 +259,35 @@ function simulirajPunjenje(
     "berba u dva tanka bez sifre: odbijeno, iako je jedan tank pun"
   );
 }
+
+console.log("\n5. Prikaz sifre (korak 5)\n");
+
+jednako(
+  sifraZaPrikaz({ sifra: "11-0926-3", razlog: "IMENOVANO" }),
+  { tekst: "11-0926-3", bezSifre: false },
+  "upisana sifra se pokazuje kakva jest"
+);
+jednako(
+  sifraZaPrikaz({ sifra: null, razlog: "IMENOVANO" }),
+  { tekst: "bez šifre", bezSifre: true },
+  "imenovano vino bez sifre: „bez šifre”, ne crtica"
+);
+jednako(
+  sifraZaPrikaz({ sifra: "  ", razlog: "IMENOVANO" }),
+  { tekst: "bez šifre", bezSifre: true },
+  "sifra od samih razmaka je isto sto i nikakva"
+);
+jednako(
+  sifraZaPrikaz({ sifra: null, razlog: "BEZIMENO" }),
+  { tekst: "bez šifre", bezSifre: true },
+  "vino bez ikakvog zapisa: „bez šifre”"
+);
+jednako(
+  sifraZaPrikaz({ sifra: "11-0826-1", razlog: "PRAZAN" }),
+  { tekst: "—", bezSifre: false },
+  "prazna posuda: crtica, i kad bi zapis nosio sifru"
+);
+jednako(sifraZaPrikaz(null), { tekst: "—", bezSifre: false }, "tank bez podatka: crtica");
 
 console.log("");
 console.log(`proslo: ${proslo}, palo: ${pao}`);

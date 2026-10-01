@@ -23,6 +23,8 @@ import type { Kartica } from "@/app/dashboard/izvjestaji/podrum/model";
  */
 export type RedakIzvoza = {
   broj: number;
+  /** Interna sifra vina; prazna celija kad nije upisana. */
+  sifra: string | null;
   kolicina: number;
   kapacitet: number;
   sorta: string | null;
@@ -127,6 +129,7 @@ export function danZaExcel(d: Date | null): Date | null {
 export function redakIzvoza(k: Kartica): RedakIzvoza {
   return {
     broj: k.broj,
+    sifra: tekst(k.sifra ?? ""),
     kolicina: k.kolicina,
     kapacitet: k.kapacitet,
     sorta: tekst(k.sorta ?? ""),

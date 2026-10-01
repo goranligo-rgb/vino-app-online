@@ -24,6 +24,7 @@ import { kvasciPoPartiji } from "@/lib/kvasac-partija";
 import { granicaVina, odGraniceVina } from "@/lib/granica-vina";
 import { punjenjaTrenutnogVina } from "@/lib/punjenje-vina";
 import { imeVina, jeBezImena, usporediSaSastavom } from "@/lib/ime-vina";
+import { sifraZaPrikaz } from "@/lib/sifra-vina";
 import { parametriVinaIzKnjige } from "@/lib/parametri-vina";
 import { vrijednostiMonitora } from "@/lib/monitor-vina";
 import {
@@ -1094,6 +1095,7 @@ export default async function TankPregledPage({
   //
   // Jedan upit, i to tek nakon prvog vala — isti razlog kao podrijetlo nize.
   const ime = await imeVina(prisma, id, granica);
+  const sifraPrikaz = sifraZaPrikaz(ime);
 
   // Izlazi dolaze ugnijezdjeni iz glavnog upita, prije nego je granica poznata,
   // pa se filtriraju ovdje. Danas je to prazan hod jer arhiviranje brise
@@ -2726,6 +2728,18 @@ export default async function TankPregledPage({
             </div>
           ) : null}
 
+          {/* SIFRA — zaseban redak, ne dio imena. Bez nje pise „bez sifre":
+              to je posao koji ceka covjeka (unos unatrag), ne podatak koji
+              se nije ucitao. */}
+          <div style={deklariranaSortaStyle}>
+            Šifra:{" "}
+            {sifraPrikaz.bezSifre ? (
+              <span style={bezSifreStyle}>{sifraPrikaz.tekst}</span>
+            ) : (
+              <strong style={{ color: "#111827" }}>{sifraPrikaz.tekst}</strong>
+            )}
+          </div>
+
           {usporedbaSorte.razilazi &&
           usporedbaSorte.deklarirana &&
           usporedbaSorte.glavna ? (
@@ -4326,6 +4340,11 @@ const deklariranaSortaStyle: React.CSSProperties = {
   fontSize: 12,
   color: "#6b7280",
   marginBottom: 2,
+};
+
+const bezSifreStyle: React.CSSProperties = {
+  color: "#9ca3af",
+  fontStyle: "italic",
 };
 
 /**

@@ -8,6 +8,7 @@ import { getAuthUser } from "@/lib/zadatak-auth";
 import { jeL12 } from "@/lib/auth-role";
 import { razlikaPolja, zabiljeziIzmjene } from "@/lib/dnevnik-izmjena";
 import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
+import { sifraZaPrikaz } from "@/lib/sifra-vina";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
@@ -85,6 +86,11 @@ export async function GET() {
         bezimeno: jeBezImena(ime),
         /** Gotov jednoredni opis — „Graševina" ili „bez imena · Muškat žuti". */
         opisVina: imeZaPrikaz(ime).tekst,
+        /** Interna sifra vina; `null` = nije upisana ili je posuda prazna. */
+        sifra: ime?.sifra ?? null,
+        /** Gotov prikaz sifre — „11-0926-3", „bez šifre" ili „—" za praznu posudu. */
+        opisSifre: sifraZaPrikaz(ime).tekst,
+        bezSifre: sifraZaPrikaz(ime).bezSifre,
         imenovanoAt: ime?.odAt ?? null,
       };
     });

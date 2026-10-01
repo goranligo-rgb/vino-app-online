@@ -194,3 +194,25 @@ export function sifraNakonPunjenja(arg: {
 }): string | null {
   return arg.bioPrazan ? arg.sifraObrasca : arg.sifraPrije;
 }
+
+/**
+ * Sto pisati na ekran umjesto sifre — ZASEBNO polje, nikad prilijepljeno uz
+ * ime (`imeZaPrikaz` se ne dira).
+ *
+ * Isto pravilo kao kod imena: vino bez sifre se kaze rijecima („bez sifre"),
+ * jer crtica izgleda kao da se podatak nije ucitao. Prazna posuda nema vina,
+ * pa ni sifre — ondje stoji crtica.
+ *
+ * Prima samo dva polja `ImeVina`, da ga moze zvati i kod koji ne vuce
+ * lib/ime-vina.ts (preglednik).
+ */
+export const BEZ_SIFRE_TEKST = "bez šifre";
+
+export function sifraZaPrikaz(
+  ime: { sifra: string | null; razlog: string } | null | undefined
+): { tekst: string; bezSifre: boolean } {
+  if (!ime || ime.razlog === "PRAZAN") return { tekst: "—", bezSifre: false };
+
+  const s = prazno(ime.sifra);
+  return s ? { tekst: s, bezSifre: false } : { tekst: BEZ_SIFRE_TEKST, bezSifre: true };
+}
