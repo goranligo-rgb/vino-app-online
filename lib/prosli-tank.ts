@@ -1,4 +1,9 @@
-import type { Sastavnica, VinoCvor } from "@/lib/identitet-vina";
+import {
+  vinoUTanku,
+  type Sastavnica,
+  type UlazniCin,
+  type VinoCvor,
+} from "@/lib/identitet-vina";
 
 /**
  * PROSLI TANK — kucica iz sastava, otvorena kao vino ZAMRZNUTO na trenutak
@@ -69,6 +74,91 @@ export function pojaveKucice(
 
   hod(korijen, 1);
   return out;
+}
+
+export type NadjenaKucica = {
+  sastavnica: Sastavnica;
+  /** Posuda u koju je komponenta usla. */
+  roditeljTankId: string;
+  /** Udio prve pojave u korijenu; `null` kad je kucica nadjena bez korijena. */
+  udioUKorijenu: number | null;
+  /** Kako je nadjena — o tome ovisi smije li se prevoditi kvasac korijena. */
+  kroz: "korijen" | "kljuc";
+};
+
+/**
+ * KUCICA PO ADRESI — s korijenom ili bez njega. Nijedan upit.
+ *
+ * S KORIJENOM, kad je kucica u njegovom stablu: tocno kao do sada, prva
+ * pojava iz `pojaveKucice`. Korijen tada daje i udio u korijenu, bez kojeg
+ * nema prijevoda kvasaca (`kvasciKucice`).
+ *
+ * BEZ KORIJENA — ili kad korijen kucicu vise ne sadrzi — iz samog kljuca cina.
+ * Roditelj je zapisan u kljucu (`rastaviKljucCina().ciljTankId`), trenutak cina
+ * u knjizi, a kucica je sastavnica `vinoUTanku(roditelj, trenutak cina)` s tom
+ * posudom. Zasto to treba: korijen je DANASNJE stablo, pa je svaka poveznica
+ * radila samo dok posuda korijena nije ponovno napunjena, a onda davala
+ * notFound — vino koje je otislo nije se moglo otvoriti nikako.
+ *
+ * MJERENO 09.10.2026: svih 516 pojava kucica posude u zivim stablima ovim
+ * putem daje isto stablo ispod, iste litre, isti cas i istog roditelja kao
+ * kroz korijen (scripts/test-setnja-arhive.ts).
+ *
+ * `sastavnica.udio` BEZ KORIJENA NIJE ISTI BROJ — i to nije udio u korijenu
+ * (`udioUKorijenu`, koji je bez korijena uvijek `null`), nego udio kucice u
+ * NEPOSREDNOM roditelju. Racuna se nad svim cinovima roditelja do trenutka u
+ * kojem ga gledas: kroz korijen roditelj se gleda do casa kad je njegovo vino
+ * otislo dalje (za prvu razinu: do danas), bez korijena u casu samog cina —
+ * kasniji cas se bez hoda unaprijed ne zna. Kasnija progutana dolijevanja
+ * zato ulaze samo u prvi zbroj. Primjer, mjereno 09.10.2026: T14 u T38 je
+ * 83,3 % kroz korijen (T14 2.000 L + T21 400 L progutano 02.10.) i 100 % bez
+ * njega (u casu cina 29.09. T21 jos nije bio dolio) — oba tocna, svaki za
+ * svoje pitanje. Razlikuje se na 89 od 516 pojava, na svim razinama, i na
+ * prvoj. Ni kroz korijen broj nije jednoznacan: ista kucica u ponovljenom
+ * podstablu zna imati drukciji udio po putu (12 pojava), a stranica uzima
+ * prvu.
+ *
+ * `sastavnica.udio` otvorene kucice /prosli-tank NE CITA (cita `usloAt`,
+ * `litre`, `vino`, `progutano`); scripts/test-setnja-arhive.ts to drzi i pada
+ * cim ga stranica pocne citati. Tko ga pocne prikazivati, mora ovo rijesiti
+ * prije.
+ *
+ * Rub koji danas ne postoji: stablo bez korijena gradi se kracim putem, pa
+ * kruzni pretok koji kroz korijen stane kao "prekinuto" ovdje zna stati
+ * razinu kasnije. U zivim stablima nema nijedne prekinute kucice.
+ *
+ * `korijen` je obavezan argument, i `null` kad ga nema: pozivatelj mora reci
+ * otvara li kucicu iz necijeg stabla ili iz arhive.
+ */
+export function nadjiKucicu(
+  cini: Map<string, UlazniCin[]>,
+  nazivSorte: Map<string, string>,
+  u: { korijen: VinoCvor | null; izTankId: string; kljucCina: string }
+): NadjenaKucica | null {
+  if (u.korijen) {
+    const pojave = pojaveKucice(u.korijen, u.izTankId, u.kljucCina);
+    if (pojave.length > 0) {
+      return {
+        sastavnica: pojave[0].sastavnica,
+        roditeljTankId: pojave[0].roditeljTankId,
+        udioUKorijenu: pojave[0].udioUKorijenu,
+        kroz: "korijen",
+      };
+    }
+  }
+
+  const k = rastaviKljucCina(u.kljucCina);
+  if (!k) return null;
+  const cin = (cini.get(k.ciljTankId) ?? []).find((c) => c.kljuc === u.kljucCina);
+  if (!cin) return null;
+
+  const roditelj = vinoUTanku(cini, nazivSorte, k.ciljTankId, cin.kada.getTime());
+  if (roditelj.vrsta !== "spoj") return null;
+
+  const s = roditelj.sastavnice.find((x) => jeTaKucica(x, u.izTankId, u.kljucCina));
+  if (!s) return null;
+
+  return { sastavnica: s, roditeljTankId: k.ciljTankId, udioUKorijenu: null, kroz: "kljuc" };
 }
 
 /** `VinoRadnja` korijena onoliko koliko ovaj racun treba. */
