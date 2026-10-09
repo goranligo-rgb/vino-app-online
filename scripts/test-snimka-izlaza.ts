@@ -135,6 +135,7 @@ async function citajRazinu1(tx: Tx, snimkaId: string, sviTankovi: { id: string; 
     prozori,
     tankIzlazaId: snimka.tankId,
     brojTanka: new Map(sviTankovi.map((t) => [t.id, t.broj])),
+    trenutnaSnimkaId: snimka.id,
   });
   return { snimka, trenutak, prozori, dogadaji };
 }

@@ -171,7 +171,17 @@ const IZ_ARHIVE = {
  */
 export async function dogadajiVina(
   db: Db,
-  u: { prozori: ProzorVina[]; tankIzlazaId: string; brojTanka: Map<string, number> }
+  u: {
+    prozori: ProzorVina[];
+    tankIzlazaId: string;
+    brojTanka: Map<string, number>;
+    /**
+     * Snimka koja se upravo gleda (/prosli-tank?snimka=), ili `null`.
+     * OBAVEZNA, ne opcijska: izlaz te snimke ne smije voditi sam na sebe, a
+     * pozivatelj mora reci gleda li snimku ili posudu.
+     */
+    trenutnaSnimkaId: string | null;
+  }
 ): Promise<Dogadaj[]> {
   const { prozori } = u;
   const posude = [...new Set(prozori.map((p) => p.tankId))];
@@ -677,6 +687,20 @@ export async function dogadajiVina(
     })
   ).filter((x) => u_(x.tankId, x.datum));
 
+  // EVIDENCIJA VINA KOJE JE IZASLO (razina 1 arhive) — poveznica s izlaza,
+  // kao na stranici tanka. Jedan upit, samo kad zivih izlaza ima. Izlazi prije
+  // 29.09.2026. snimku nemaju, a arhivska kopija izlaza (prije faze F) nikad.
+  const snimkaPoIzlazu = new Map(
+    izlazi.length > 0
+      ? (
+          await db.snimkaVina.findMany({
+            where: { izlazVinaId: { in: izlazi.map((x) => x.id) } },
+            select: { id: true, izlazVinaId: true },
+          })
+        ).map((s) => [s.izlazVinaId, s.id] as const)
+      : []
+  );
+
   for (const x of [
     ...izlazi.map((x) => ({ ...x, arhivski: false, kljuc: x.id })),
     ...arhivskiIzlazi.map((x) => ({ ...x, arhivski: true, kljuc: x.izvorniIzlazId ?? x.id })),
@@ -685,7 +709,11 @@ export async function dogadajiVina(
       if (prikazaniIzlazi.has(x.kljuc)) continue;
       prikazaniIzlazi.add(x.kljuc);
     }
+    const snimkaId = x.arhivski ? undefined : snimkaPoIzlazu.get(x.id);
     dogadaji.push({
+      ...(snimkaId && snimkaId !== u.trenutnaSnimkaId
+        ? { poveznica: { href: `/prosli-tank?snimka=${snimkaId}`, tekst: "evidencija vina koje je izašlo" } }
+        : {}),
       id: `${x.arhivski ? "aiz" : "iz"}-${x.id}`,
       vrsta: "IZLAZ",
       vrijeme: x.datum.toISOString(),

@@ -17,6 +17,9 @@
  * znak isti. `detalji` moraju biti NADSKUP starih — svaki stari par
  * {label, value} postoji i dalje. Jedina dopustena promjena vrijednosti je redak
  * kala/taloga, koji dobiva postotak; takvi se ispisu poimence.
+ *
+ * `poveznica`: postojeca mora ostati ista. Nova smije doci samo na redak
+ * izlaza (poveznica na evidenciju vina koje je izaslo) i ispisuje se poimence.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -53,6 +56,7 @@ async function slozi(sada: Date): Promise<Record<string, Dogadaj[]>> {
       prozori,
       tankIzlazaId: s.tankId,
       brojTanka: brojTanka as Map<string, number>,
+      trenutnaSnimkaId: s.id,
     });
   }
 
@@ -68,13 +72,20 @@ async function slozi(sada: Date): Promise<Record<string, Dogadaj[]>> {
       prozori,
       tankIzlazaId: t.id,
       brojTanka: brojTanka as Map<string, number>,
+      trenutnaSnimkaId: null,
     });
   }
 
   return out;
 }
 
-const bezDetalja = (d: Dogadaj) => JSON.stringify({ ...d, detalji: null });
+/** Sve osim detalja i poveznice — poveznica se provjerava zasebno. */
+const bezDetalja = (d: Dogadaj) => {
+  const { detalji: _d, poveznica: _p, ...ostalo } = d;
+  void _d;
+  void _p;
+  return JSON.stringify(ostalo);
+};
 
 /** Redak kala/taloga: "12 L — objasnjenje" postaje "12 L (1,2 %) — objasnjenje". */
 function jeKaloSPostotkom(staro: string, novo: string): boolean {
@@ -108,6 +119,7 @@ async function main() {
   let dogadaja = 0;
   const dodano = new Map<string, number>();
   const kalo: string[] = [];
+  const poveznice: string[] = [];
 
   for (const [kljuc, stari] of Object.entries(staro.rezultati)) {
     const novi = novo[kljuc];
@@ -127,6 +139,17 @@ async function main() {
       dogadaja++;
       const a = stari[i];
       const b = novi[i];
+      // Poveznica: postojeca mora ostati ista; nova smije doci samo na izlaz.
+      const pa = JSON.stringify(a.poveznica ?? null);
+      const pb = JSON.stringify(b.poveznica ?? null);
+      if (pa !== pb) {
+        if (pa === "null" && a.vrsta === "IZLAZ" && b.poveznica) {
+          poveznice.push(`${kljuc} ${a.id}: ${b.poveznica.href}`);
+        } else {
+          palo++;
+          console.log(`  PALO ${kljuc} ${a.id}: poveznica ${pa} -> ${pb}`);
+        }
+      }
       if (bezDetalja(a) !== bezDetalja(b)) {
         palo++;
         console.log(`  PALO ${kljuc} ${a.id}: promijenjen stupac izvan detalja`);
@@ -158,6 +181,8 @@ async function main() {
   console.log(`\nkronologija ${Object.keys(staro.rezultati).length}, dogadaja ${dogadaja}`);
   console.log("dodani retci detalja (vrsta · oznaka: broj dogadaja):");
   for (const [k, v] of [...dodano].sort()) console.log(`  ${k}: ${v}`);
+  console.log(`izlaz dobio poveznicu na snimku: ${poveznice.length}`);
+  for (const p of poveznice) console.log(`  ${p}`);
   console.log(`redak kala dobio postotak: ${kalo.length}`);
   for (const k of kalo) console.log(`  ${k}`);
   console.log(`\npalo: ${palo}`);

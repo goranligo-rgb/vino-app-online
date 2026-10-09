@@ -118,6 +118,7 @@ export default async function VinoIzSnimke({ snimkaId }: { snimkaId: string }) {
     prozori,
     tankIzlazaId: snimka.tankId,
     brojTanka,
+    trenutnaSnimkaId: snimka.id,
   });
   const nepotpuni = prozoriPrijePrezivljavanja(prozori);
 
