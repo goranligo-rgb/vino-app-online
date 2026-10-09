@@ -78,8 +78,23 @@ export type ProzorVina = {
  * (`vinoUTanku`). Vraca i cvor na kojem je lanac stao: njegove sastavnice su
  * "od cega je vino slozeno".
  *
- * Karika bez granice (knjiga za tu posudu ne zna nista) se preskace, isto kao
- * `lanacVina` na stranici tanka — pogadjati se ne smije.
+ * Karika bez granice (knjiga za tu posudu ne zna nista) se preskace —
+ * pogadjati se ne smije.
+ *
+ * LANAC IDE ISTIM PRAVILOM KAO SAZIMANJE SASTAVA (09.10.2026.). Karika je
+ * posuda iz koje je vino stiglo kao JEDINA neprogutana sastavnica — isto
+ * pravilo kao `jePrijenos` u lib/sastav-vina.ts, uz zateceno vino (posudu bez
+ * razmotavanja) kao kraj lanca. Do tada je lanac trazio da cvor ima tocno
+ * jednu sastavnicu, pa je vino koje je stiglo prijenosom i poslije dobilo
+ * dolijevanje (T7: prijenos iz T4, dolijevanje iz T5) stalo na prvoj posudi.
+ * Sastav takvu posudu vise ne prikazuje kao kucicu (put nije sastav nego
+ * kretanje), pa bi njezina povijest nestala s ekrana: mjereno, 9 prozora u
+ * 5 tankova (T7, T17, T21, T22, T38). Sada je ta posuda karika i njezina
+ * povijest stoji u kronologiji, grafu i popisu mjerenja.
+ *
+ * `zadnjiCvor` ostaje po STAROM pravilu — prvi cvor s vise od jedne
+ * sastavnice — jer je on "od cega je vino slozeno" na snimci izlaza, a
+ * dolijevanje u posudu na putu dio je toga.
  */
 export async function prozoriVina(
   db: Pick<Db, "berbaKretanje" | "punjenjeTanka">,
@@ -92,9 +107,12 @@ export async function prozoriVina(
   const prozori: ProzorVina[] = [{ tankId: u.tankId, od: g.odAt, do: u.doAt }];
 
   let cvor: VinoCvor = u.vino;
-  while (cvor.vrsta === "spoj" && cvor.sastavnice.length === 1) {
-    const s = cvor.sastavnice[0];
-    if (s.vino.vrsta === "partija") break;
+  while (cvor.vrsta === "spoj") {
+    const neprogutane = cvor.sastavnice.filter((x) => !x.progutano);
+    if (neprogutane.length !== 1) break;
+    const s = neprogutane[0];
+    // Berba je kraj; vino koje je u posudi vec bilo nije prijenos nego kupaza.
+    if (s.vino.vrsta === "partija" || s.vino.tankId === cvor.tankId) break;
     const gk = await granicaVina(db, s.vino.tankId, {
       doTrenutka: s.usloAt,
       zadnjeVino: true,
@@ -103,7 +121,16 @@ export async function prozoriVina(
     cvor = s.vino;
   }
 
-  return { prozori, zadnjiCvor: cvor };
+  let zadnjiCvor: VinoCvor = u.vino;
+  while (
+    zadnjiCvor.vrsta === "spoj" &&
+    zadnjiCvor.sastavnice.length === 1 &&
+    zadnjiCvor.sastavnice[0].vino.vrsta !== "partija"
+  ) {
+    zadnjiCvor = zadnjiCvor.sastavnice[0].vino;
+  }
+
+  return { prozori, zadnjiCvor };
 }
 
 /** Je li trenutak `t` u prozoru posude `tankId`. Rubovi su ukljucivi. */

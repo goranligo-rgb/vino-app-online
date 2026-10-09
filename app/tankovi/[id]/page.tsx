@@ -44,7 +44,6 @@ import {
   imenujOdljev,
   DUBINA_KLIKA,
   type VinoCvor,
-  type Sastavnica as SastavnicaStabla,
 } from "@/lib/identitet-vina";
 import {
   povijestVina,
@@ -54,7 +53,18 @@ import {
   type PovijestVina,
   type StavkaPovijesti,
 } from "@/lib/povijest-vina";
-import { opisGubitka } from "@/lib/pretok-gubitak";
+import {
+  dogadajiVina,
+  prozoriVina,
+  prozoriPrijePrezivljavanja,
+  PREZIVLJAVA_OD,
+} from "@/lib/kronologija-vina";
+import {
+  sastavVina,
+  skratiSastav,
+  nazivStavke,
+  type StavkaVina,
+} from "@/lib/sastav-vina";
 import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
 // `berbaKrozLanac` se od 11.09.2026. vise ne zove s ove stranice — berbu daje
 // knjiga (`podrijetloTanka`). Modul ostaje i dalje se koristi drugdje.
@@ -472,16 +482,6 @@ function OdPocetkaVina({
       . Ostalo iz tih posuda pripada drugim vinima.
     </div>
   );
-}
-
-/**
- * "tank 12" ili "tankove 12, 14" — pretok od faze 4 moze imati vise ciljeva.
- * Dok ih ima jedan, ispis je isti kao prije.
- */
-function opisiCiljeve(ciljevi: Array<{ tank: { broj: number } }>) {
-  if (ciljevi.length === 0) return "tank —";
-  if (ciljevi.length === 1) return `tank ${ciljevi[0].tank.broj}`;
-  return `tankove ${ciljevi.map((c) => c.tank.broj).join(", ")}`;
 }
 
 /** Jedno polje berbe. Prazno se prikazuje blijedo, ne skriva se. */
@@ -960,10 +960,8 @@ export default async function TankPregledPage({
       documents: {
         orderBy: [{ datumDokumenta: "desc" }, { createdAt: "desc" }],
       },
-      izlaziVina: {
-        orderBy: [{ datum: "desc" }, { createdAt: "desc" }],
-        take: 50,
-      },
+      // Izlazi vise ne dolaze odavde: kronologiju slaze lib/kronologija-vina.ts
+      // po prozorima vina, bez `take` (T43 ima 49 izlaza jednog vina).
     },
   });
 
@@ -988,10 +986,6 @@ export default async function TankPregledPage({
     !tank.sorta &&
     !tank.godiste &&
     udjeliSorti.length === 0;
-
-  // Prazan tank NE skriva povijest: izlazi, punjenja, zadaci i radnje postoje
-  // i kad u tanku trenutno nema vina, i upravo su tada najzanimljiviji.
-  // (Izlazi se filtriraju granicom arhive nize, kad je granica poznata.)
 
   // Upiti idu u DVA VALA umjesto sest uzastopnih koraka.
   //
@@ -1023,20 +1017,10 @@ export default async function TankPregledPage({
       take: 200,
     }),
 
-    // Arhive u PRVOM valu, iako se prikazuju medju povijesnim karticama:
-    // iz njih dolazi granica arhive, a po njoj se filtriraju svi upiti u
-    // drugom i trecem valu.
-    prisma.arhivaVina.findMany({
-      where: { tankId: id },
-      orderBy: { arhiviranoAt: "desc" },
-      select: {
-        id: true,
-        nazivVina: true,
-        sorta: true,
-        kolicinaVina: true,
-        arhiviranoAt: true,
-      },
-    }),
+    // ARHIVE SE OVDJE VISE NE CITAJU (vlasnik, 09.10.2026.): tank je posuda,
+    // a arhiva pripada vinu. Vino kojeg vise nema u podrumu nalazi se samo u
+    // arhivi (/arhiva), ne u zadnjem tanku u kojem je bilo. Kartica "Arhive"
+    // i dogadaj ARHIVA u kronologiji su maknuti.
 
     // Otvorena fermentacija ovog tanka — odredjuje koji se gumb prikazuje.
     // NAMJERNO bez granice arhive: fermentacija se zatvara ondje gdje je i
@@ -1057,7 +1041,6 @@ export default async function TankPregledPage({
     zadnjeOcitanje,
     aktivniAlarmi,
     mjerenja,
-    arhive,
     otvorenaFermentacija,
     granica,
   ] = prviVal;
@@ -1086,8 +1069,6 @@ export default async function TankPregledPage({
   // Zato izricita oznaka, isto pravilo kao `odGraniceVina`: PRAZAN, ne
   // NEMA_KNJIGE (ondje knjiga nema sto reci, pa se ne smije praviti da zna).
   const tankBezVina = granica.razlog === "PRAZAN";
-  // Ni arhive: tank je posuda, a arhiva pripada vinu koje je otislo.
-  const arhiveZaPrikaz = tankBezVina ? [] : arhive;
 
   // IME VINA (faza 4) — cin imenovanja unutar prozora koji je granica upravo
   // odredila, a ne `Tank.nazivVina`. Cita se TEK OVDJE jer mu treba granica:
@@ -1096,13 +1077,6 @@ export default async function TankPregledPage({
   // Jedan upit, i to tek nakon prvog vala — isti razlog kao podrijetlo nize.
   const ime = await imeVina(prisma, id, granica);
   const sifraPrikaz = sifraZaPrikaz(ime);
-
-  // Izlazi dolaze ugnijezdjeni iz glavnog upita, prije nego je granica poznata,
-  // pa se filtriraju ovdje. Danas je to prazan hod jer arhiviranje brise
-  // IzlazVina — ali ostaje tocno ako se to promijeni.
-  const izlaziZaPrikaz = (tank.izlaziVina ?? []).filter(
-    (x) => !granicaVinaAt || x.datum >= granicaVinaAt
-  );
 
   // Ne cekaj — samo pokreni. Ceka se nize, kad rezultat stvarno zatreba.
   const blendUTijeku =
@@ -1254,62 +1228,9 @@ export default async function TankPregledPage({
 
   ]);
 
-  // Treci val — cetiri tablice koje postojeci monitor uopce nije citao.
-  const [radnje, pretociUlaz, pretociIzlaz, dolasciPrijenosom] =
-    await Promise.all([
-      prisma.radnja.findMany({
-        // Radnja se pri arhiviranju NE brise, pa bez granice ovdje vise radnji
-        // prethodnog vina. To je bio vidljiv bug na produkciji.
-        //
-        // OSTAJE NA `Radnja`, a ne prelazi na `VinoRadnja`: kronologija je
-        // dnevnik POSUDE — sto se radilo kraj ovog tanka — i njezin `zadatakId`
-        // je jedino cime se radnja izvrsenog zadatka razlikuje od samostalne.
-        // Bez toga bi svaki izvrsen zadatak stajao dvaput. Ono sto je vino
-        // DONIJELO sa sobom cita se nize, iz `VinoRadnja`.
-        where: { tankId: id, createdAt: odGranice },
-        orderBy: { createdAt: "desc" },
-        include: {
-          korisnik: { select: { ime: true, email: true } },
-          preparat: { select: { naziv: true } },
-          jedinica: { select: { naziv: true } },
-        },
-      }),
-      // Pretok se dosad nije citao ni s jedne strane.
-      prisma.pretok.findMany({
-        // Kroz `ciljevi`, ne kroz `ciljTankId`: pretok od faze 4 moze imati vise
-        // ciljeva. Dok ih ima tocno jedan, oba upita vracaju isti skup.
-        where: { ciljevi: { some: { tankId: id } }, datum: odGranice },
-        orderBy: { datum: "desc" },
-        include: {
-          izvori: { include: { tank: { select: { broj: true } } } },
-          // CILJEVI SU OBAVEZNI, ne ukras: bez njih se ne zna koliko je u OVAJ
-          // tank uslo, pa je zaglavlje pokazivalo zbroj izvora — dakle koliko
-          // je iz izvora IZASLO, ukljucujuci ono sto je otislo u druge ciljeve
-          // i ono sto je ostalo kao kalo.
-          ciljevi: { include: { tank: { select: { broj: true } } } },
-        },
-      }),
-      prisma.pretokIzvor.findMany({
-        where: { tankId: id, pretok: { datum: odGranice } },
-        include: {
-          pretok: {
-            include: { ciljevi: { include: { tank: { select: { broj: true } } } } },
-          },
-        },
-      }),
-      // Prijenos vina zivi na IZVORNOM tanku; ciljni ga vidi samo ovuda.
-      prisma.zadatakTankStavka.findMany({
-        where: { ciljTankId: id, zadatak: { izvrsenoAt: odGranice } },
-        include: {
-          zadatak: {
-            include: {
-              tank: { select: { broj: true } },
-              izvrsioKorisnik: { select: { ime: true, email: true } },
-            },
-          },
-        },
-      }),
-    ]);
+  // TRECI VAL JE MAKNUT (09.10.2026.): `Radnja`, pretoci i dolasci
+  // prijenosom citali su se samo za kronologiju, a nju sada slaze
+  // lib/kronologija-vina.ts po prozorima vina — vidi `dogadaji` nize.
 
   // RADNJE KOJE JE VINO DONIJELO SA SOBOM.
   //
@@ -1409,19 +1330,23 @@ export default async function TankPregledPage({
     prisma,
     sviTankovi.map((t) => t.id)
   );
-  const sorteBerbi = new Map(
-    (await prisma.berba.findMany({ select: { id: true, nazivSorte: true } })).map(
-      (b) => [b.id, b.nazivSorte] as const
-    )
-  );
+  // Oznaka partije ide u ISTI upit: naziv stavke sastava ("Graševina, partija
+  // 020/2026") ne smije placati vlastiti.
+  const sveBerbe = await prisma.berba.findMany({
+    select: { id: true, nazivSorte: true, oznakaBerbe: true },
+  });
+  const sorteBerbi = new Map(sveBerbe.map((b) => [b.id, b.nazivSorte] as const));
+  const oznakaPartije = new Map(sveBerbe.map((b) => [b.id, b.oznakaBerbe] as const));
 
   // DUBOKO, pa rez na `DUBINA_KLIKA` razina; ispod toga prikaz kaze "jos N".
   // Neskraceno stablo treba i lanac radnji nize, pa se cuva zasebno.
+  // Jedan trenutak za stablo i za prozore vina, da govore o istom vinu.
+  const sada = new Date();
   const vinoDanas = vinoUTanku(
     knjigaIdentiteta.cini,
     sorteBerbi,
     id,
-    Date.now(),
+    sada.getTime(),
     {},
     [],
     podrijetloKnjige.ukupnoL
@@ -1429,66 +1354,64 @@ export default async function TankPregledPage({
   const stabloVina = skrati(vinoDanas, DUBINA_KLIKA);
   // Prazan tank nema kucica: `vinoUTanku` cita samo ulaze, pa bi "Odakle je
   // vino" pokazalo ZADNJE vino (T35: T40) — vino koje vise nije ondje.
+  //
+  // Prva razina PUNOG stabla ostaje za odljev (`imenujOdljev`): zbroj litara
+  // je isti i u sazetom sastavu, ali odljev se racuna iz modela, ne prikaza.
   const kucicePrveRazine =
     !tankBezVina && stabloVina.vino.vrsta === "spoj"
       ? stabloVina.vino.sastavnice
       : [];
 
-  // LANAC VINA — posude kroz koje je CIJELO danasnje vino proslo, s prozorom
-  // u kojem je ondje stajalo. Hrani kronologiju (radnje iz lanca, vidi nize).
-  //
-  // Karika postoji samo dok spoj ima TOCNO JEDNU sastavnicu: tada je vino u
-  // prethodnoj posudi bilo upravo ovo vino, pa je radnja nad njim radnja nad
-  // ovim vinom. Na prvom spoju vise izvora lanac staje — ondje "od cega je
-  // slozeno" preuzima kartica "Odakle je vino".
-  //
-  // Prozor karike: od granice vina te posude, izracunate NA TRENUTAK kad je
-  // vino otamo otislo (`doTrenutka`), do tog trenutka. Bez `doTrenutka`
-  // granica bi bila danasnja, dakle granica vina koje je u tu posudu doslo
-  // POSLIJE, pa bi prozor bio prazan ili tudji.
-  //
-  // CIJENA: `granicaVina` je dva upita, po karici, u nizu — najdulji lanac u
-  // podrumu 28.09.2026. ima tri karike, dakle do sest upita. `lib/` se radi
-  // toga ne dira dok usporenje nije izmjereno kao stvarno.
-  //
-  // PRAZAN TANK NEMA LANAC. Povijest putuje s vinom; kad tank ostane prazan,
-  // u njemu nema nicega (vlasnikova odluka, 28.09.2026). `vinoUTanku` cita
-  // samo ulaze, pa za prazan tank vraca ZADNJE vino koje je u njemu bilo —
-  // T35 je tako u popisu pokazivao devet mjerenja iz T40 za vino koje je
-  // odavno u T42. Isto pravilo kao `odGraniceVina` (lib/granica-vina.ts):
-  // PRAZAN, ne NEMA_KNJIGE. Bez lanca nema ni naslijedenih tocaka grafa, ni
-  // mjerenja lanca u popisu, ni radnji lanca u kronologiji.
-  const lanacVina: { tankId: string; odAt: Date | null; doAt: Date }[] = [];
-  if (!tankBezVina) {
-    let cvor: VinoCvor = vinoDanas;
-    while (cvor.vrsta === "spoj" && cvor.sastavnice.length === 1) {
-      const s = cvor.sastavnice[0];
-      if (s.vino.vrsta === "partija") break;
-      const g = await granicaVina(prisma, s.vino.tankId, {
-        doTrenutka: s.usloAt,
-        zadnjeVino: true,
-      });
-      lanacVina.push({ tankId: s.vino.tankId, odAt: g.odAt, doAt: s.usloAt });
-      cvor = s.vino;
-    }
-  }
+  // SASTAV ZA PRIKAZ — vina, ne posude (vlasnik, 09.10.2026.). Prijenosi istog
+  // vina u praznu posudu sazimaju se u stavku vina koje kroz njih prolazi;
+  // vidi lib/sastav-vina.ts. Rez na `DUBINA_KLIKA` razina STAVKI, ne cvorova.
+  const sastavPrikaz = tankBezVina
+    ? { stavke: [] as StavkaVina[], jos: 0 }
+    : skratiSastav(sastavVina(vinoDanas), DUBINA_KLIKA);
 
-  // Je li NASLIJEDENO mjerenje (iz druge posude) palo u prozor neke karike
-  // lanca. Zajednicko za graf i popis mjerenja, pa o naslijedenima oba sude
-  // isto.
+  // PROZORI VINA — posude kroz koje je CIJELO danasnje vino proslo, s prozorom
+  // u kojem je ondje stajalo (lib/kronologija-vina.ts, `prozoriVina`). JEDAN
+  // racun za kronologiju, graf, popis mjerenja i natpis — isti koji slaze i
+  // /prosli-tank?snimka=. Do 09.10.2026. stranica je imala vlastitu kopiju
+  // (`lanacVina`). Lanac sada ide istim pravilom kao sazimanje sastava, pa
+  // posuda koja je iz sastava nestala kao prijenos stoji ovdje kao karika
+  // (T7, T17, T21, T22, T38 dobili su karike; vidi `prozoriVina`).
   //
-  // VLASTITA MJERENJA OVAJ TEST NE PROLAZE NIKAD: njih reze granica vina,
-  // uvijek, i u grafu i u popisu. Karika u samom ovom tanku zato se ovdje
-  // preskace (vlasnikova odluka, 28.09.2026).
+  // Prvi prozor je ova posuda od granice; ostali su KARIKE: prethodne posude,
+  // svaka od svoje granice (racunate na trenutak kad je vino otamo otislo) do
+  // tog trenutka. Lanac staje na prvom spoju vise izvora — ondje "od cega je
+  // slozeno" preuzima kartica "Odakle je vino". Karika bez granice se
+  // preskace: pogadjati se ne smije.
   //
-  // POZNATO I NERIJESENO: vino koje se vratilo u isti tank (T7 <- T4 <- T7).
-  // Njegova mjerenja iz prvog boravka u T7 (31.08.–17.09., 21 redak) jesu
-  // mjerenja ovog vina, ali ih ne pokazuje ni graf ni popis — granica ih
-  // reze kao vlastita. Ne rjesava se ovdje.
+  // PRAZAN TANK NEMA PROZORA i modul se ne zove. `prozoriVina` sa
+  // `zadnjeVino: true` za prazan tank vraca vino koje je OTISLO (T21: 12
+  // redaka tudjeg vina), a prazan tank ne pokazuje nista (vlasnik, 28.09.2026).
+  //
+  // CIJENA: dva upita po prozoru, u nizu — prvi ponavlja granicu ove posude.
+  const prozori = tankBezVina
+    ? []
+    : (
+        await prozoriVina(prisma, {
+          tankId: id,
+          trenutak: sada,
+          doAt: sada,
+          vino: vinoDanas,
+        })
+      ).prozori;
+  const lanacVina = prozori.slice(1).map((p) => ({ tankId: p.tankId, odAt: p.od, doAt: p.do }));
+
+  // Je li mjerenje iz LANCA palo u prozor neke karike. Zajednicko za graf i
+  // popis mjerenja, pa o lancu oba sude isto.
+  //
+  // KARIKA U ISTOJ POSUDI SE VISE NE PRESKACE (09.10.2026.). Vino koje se
+  // vratilo u isti tank (T12 <- T7 <- T12) prvi boravak ima PRIJE granice, pa
+  // ga vlastiti rez nikad ne vidi; do sada ga nije pokazivao ni graf ni popis
+  // (T12: 4 mjerenja, T10: 11, T41: 13). Prvi boravak i danasnji prozor
+  // dodiruju se na pojasu [granica 00:00, odlazak], pa se dvojnici uklanjaju:
+  // graf po trenutku (`spojiNiz`), popis po id-u i po `izvornoMjerenjeId`.
   const uProzoruLanca = (tankId: string, trenutak: Date) =>
     lanacVina.some(
       (k) =>
-        k.tankId !== id &&
         k.tankId === tankId &&
         k.odAt != null &&
         trenutak >= k.odAt &&
@@ -1503,10 +1426,8 @@ export default async function TankPregledPage({
       odAt: k.odAt,
       doAt: k.doAt,
     }));
-  // Graf i popis mjerenja uzimaju samo naslijedeno, a kronologija preskace
-  // `VinoRadnja` ciji je izvorni tank ovaj. Karika u samom ovom tanku
-  // (T7 <- T4 <- T7) nigdje zato nema nista i natpis je ne smije navesti.
-  const lanacDrugihPosuda = lanacZaNatpis.filter((k) => k.tankId !== id);
+  // Natpis navodi SVE karike, i onu u ovoj posudi: od 09.10.2026. kronologija,
+  // graf i popis mjerenja pokazuju i prvi boravak u istom tanku.
 
   // KUCICA NEMA IME VINA, I TO JE MJERENO STANJE, NE PROPUST.
   //
@@ -1536,7 +1457,11 @@ export default async function TankPregledPage({
     if (v.vrsta === "spoj") for (const s of v.sastavnice) skupiPosude(s.vino);
   };
   // Prazan tank nema kucica, pa ni njihove povijesti — bez upita.
-  if (!tankBezVina) skupiPosude(stabloVina.vino);
+  //
+  // IZ PUNOG STABLA, ne iz odrezanog: sazeti sastav do sest razina STAVKI
+  // seze dublje od sest razina cvorova, a povijest stavke treba i posude
+  // prijenosa kroz koje je njezino vino proslo (vidi lib/sastav-vina.ts).
+  if (!tankBezVina) skupiPosude(vinoDanas);
 
   const mjerenjaStabla: RedakMjerenjaPosude[] =
     posudeUStablu.size > 0
@@ -1813,7 +1738,14 @@ export default async function TankPregledPage({
           // tanka 5 dobio 91 tocku iz 16 posuda — paralelne krivulje tudih
           // mostova, ne povijest ovog vina. Ovo NIJE prag na vrijednosti (te se
           // prikazuju bez obzira na pokrivenost) nego na tome sto se CRTA.
-          .filter((x) => !x.vlastito && x.postotak >= 50)
+          // Vlastita tocka (izmjerena u OVOJ posudi) ulazi samo ako je PRIJE
+          // granice — prvi boravak vina koje se vratilo u isti tank. Ono od
+          // granice nadalje vec je u vlastitom nizu iznad.
+          .filter(
+            (x) =>
+              x.postotak >= 50 &&
+              (!x.vlastito || (granicaVinaAt != null && x.izmjerenoAt < granicaVinaAt))
+          )
           .filter((x) => {
             const posuda =
               x.brojTanka != null ? tankPoBroju.get(x.brojTanka) : undefined;
@@ -1989,12 +1921,11 @@ export default async function TankPregledPage({
   // CIJENA: tri upita, samo kad lanac postoji — `ArhivaVina`, pa zivo i
   // arhivsko usporedno.
   //
-  // Karika u samom ovom tanku se preskace: vlastita mjerenja reze granica
-  // (vidi `uProzoruLanca`).
+  // Karika u samom ovom tanku (prvi boravak) od 09.10.2026. ulazi kao i svaka
+  // druga — vidi `uProzoruLanca`.
   const mjerenjaLanca: RedakPopisa[] = [];
   const kariceSProzorom = lanacVina.filter(
-    (k): k is { tankId: string; odAt: Date; doAt: Date } =>
-      k.odAt != null && k.tankId !== id
+    (k): k is { tankId: string; odAt: Date; doAt: Date } => k.odAt != null
   );
   if (kariceSProzorom.length > 0) {
     const posudeLanca = [...new Set(kariceSProzorom.map((k) => k.tankId))];
@@ -2051,10 +1982,15 @@ export default async function TankPregledPage({
 
     for (const m of zivaLanca) mjerenjaLanca.push({ ...m, posudaId: m.tankId });
 
-    // Isto mjerenje ne smije stajati dvaput, zivo i kao arhivska kopija.
+    // Isto mjerenje ne smije stajati dvaput, zivo i kao arhivska kopija — ni
+    // kopija vlastitog mjerenja od granice, koje je u popisu kao vlastito
+    // (karika u istoj posudi dodiruje danasnji prozor).
     const zivaIds = new Set(zivaLanca.map((m) => m.id));
+    const vlastitaIds = new Set(
+      granicaVinaAt ? mjerenja.filter((m) => m.izmjerenoAt >= granicaVinaAt).map((m) => m.id) : []
+    );
     for (const m of arhivskaLanca) {
-      if (m.izvornoMjerenjeId && zivaIds.has(m.izvornoMjerenjeId)) continue;
+      if (m.izvornoMjerenjeId && (zivaIds.has(m.izvornoMjerenjeId) || vlastitaIds.has(m.izvornoMjerenjeId))) continue;
       const posuda = m.tankId ?? posudaArhive.get(m.arhivaVinaId);
       if (!posuda || !uProzoruLanca(posuda, m.izmjerenoAt)) continue;
       mjerenjaLanca.push({ ...m, posudaId: posuda });
@@ -2069,8 +2005,9 @@ export default async function TankPregledPage({
         ? mjerenja.filter((m) => m.izmjerenoAt >= granicaVinaAt)
         : mjerenja
   ).map((m) => ({ ...m, posudaId: id }));
-  // Redak po id-u se ne ponavlja: naslijedena i vlastita mjerenja danas se ne
-  // preklapaju (druga posuda), ali brana ostaje ako bi se to jednom promijenilo.
+  // Redak po id-u se ne ponavlja. Od 09.10.2026. ovo je stvarna brana, ne
+  // pricuva: karika u istoj posudi (prvi boravak) dodiruje danasnji prozor na
+  // pojasu [granica 00:00, odlazak], pa isto zivo mjerenje dolazi iz oba upita.
   const vecUPopisu = new Set(vlastitaOdGranice.map((m) => m.id));
   const svaMjerenja: RedakPopisa[] = [
     ...vlastitaOdGranice,
@@ -2126,464 +2063,37 @@ export default async function TankPregledPage({
   }
 
   // ---------------------------------------------------------------------------
-  // KRONOLOGIJA
+  // KRONOLOGIJA — lib/kronologija-vina.ts, ista kao /prosli-tank?snimka=.
   //
-  // Jedan slijed umjesto sest kartica. Sve se slaze OVDJE, na posluzitelju —
-  // kronologija.tsx je klijentska samo zbog filtra i ne racuna nista.
+  // Od 09.10.2026. stranica ne slaze kronologiju sama. Modul cita svih sest
+  // izvora (punjenja, zadaci, radnje, pretoci, dolasci prijenosom, izlazi) PO
+  // PROZORIMA VINA, uz obavezne arhivske tablice, pa vino koje se vratilo u isti
+  // tank ne gubi prvi boravak, a karike lanca daju i svoje punjenja, pretoke i
+  // zadatke — dosad je lanac davao samo `VinoRadnja`.
   //
-  // Svi izvori su vec dohvaceni gore i vec filtrirani granicom arhive, pa
-  // kronologija ne dodaje nijedan upit — osim jednog za poveznice izlaza na
-  // evidenciju vina (vidi uz izlaze).
+  // MIJESANJE IZVORA NE DOLAZI U OBZIR: vlastiti izvori stranice (od granice)
+  // i prvi prozor modula pokrivaju isto razdoblje iste posude, pa bi svaki
+  // vlastiti dogadaj stajao dvaput, s istim React kljucem.
+  //
+  // Nema `take`: prozor vina je prirodna granica. Stranica je imala `take: 50`
+  // za izlaze, a T43 ih ima 49 — prva sljedeca prodaja sakrila bi najstariji.
+  //
+  // Prazan tank: modul se ne zove (vidi `prozori`). Dogadaj ARHIVA ne postoji:
+  // arhivirano vino vise nije u posudi.
   //
   // MJERENJA NISU OVDJE: ostaju vlastita kartica sa svojim grafom po parametru.
   // ---------------------------------------------------------------------------
-  const dogadaji: Dogadaj[] = [];
-
-  for (const p of punjenja) {
-    const kg = p.stavke.reduce(
-      (zbroj, s) => zbroj + Number(s.kolicinaKgGrozdja ?? 0),
-      0
-    );
-
-    dogadaji.push({
-      id: `pun-${p.id}`,
-      vrsta: "PUNJENJE",
-      vrijeme: p.datumPunjenja.toISOString(),
-      naslov: p.nazivVina || "Punjenje tanka",
-      podnaslov: p.stavke.map((s) => s.nazivSorte).join(", ") || null,
-      // PunjenjeTanka nema polje korisnika — vidi fazu 3b. Radije nista nego
-      // pogadjanje.
-      iznos: `${formatBroj(p.ukupnoLitara, 0)} L`,
-      detalji: [
-        { label: "Ukupno litara", value: `${formatBroj(p.ukupnoLitara)} L` },
-        { label: "Ukupno kg grožđa", value: kg > 0 ? `${formatBroj(kg)} kg` : "—" },
-        { label: "Napomena", value: p.napomena || "—" },
-        ...p.stavke.flatMap((s) => [
-          { label: `— ${s.nazivSorte}`, value: `${formatBroj(s.kolicinaLitara)} L` },
-          {
-            label: "   Kg grožđa",
-            value: s.kolicinaKgGrozdja != null ? `${formatBroj(s.kolicinaKgGrozdja)} kg` : "—",
-          },
-          { label: "   Vinograd", value: s.vinograd || "—" },
-          { label: "   Parcela", value: s.parcela || "—" },
-          { label: "   Položaj", value: s.polozaj || "—" },
-          { label: "   Oznaka berbe", value: s.oznakaBerbe || "—" },
-          { label: "   Datum berbe", value: s.datumBerbe ? formatDatumBezVremena(s.datumBerbe) : "—" },
-          { label: "   Šećer", value: s.secer != null ? formatBroj(s.secer) : "—" },
-          { label: "   Kiseline", value: s.kiseline != null ? formatBroj(s.kiseline) : "—" },
-          { label: "   pH", value: s.ph != null ? formatBroj(s.ph) : "—" },
-          { label: "   Napomena berbe", value: s.napomenaBerbe || "—" },
-        ]),
-      ],
-    });
-  }
-
-  for (const z of izvrseniZadaci) {
-    const preparati =
-      z.stavke.length > 0
-        ? z.stavke
-            .map((s) =>
-              `${s.preparat?.naziv ?? "?"} ${formatBroj(s.izracunataKolicina)} ${
-                s.izlaznaJedinica?.naziv ?? s.jedinica?.naziv ?? ""
-              }`.trim()
-            )
-            .join(" · ")
-        : z.preparat?.naziv ?? null;
-
-    const ciljevi =
-      z.tankStavke.length > 0
-        ? z.tankStavke
-            .map((s) => `tank ${s.ciljTank.broj}: ${formatBroj(s.kolicina)} L`)
-            .join(" · ")
-        : null;
-
-    dogadaji.push({
-      id: `zad-${z.id}`,
-      // Zadatak koji je premjestio vino je prijenos, ne obican zadatak — inace
-      // se u filtru ne razlikuje "dodali smo preparat" od "vino je otislo".
-      vrsta: z.tankStavke.length > 0 ? "PRIJENOS_IZLAZ" : "ZADATAK",
-      vrijeme: (z.izvrsenoAt ?? z.zadanoAt).toISOString(),
-      naslov: `${z.naslov?.trim() || String(z.vrsta)}${
-        z.status === "OTKAZAN" ? " (otkazan)" : ""
-      }`,
-      podnaslov: [preparati, ciljevi].filter(Boolean).join(" → ") || null,
-      tko: z.izvrsenoAt
-        ? `Izvršio: ${prikaziKorisnika(z.izvrsioKorisnik)}`
-        : `Zadao: ${prikaziKorisnika(z.zadaoKorisnik)}`,
-      iznos: z.kolicinaIzlaz != null ? `−${formatBroj(z.kolicinaIzlaz, 0)} L` : null,
-      detalji: [
-        { label: "Vrsta", value: String(z.vrsta) },
-        { label: "Status", value: String(z.status) },
-        {
-          label: "Zadao",
-          value: `${prikaziKorisnika(z.zadaoKorisnik)} · ${formatDatum(z.zadanoAt)}`,
-        },
-        {
-          label: "Izvršio",
-          value: z.izvrsenoAt
-            ? `${prikaziKorisnika(z.izvrsioKorisnik)} · ${formatDatum(z.izvrsenoAt)}`
-            : "—",
-        },
-        ...(z.kolicinaIzlaz != null
-          ? [{ label: "Izašlo", value: `${formatBroj(z.kolicinaIzlaz)} L` }]
-          : []),
-        ...(z.gubitakLitara != null
-          ? [{ label: "Gubitak", value: `${formatBroj(z.gubitakLitara)} L` }]
-          : []),
-        ...(z.maceracija != null
-          ? [
-              {
-                label: "Maceracija",
-                value: z.maceracija
-                  ? `da${z.maceracijaOpis ? ` — ${z.maceracijaOpis}` : ""}`
-                  : "ne",
-              },
-            ]
-          : []),
-        ...z.tankStavke.map((s) => ({
-          label: `→ tank ${s.ciljTank.broj}`,
-          value: `${formatBroj(s.kolicina)} L`,
-        })),
-        ...z.stavke.map((s) => ({
-          label: s.preparat?.naziv ?? "preparat",
-          value: `${formatBroj(s.izracunataKolicina)} ${
-            s.izlaznaJedinica?.naziv ?? s.jedinica?.naziv ?? ""
-          }`.trim(),
-        })),
-        { label: "Napomena", value: z.napomena || "—" },
-      ],
-    });
-  }
-
-  for (const s of dolasciPrijenosom) {
-    dogadaji.push({
-      id: `dol-${s.id}`,
-      vrsta: "PRIJENOS_ULAZ",
-      vrijeme: (s.zadatak.izvrsenoAt ?? s.zadatak.zadanoAt).toISOString(),
-      naslov: `Dolazak vina iz tanka ${s.zadatak.tank.broj}`,
-      podnaslov: `${String(s.zadatak.vrsta)} — ${
-        s.zadatak.naslov?.trim() || "bez naslova"
-      }`,
-      tko: s.zadatak.izvrsenoAt
-        ? `Izvršio: ${prikaziKorisnika(s.zadatak.izvrsioKorisnik)}`
-        : null,
-      iznos: `+${formatBroj(s.kolicina, 0)} L`,
-      detalji: [
-        { label: "Iz tanka", value: String(s.zadatak.tank.broj) },
-        { label: "Količina", value: `${formatBroj(s.kolicina)} L` },
-        { label: "Vrsta prijenosa", value: String(s.zadatak.vrsta) },
-        { label: "Izvršeno", value: formatDatum(s.zadatak.izvrsenoAt) },
-      ],
-    });
-  }
-
-  // RADNJE IZ LANCA VINA — ono sto je s OVIM vinom radjeno u posudi u kojoj
-  // je stajalo prije ove. Samo `VinoRadnja` ciji je izvorni tank karika
-  // `lanacVina` i koja je pala u prozor te karike.
-  //
-  // POVIJEST. Do 17.09.2026. je ovdje ulazio SVAKI naslijedjeni redak, kao
-  // vlastita vrsta "NASLIJEDENO" — i kolicinom pojeo ekran (T42: 120 od 127
-  // redaka, iz 27 posuda). Ta vrsta se NE vraca: vecina tih redaka opisuje
-  // pribrojnik blenda, a to je pitanje kartice "Odakle je vino". Lanac + vrijeme
-  // propusta samo radnje nad vinom koje je tada bilo CIJELO ovo vino, pa
-  // idu kao obicna radnja, uz oznaku posude u kojoj su izvedene.
-  //
-  // MJERENO 28.09.2026: prolazi 123 od 346 naslijedjenih redaka; 121 je
-  // tocno. Dva kriva — T38 <- T20 (07.09.) i T34 <- T20 (05.09.) — vec su
-  // krivo upisana u `VinoRadnja`: u T20 su se preklopila dva vina bez
-  // praznjenja izmedju, uz punjenje datirano unatrag. To je kvar u podacima,
-  // ne u ovom pravilu; vracanje svih redaka ne bi ih ispravilo, samo sakrilo
-  // u masi. T42 (blend) ne dobiva nijedan redak, T21 dobiva svih osam svojih.
-  //
-  // `vinoRadnje` se i dalje cita u cijelosti i hrani kvasce, povijest kucica
-  // i izvjestaj podruma — ovo je samo jos jedan citac.
-  for (const v of vinoRadnje) {
-    if (v.izvorniTankId === id) continue;
-    const u = v.dogodenoAt.getTime();
-    const uLancu = lanacVina.some(
-      (k) =>
-        k.tankId === v.izvorniTankId &&
-        k.odAt != null &&
-        u >= k.odAt.getTime() &&
-        u <= k.doAt.getTime()
-    );
-    if (!uLancu) continue;
-
-    // Posuda ide NAPRIJED, prije opisa: "Punjenje tanka" bez nje izgleda kao
-    // da je punjen OVAJ tank (tako je bilo na T10 prije vrste NASLIJEDENO).
-    const gdje =
-      v.izvorniBrojTanka !== null ? `U tanku ${v.izvorniBrojTanka}` : "U drugom tanku";
-
-    dogadaji.push({
-      id: `vino-${v.id}`,
-      vrsta: "RADNJA",
-      vrijeme: v.dogodenoAt.toISOString(),
-      naslov: `${gdje} · ${v.opis || String(v.vrsta)}`,
-      podnaslov: v.preparatNaziv
-        ? `${v.preparatNaziv}${
-            v.kolicina != null
-              ? ` — ${formatBroj(v.kolicina)} ${v.jedinicaNaziv ?? ""}`.trimEnd()
-              : ""
-          }`
-        : String(v.vrsta),
-      tko: v.korisnikIme ? `Upisao: ${v.korisnikIme}` : null,
-      iznos: null,
-      detalji: [
-        { label: "Vrsta", value: String(v.vrsta) },
-        { label: "Preparat", value: v.preparatNaziv || "—" },
-        {
-          label: "Količina",
-          value:
-            v.kolicina != null
-              ? `${formatBroj(v.kolicina)} ${v.jedinicaNaziv ?? ""}`.trim()
-              : "—",
-        },
-        {
-          label: "Izvedeno u tanku",
-          value:
-            v.izvorniBrojTanka !== null ? String(v.izvorniBrojTanka) : "—",
-        },
-        {
-          label: "Zašto je ovdje",
-          value:
-            "sve vino koje je danas ovdje tada je stajalo u tom tanku — radnja je izvedena nad njim",
-        },
-        { label: "Napomena", value: v.napomena || "—" },
-      ],
-    });
-  }
-
-  // Radnja koja pripada zadatku vec je prikazana kao zadatak — inace bi svaki
-  // izvrsen zadatak stajao dvaput. Prikazuju se samo samostalne radnje.
-  for (const r of radnje) {
-    if (r.zadatakId !== null) continue;
-
-    dogadaji.push({
-      id: `rad-${r.id}`,
-      vrsta: "RADNJA",
-      vrijeme: r.createdAt.toISOString(),
-      naslov: r.opis || String(r.vrsta),
-      podnaslov: r.preparat?.naziv
-        ? `${r.preparat.naziv}${
-            r.kolicina != null
-              ? ` — ${formatBroj(r.kolicina)} ${r.jedinica?.naziv ?? ""}`.trimEnd()
-              : ""
-          }`
-        : String(r.vrsta),
-      tko: `Upisao: ${prikaziKorisnika(r.korisnik)}`,
-      // Litre samo kad radnja NIJE o preparatu — inace bi "12,5" iz doze
-      // preparata izgledalo kao litre vina.
-      iznos: r.kolicina != null && !r.preparatId ? `${formatBroj(r.kolicina, 0)} L` : null,
-      detalji: [
-        { label: "Vrsta", value: String(r.vrsta) },
-        { label: "Preparat", value: r.preparat?.naziv || "—" },
-        {
-          label: "Količina",
-          value:
-            r.kolicina != null
-              ? `${formatBroj(r.kolicina)} ${r.jedinica?.naziv ?? ""}`.trim()
-              : "—",
-        },
-        { label: "Napomena", value: r.napomena || "—" },
-      ],
-    });
-  }
-
-  for (const p of pretociUlaz) {
-    // KOLIKO JE U **OVAJ** TANK USLO. Prije je ovdje stajao zbroj izvora, pa
-    // je zaglavlje pokazivalo koliko je iz izvora IZASLO — a to je drugi broj
-    // cim pretok ima vise ciljeva ili kalo. T10 je tako dobio "+1.600 L" za
-    // pretok u kojem je u njega uslo 1.000 L (ostatak: T12 200, T2 400), pa
-    // zbroj prikazanih dolazaka nije davao kolicinu u tanku.
-    const uOvajTank = p.ciljevi
-      .filter((c) => c.tankId === id)
-      .reduce((zbroj, c) => zbroj + Number(c.kolicina ?? 0), 0);
-
-    const izasloIzIzvora = p.izvori.reduce(
-      (zbroj, i) => zbroj + Number(i.kolicina ?? 0),
-      0
-    );
-
-    const drugiCiljevi = p.ciljevi.filter((c) => c.tankId !== id);
-
-    dogadaji.push({
-      id: `pu-${p.id}`,
-      vrsta: "PRETOK_ULAZ",
-      vrijeme: p.datum.toISOString(),
-      naslov: `Pretok u ovaj tank (${p.tip})`,
-      podnaslov:
-        p.izvori
-          .map((i) => `iz tanka ${i.tank.broj}: ${formatBroj(i.kolicina)} L`)
-          .join(" · ") || null,
-      // Pretok nema polje korisnika — vidi fazu 3b.
-      iznos: `+${formatBroj(uOvajTank, 0)} L`,
-      detalji: [
-        { label: "Tip pretoka", value: String(p.tip) },
-        { label: "Ušlo u ovaj tank", value: `${formatBroj(uOvajTank)} L` },
-        ...p.izvori.map((i) => ({
-          label: `Izašlo iz tanka ${i.tank.broj}`,
-          value: `${formatBroj(i.kolicina)} L`,
-        })),
-        // Razlika se IMENUJE, a ne prepusta citatelju da je oduzima. Bez ovoga
-        // "izaslo 1.600, uslo 1.000" izgleda kao da je 600 L nestalo.
-        ...(drugiCiljevi.length > 0
-          ? [
-              {
-                label: "Istim pretokom u druge tankove",
-                value: drugiCiljevi
-                  .map((c) => `T${c.tank.broj} ${formatBroj(c.kolicina)} L`)
-                  .join(" · "),
-              },
-            ]
-          : []),
-        ...(() => {
-          const g = opisGubitka(p);
-          if (!g) return [];
-          return [
-            {
-              label: g.naziv.charAt(0).toUpperCase() + g.naziv.slice(1),
-              value:
-                `${formatBroj(g.litre)} L` +
-                (g.postotak != null
-                  ? ` (${formatBroj(g.postotak, 1)} %)`
-                  : "") +
-                ` — ${g.objasnjenje}`,
-            },
-          ];
-        })(),
-        ...(izasloIzIzvora !== uOvajTank
-          ? [
-              {
-                label: "Zašto brojke nisu iste",
-                value:
-                  `iz izvora je izašlo ${formatBroj(izasloIzIzvora)} L, ` +
-                  `u ovaj tank ušlo ${formatBroj(uOvajTank)} L — ostatak je otišao drugdje`,
-              },
-            ]
-          : []),
-        { label: "Napomena", value: p.napomena || "—" },
-      ],
-    });
-  }
-
-  for (const i of pretociIzlaz) {
-    // KALO ILI TALOG — dosad se nije vidjelo nigdje. `gubitakLitara` se pise od
-    // 23.08.2026., ali ga nijedan ekran nije citao: podrum ga je vidio samo u
-    // dijalogu potvrde prije spremanja i vise nikad.
-    //
-    // Stoji SAMO na izlaznoj strani: gubitak pripada tanku iz kojeg je vino
-    // izaslo, a ne onome u koji je uslo.
-    const gubitak = opisGubitka(i.pretok);
-
-    dogadaji.push({
-      id: `pi-${i.id}`,
-      vrsta: "PRETOK_IZLAZ",
-      vrijeme: i.pretok.datum.toISOString(),
-      naslov: `Pretok iz ovog tanka u ${opisiCiljeve(i.pretok.ciljevi)}`,
-      podnaslov: gubitak
-        ? `Tip: ${i.pretok.tip} · ${gubitak.naziv} ${formatBroj(gubitak.litre)} L${
-            gubitak.postotak != null
-              ? ` (${formatBroj(gubitak.postotak, 0)} %)`
-              : ""
-          }`
-        : `Tip: ${i.pretok.tip}`,
-      iznos: `−${formatBroj(i.kolicina, 0)} L`,
-      detalji: [
-        ...i.pretok.ciljevi.map((c) => ({
-          label: "U tank",
-          value: `${c.tank.broj} — ${formatBroj(c.kolicina)} L`,
-        })),
-        { label: "Količina", value: `${formatBroj(i.kolicina)} L` },
-        { label: "Tip pretoka", value: String(i.pretok.tip) },
-        ...(i.pretok.nacin
-          ? [{ label: "Način", value: String(i.pretok.nacin) }]
-          : []),
-        ...(gubitak
-          ? [
-              {
-                // Ime ovisi o nacinu: crijevo i pumpa su "kalo", odbacena
-                // gusca frakcija je "talog". Vidi lib/pretok-gubitak.ts.
-                label: gubitak.naziv.charAt(0).toUpperCase() + gubitak.naziv.slice(1),
-                value:
-                  `${formatBroj(gubitak.litre)} L` +
-                  (gubitak.postotak != null
-                    ? ` (${formatBroj(gubitak.postotak, 1)} %)`
-                    : "") +
-                  ` — ${gubitak.objasnjenje}` +
-                  (gubitak.visok ? " · iznad uobičajenog" : ""),
-              },
-            ]
-          : []),
-        { label: "Napomena", value: i.pretok.napomena || "—" },
-      ],
-    });
-  }
-
-  // EVIDENCIJA VINA KOJE JE IZASLO (razina 1 arhive, /prosli-tank?snimka=).
-  // Jedini upit koji kronologija sama dodaje: snimke izlaza s popisa, jednim
-  // upitom. Izlazi prije 29.09.2026. snimku nemaju i ostaju bez poveznice.
-  // Na praznom tanku izlaza nema (`izlaziZaPrikaz`), pa ni upita.
-  const snimkaPoIzlazu = new Map(
-    izlaziZaPrikaz.length > 0
-      ? (
-          await prisma.snimkaVina.findMany({
-            where: { izlazVinaId: { in: izlaziZaPrikaz.map((x) => x.id) } },
-            select: { id: true, izlazVinaId: true },
-          })
-        ).map((s) => [s.izlazVinaId, s.id] as const)
-      : []
-  );
-
-  for (const x of izlaziZaPrikaz) {
-    const snimkaId = snimkaPoIzlazu.get(x.id);
-    dogadaji.push({
-      poveznica: snimkaId
-        ? { href: `/prosli-tank?snimka=${snimkaId}`, tekst: "evidencija vina koje je izašlo" }
-        : null,
-      id: `iz-${x.id}`,
-      vrsta: "IZLAZ",
-      vrijeme: x.datum.toISOString(),
-      naslov: x.tip === "PUNJENJE" ? "Punjenje u boce" : "Prodaja / rinfuza",
-      podnaslov: x.brojBoca
-        ? `${x.brojBoca} boca × ${formatBroj(x.volumenBoce)} L`
-        : null,
-      // IzlazVina nema polje korisnika — vidi fazu 3b.
-      iznos: `−${formatBroj(x.kolicinaLitara, 0)} L`,
-      detalji: [
-        { label: "Tip", value: String(x.tip) },
-        { label: "Litara", value: `${formatBroj(x.kolicinaLitara)} L` },
-        { label: "Broj boca", value: x.brojBoca != null ? String(x.brojBoca) : "—" },
-        { label: "Napomena", value: x.napomena || "—" },
-      ],
-    });
-  }
-
-  // Arhiva ostaje i kao vlastita kartica (ondje je poveznica "Otvori arhivu"),
-  // a ovdje stoji zato sto objasnjava zasto povijest iznad nje prestaje.
-  // Prazan tank je nema: arhiva pripada vinu koje je otislo, ne posudi.
-  for (const a of arhiveZaPrikaz) {
-    dogadaji.push({
-      id: `ar-${a.id}`,
-      vrsta: "ARHIVA",
-      vrijeme: a.arhiviranoAt.toISOString(),
-      naslov: `Arhivirano: ${a.nazivVina ?? "bez naziva"}`,
-      podnaslov: `${a.sorta ?? "—"} · ${formatBroj(
-        a.kolicinaVina,
-        0
-      )} L — tank je tada ispražnjen`,
-      iznos: `${formatBroj(a.kolicinaVina, 0)} L`,
-      detalji: [
-        { label: "Naziv vina", value: a.nazivVina || "—" },
-        { label: "Sorta", value: a.sorta || "—" },
-        { label: "Količina", value: `${formatBroj(a.kolicinaVina)} L` },
-        { label: "Arhivirano", value: formatDatum(a.arhiviranoAt) },
-      ],
-    });
-  }
-
-  dogadaji.sort(
-    (a, b) => new Date(b.vrijeme).getTime() - new Date(a.vrijeme).getTime()
-  );
+  const dogadaji: Dogadaj[] = tankBezVina
+    ? []
+    : await dogadajiVina(prisma, {
+        prozori,
+        tankIzlazaId: id,
+        brojTanka: brojeviTankova as Map<string, number>,
+        trenutnaSnimkaId: null,
+      });
+  // Prozori koji pocinju prije 11.09.2026.: praznina u njima ne znaci da nista
+  // nije radjeno — vidi `PREZIVLJAVA_OD`.
+  const nepotpuniProzori = prozoriPrijePrezivljavanja(prozori);
 
 
   // Zadana koja se prikazuje je STVARNA - ona koju je gateway zadnji put procitao
@@ -2875,19 +2385,19 @@ export default async function TankPregledPage({
           {zadnje?.napomena ? <div>Napomena: {zadnje.napomena}</div> : null}
           {/* Vrijednosti i bentotest stoje na granici vina; graf od 28.09.2026.
               ide kroz lanac. Jedna recenica za oboje vise ne bi bila tocna. */}
-          {granicaVinaAt && lanacDrugihPosuda.length === 0 ? (
+          {granicaVinaAt && lanacZaNatpis.length === 0 ? (
             <div>
               Prikazana su mjerenja otkad je ovo vino u tanku (
               {formatDatumBezVremena(granicaVinaAt)}) nadalje — starija pripadaju
               prethodnom vinu.
             </div>
           ) : null}
-          {granicaVinaAt && lanacDrugihPosuda.length > 0 ? (
+          {granicaVinaAt && lanacZaNatpis.length > 0 ? (
             <div>
               Vrijednosti i bentotest su iz mjerenja otkad je ovo vino u tanku (
               {formatDatumBezVremena(granicaVinaAt)}). Graf uz to pokazuje i
               mjerenja istog vina dok je stajalo u{" "}
-              {lanacDrugihPosuda.map((k) => `tanku ${k.broj ?? "?"}`).join(" i ")} —
+              {[...new Set(lanacZaNatpis.map((k) => `tanku ${k.broj ?? "?"}`))].join(" i ")} —
               uz svaku takvu točku piše posuda.
             </div>
           ) : null}
@@ -3103,40 +2613,40 @@ export default async function TankPregledPage({
           ovo je jedino mjesto koje odgovara na "od cega je ovo vino" — pa se
           ne smije prvo morati otvoriti. */}
       <div className="tank-mreza-siroka">
-      <Card title="Odakle je vino" broj={kucicePrveRazine.length} pod="kućica">
+      <Card title="Odakle je vino" broj={sastavPrikaz.stavke.length} pod="u sastavu">
         <div style={{ display: "grid", gap: 10 }}>
           <div style={mutedTextStyle}>
-            Kućica po svakom izvoru, do berbe. Litre su ono što je UŠLO u
-            posudu; kalo stoji uz njih kad ga ima.
+            Vina od kojih je ovo vino sastavljeno, do berbe: komponente kupaže i
+            dolijevanja. Pretok istog vina u drugu posudu nije sastav nego
+            kretanje i stoji u kronologiji. Litre su ono što je UŠLO u ovaj
+            tank; kalo stoji uz njih kad ga ima.
           </div>
 
           {tankBezVina ? (
             <div style={mutedTextStyle}>Tank je prazan.</div>
-          ) : kucicePrveRazine.length === 0 ? (
+          ) : sastavPrikaz.stavke.length === 0 ? (
             <div style={mutedTextStyle}>
               Knjiga za ovaj tank ne zna nijedan ulaz.
             </div>
           ) : (
             <div style={{ display: "grid" }}>
-              {kucicePrveRazine.map((s, i) => (
-                <SastavnicaVina
-                  key={i}
-                  s={s}
-                  brojevi={brojeviTankova}
-                  roditeljTankId={id}
-                  korijenId={id}
-                  from={from}
-                  radnje={vinoRadnje}
-                  mjerenja={mjerenjaStabla}
-                  arhivskeRadnje={arhivskeRadnjeStabla}
-                  arhivskaMjerenja={arhivskaMjerenjaStabla}
-                />
+              {slozPrikazSastava(sastavPrikaz.stavke, {
+                brojevi: brojeviTankova,
+                oznakaPartije,
+                korijenId: id,
+                from,
+                radnje: vinoRadnje,
+                mjerenja: mjerenjaStabla,
+                arhivskeRadnje: arhivskeRadnjeStabla,
+                arhivskaMjerenja: arhivskaMjerenjaStabla,
+              }).map((p, i) => (
+                <StavkaSastavaVina key={i} p={p} />
               ))}
             </div>
           )}
 
-          {!tankBezVina && stabloVina.jos > 0 && (
-            <div style={josRazinaStyle}>još {stabloVina.jos} razina</div>
+          {!tankBezVina && sastavPrikaz.jos > 0 && (
+            <div style={josRazinaStyle}>još {sastavPrikaz.jos} razina</div>
           )}
 
           {!tankBezVina && odljevVina.length > 0 && (
@@ -3637,7 +3147,27 @@ export default async function TankPregledPage({
         broj={dogadaji.length}
         pod="sve što se s ovim vinom radilo"
       >
-        <OdPocetkaVina granica={granicaVinaAt} lanac={lanacDrugihPosuda} />
+        <OdPocetkaVina granica={granicaVinaAt} lanac={lanacZaNatpis} />
+        {nepotpuniProzori.length > 0 ? (
+          // Praznina prije 11.09. nije "nista se nije radilo" — vidi
+          // `PREZIVLJAVA_OD` (lib/kronologija-vina.ts). Isti tekst kao na
+          // /prosli-tank?snimka=.
+          <div style={odArhiveStyle}>
+            Zadaci i radnje prije {formatDatumBezVremena(PREZIVLJAVA_OD)} sačuvani
+            su samo djelomično: arhiviranje ih je tada brisalo s posude, a
+            kopiralo nepotpuno. Praznina u tom razdoblju ne znači da zadataka
+            nije bilo. Odnosi se na:{" "}
+            {nepotpuniProzori
+              .map(
+                (p) =>
+                  `tank ${brojeviTankova.get(p.tankId) ?? "?"} (${
+                    p.od ? formatDatumBezVremena(p.od) : "od početka"
+                  } – ${formatDatumBezVremena(p.do < PREZIVLJAVA_OD ? p.do : PREZIVLJAVA_OD)})`
+              )
+              .join(", ")}
+            . Zapisi iz arhive označeni su „iz arhive”.
+          </div>
+        ) : null}
         <div style={{ padding: 10 }}>
           <Kronologija dogadaji={dogadaji} />
         </div>
@@ -3879,39 +3409,9 @@ export default async function TankPregledPage({
 
 
 
-      {/* --- ARHIVE: s monitora dosad nije bilo puta do arhive. ---
-          Prazan tank nema karticu: arhiva pripada vinu koje je otislo. */}
-      {tankBezVina ? null : (
-      <Card
-        title="Arhive"
-        broj={arhive.length}
-        pod="NOVO — dosad nije bilo puta do arhive"
-        sklopljena
-      >
-        {arhive.length === 0 ? (
-          <div style={mutedTextStyle}>Nema arhiviranih vina.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 6, padding: 10 }}>
-            {arhive.map((a) => (
-              <div key={a.id} style={zapisKarticaStyle}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  {a.nazivVina ?? "bez naziva"} — {formatBroj(a.kolicinaVina, 0)} L
-                </div>
-                <div style={mutedTextStyle}>
-                  {a.sorta ?? "—"} · arhivirano {formatDatum(a.arhiviranoAt)}
-                </div>
-                <Link
-                  href={`/arhiva/${a.id}?from=${encodeURIComponent(from)}`}
-                  style={linkButtonSecondaryStyle}
-                >
-                  Otvori arhivu
-                </Link>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-      )}
+      {/* KARTICA "ARHIVE" JE MAKNUTA (vlasnik, 09.10.2026.): tank je posuda,
+          a arhiva pripada vinu. Vino kojeg vise nema u podrumu nalazi se samo
+          u arhivi (/arhiva), ne u zadnjem tanku u kojem je bilo. */}
 
       <Card
         title="Dokumenti"
@@ -3980,7 +3480,7 @@ export default async function TankPregledPage({
         pod="napomena i bentotest po zapisu"
         sklopljena
       >
-        <OdPocetkaVina granica={granicaVinaAt} lanac={lanacDrugihPosuda} />
+        <OdPocetkaVina granica={granicaVinaAt} lanac={lanacZaNatpis} />
         {svaMjerenja.length === 0 ? (
           <div style={mutedTextStyle}>Nema mjerenja.</div>
         ) : (
@@ -4566,14 +4066,6 @@ const naslijedenoZaglavljeStyle: React.CSSProperties = {
   marginTop: 4,
 };
 
-const zapisKarticaStyle: React.CSSProperties = {
-  border: "1px solid #ececec",
-  borderLeft: "3px solid #6b7280",
-  padding: 9,
-  display: "grid",
-  gap: 3,
-};
-
 const metaBlockStyle: React.CSSProperties = {
   padding: "8px 10px",
   borderTop: "1px solid #e5e7eb",
@@ -4732,11 +4224,6 @@ const IME_ODLJEVA: Record<string, string> = {
   neobjasnjeno: "neobjašnjeno",
 };
 
-/** 1 kućica, 2–4 kućice, 5 i vise kućica. Stablo ih nema preko pet. */
-function rijecKucica(n: number): string {
-  return n === 1 ? "kućica" : n < 5 ? "kućice" : "kućica";
-}
-
 /**
  * Ime cvora: sorta za berbu, "Tank N" za posudu — a za posudu SAMU SEBE
  * "prethodno vino".
@@ -4757,10 +4244,23 @@ function imeCvoraVina(
 }
 
 /**
- * Jedna kucica u stablu, s razinama ispod sebe.
+ * Jedna STAVKA SASTAVA, s razinama ispod sebe — vino, ne posuda.
+ *
+ * Od 09.10.2026. (vlasnik): sastav pokazuje vina. Prijenos istog vina u praznu
+ * posudu ne stoji ovdje kao kucica; sazet je u stavku vina koje kroz njega
+ * prolazi (lib/sastav-vina.ts). Put kroz posude se NE ispisuje — posuda nije
+ * podatak o vinu, a kretanje stoji u kronologiji.
+ *
+ * KOMPONENTA DOBIVA SAMO PRIPREMLJEN PRIKAZ (`PrikazStavke`), ne stavku.
+ * Stavka nosi cijelu sastavnicu s punim podstablom (do 13 razina na T42), a
+ * dosad su uz svaku isle i sve radnje i mjerenja stabla. React u razvojnom
+ * nacinu svojstva svake serverske komponente serijalizira za alate; na T42
+ * (~200 stavki) to je 09.10.2026. srusilo dev server na 16 GB. Prikaz se zato
+ * slaze unaprijed, u `slozPrikazSastava`, a ovdje stoje samo brojevi, tekst i
+ * poveznice.
  *
  * BEZ JS-a: ugnijezdjeni `<details>`, isti uzorak kao sastavnice blenda nize.
- * Poslužitelj iscrta cijelo stablo, preglednik otvara razinu po razinu.
+ * Posluzitelj iscrta cijelo stablo, preglednik otvara razinu po razinu.
  *
  * TRI KRAJA LANCA se MORAJU razlikovati (vlasnik, 14.09.2026):
  *   "neotvoreno" — ima jos, klik vodi na tu posudu;
@@ -4771,60 +4271,113 @@ function imeCvoraVina(
  * Progutano dolijevanje (prag ga nije priznao kao novo vino) prigusuje se i NE
  * razmotava — pravilo 3. Poveznicu na proslost vina ipak ima: i dolijevanje
  * od 1 % je vino s poviscu (vlasnik, 28.09.2026).
+ *
+ * KALO: na sazetoj stavci zbroj svega izgubljenog na putu, "kalo ukupno",
+ * jer put kroz posude nije prikazan; na obicnoj, kao do sada, otpusteno i kalo.
  */
-function SastavnicaVina({
-  s,
-  brojevi,
-  roditeljTankId,
-  korijenId,
-  from,
-  radnje,
-  mjerenja,
-  arhivskeRadnje,
-  arhivskaMjerenja,
-}: {
-  s: SastavnicaStabla;
-  brojevi: Map<string, number>;
-  roditeljTankId: string;
-  /** Tank ove stranice — /prosli-tank u njegovom stablu trazi kucicu i kvasce. */
-  korijenId: string;
-  /** Za `?from=` na poveznici, isto kao u kartici porijekla nize. */
-  from?: string;
-  /** `VinoRadnja` DANASNJEG tanka, sve; izbor po posudi radi `povijestVina`. */
-  radnje: RedakRadnje[];
-  mjerenja: RedakMjerenjaPosude[];
-  /** Arhivski redci — bez njih je povijest arhivirane posude lazno prazna. */
-  arhivskeRadnje: RedakArhivskeRadnje[];
-  arhivskaMjerenja: RedakMjerenjaPosude[];
-}) {
-  const v = s.vino;
-  const naziv = imeCvoraVina(v, brojevi, roditeljTankId);
-  const prekinuto = v.vrsta === "posuda" && v.razlog === "prekinuto";
+type PrikazStavke = {
+  naziv: string;
+  progutano: boolean;
+  /** Kraj lanca za stavku-posudu bez razmotavanja; `null` za vino i berbu. */
+  krajLanca: "neotvoreno" | "bez_knjige" | "prekinuto" | null;
+  /** Berba: poveznica na njezinu stranicu. */
+  berbaId: string | null;
+  litre: number;
+  udio: number;
+  otpusteno: number;
+  kalo: number;
+  sazeta: boolean;
+  odrezano: boolean;
+  hrefPosude: string | null;
+  hrefProslosti: string | null;
+  /** Povijest po svim posudama u kojima je vino stavke stajalo prije ulaska. */
+  povijest: PovijestVina[];
+  djeca: PrikazStavke[];
+};
 
-  // POVEZNICA NA POSUDU, uz svaku kucicu koja posudu i ima.
-  //
-  // Vlastiti tank se izuzima — poveznica na stranicu na kojoj vec jesi nije
-  // poveznica. Berba nema tank pa nema ni kamo voditi.
-  const hrefPosude =
-    v.vrsta !== "partija" && v.tankId !== roditeljTankId
-      ? `/tankovi/${v.tankId}${from ? `?from=${encodeURIComponent(from)}` : ""}`
-      : null;
+/** Priprema prikaza stavki — vidi `StavkaSastavaVina`. Cisti racun, bez upita. */
+function slozPrikazSastava(
+  stavke: StavkaVina[],
+  u: {
+    brojevi: Map<string, number>;
+    oznakaPartije: Map<string, string | null>;
+    /** Tank ove stranice — /prosli-tank u njegovom stablu trazi kucicu i kvasce. */
+    korijenId: string;
+    /** Za `?from=` na poveznici, isto kao u kartici porijekla nize. */
+    from?: string;
+    /** `VinoRadnja` DANASNJEG tanka, sve; izbor po posudi radi `povijestVina`. */
+    radnje: RedakRadnje[];
+    mjerenja: RedakMjerenjaPosude[];
+    /** Arhivski redci — bez njih je povijest arhivirane posude lazno prazna. */
+    arhivskeRadnje: RedakArhivskeRadnje[];
+    arhivskaMjerenja: RedakMjerenjaPosude[];
+  }
+): PrikazStavke[] {
+  return stavke.map((stavka) => {
+    const s = stavka.sastavnica;
+    const v = s.vino;
+    const roditeljTankId = stavka.roditeljTankId;
+    const prethodno = v.vrsta !== "partija" && v.tankId === roditeljTankId;
+    const nazivVina = nazivStavke(s, u.oznakaPartije);
+    const razmotava = stavka.djeca.length > 0 && !s.progutano;
 
-  // POVEZNICA NA PROSLOST VINA — na SVAKU kucicu koja je vino iz posude:
-  // razmotanu, progutanu, odrezanu na `DUBINA_KLIKA`, zatecenu, prekinutu, i
-  // na vino koje je u posudi vec bilo. Praga nema (vlasnik, 28.09.2026).
-  //
-  // Razlikuje se od "otvori posudu": ta vodi na posudu KAKVA JE DANAS, cesto
-  // s tudjim vinom; ova na vino kakvo je bilo u trenutku ulaska ovamo.
-  const hrefProslosti =
-    v.vrsta !== "partija"
-      ? `/prosli-tank?korijen=${encodeURIComponent(korijenId)}` +
-        `&iz=${encodeURIComponent(v.tankId)}` +
-        `&cin=${encodeURIComponent(s.kljucCina)}`
-      : null;
+    return {
+      naziv: prethodno
+        ? `prethodno vino${nazivVina ? ` — ${nazivVina}` : ""}`
+        : nazivVina ?? imeCvoraVina(v, u.brojevi, roditeljTankId),
+      progutano: s.progutano,
+      krajLanca: v.vrsta === "posuda" ? v.razlog : null,
+      berbaId: v.vrsta === "partija" ? v.berbaId : null,
+      litre: stavka.litre,
+      udio: stavka.udio,
+      otpusteno: stavka.otpusteno,
+      kalo: stavka.kalo,
+      sazeta: stavka.sazeta,
+      odrezano: stavka.odrezano,
+      // POVEZNICA NA POSUDU, uz svaku stavku koja posudu i ima. Vlastiti tank
+      // se izuzima — poveznica na stranicu na kojoj vec jesi nije poveznica.
+      hrefPosude:
+        v.vrsta !== "partija" && v.tankId !== roditeljTankId
+          ? `/tankovi/${v.tankId}${u.from ? `?from=${encodeURIComponent(u.from)}` : ""}`
+          : null,
+      // POVEZNICA NA PROSLOST VINA — na SVAKU stavku koja je vino iz posude, po
+      // adresi PRAVE sastavnice u punom stablu: ista adresa kao do sada, pa
+      // /prosli-tank kucicu nalazi u stablu ovog tanka. Praga nema (vlasnik,
+      // 28.09.2026). "Otvori posudu" vodi na posudu KAKVA JE DANAS, cesto s
+      // tudjim vinom; ova na vino kakvo je bilo u trenutku ulaska ovamo.
+      hrefProslosti:
+        v.vrsta !== "partija"
+          ? `/prosli-tank?korijen=${encodeURIComponent(u.korijenId)}` +
+            `&iz=${encodeURIComponent(v.tankId)}` +
+            `&cin=${encodeURIComponent(s.kljucCina)}`
+          : null,
+      // Po SVIM posudama u kojima je vino stavke stajalo prije ulaska ovamo —
+      // i onima kroz koje je samo prolazilo, jer prijenos vise nije zasebna
+      // stavka sa svojom povijescu. Prozor posude je [rodjenje vina u njoj,
+      // cas odlaska dalje].
+      povijest: razmotava
+        ? stavka.prozori.map((p) =>
+            povijestVina({
+              tankId: p.tankId,
+              od: p.od,
+              do: p.do,
+              radnje: u.radnje,
+              mjerenja: u.mjerenja,
+              arhivskeRadnje: u.arhivskeRadnje,
+              arhivskaMjerenja: u.arhivskaMjerenja,
+            })
+          )
+        : [],
+      djeca: slozPrikazSastava(stavka.djeca, u),
+    };
+  });
+}
 
-  const poveznicaProslosti = hrefProslosti ? (
-    <Link href={hrefProslosti} style={{ color: "#1f6f8b" }}>
+function StavkaSastavaVina({ p }: { p: PrikazStavke }) {
+  const prekinuto = p.krajLanca === "prekinuto";
+
+  const poveznicaProslosti = p.hrefProslosti ? (
+    <Link href={p.hrefProslosti} style={{ color: "#1f6f8b" }}>
       prošlost vina
     </Link>
   ) : null;
@@ -4834,79 +4387,88 @@ function SastavnicaVina({
       <div
         style={{
           ...summaryMainTextStyle,
-          ...(s.progutano ? { color: "#6b7280", fontWeight: 400 } : null),
+          ...(p.progutano ? { color: "#6b7280", fontWeight: 400 } : null),
           ...(prekinuto ? { color: "#7f1d1d", fontWeight: 700 } : null),
         }}
       >
         {prekinuto ? "⚠ " : ""}
-        {naziv}
+        {p.naziv}
       </div>
       <div style={summarySubTextStyle}>
-        {formatBroj(s.litre, 0)} L · {formatBroj(s.udio * 100, 0)} %
-        {s.progutano ? " · dolijevanje, nije novo vino" : ""}
+        {formatBroj(p.litre, 0)} L · {formatBroj(p.udio * 100, 0)} %
+        {p.progutano ? " · dolijevanje, nije novo vino" : ""}
       </div>
       {/* OTPUSTENO NIJE RAVNOPRAVNO S ULAZOM — sitno, i samo kad kala ima. */}
-      {s.kalo > 0.5 && (
+      {p.kalo > 0.5 && (
         <div style={kaloTekstStyle}>
-          otpušteno {formatBroj(s.otpusteno, 0)} L · kalo{" "}
-          {formatBroj(s.kalo, 0)} L (
-          {formatBroj((s.kalo / s.otpusteno) * 100, 1)} %)
+          {p.sazeta ? (
+            <>
+              kalo ukupno {formatBroj(p.kalo, 0)} L (
+              {formatBroj((p.kalo / p.otpusteno) * 100, 1)} %)
+            </>
+          ) : (
+            <>
+              otpušteno {formatBroj(p.otpusteno, 0)} L · kalo{" "}
+              {formatBroj(p.kalo, 0)} L (
+              {formatBroj((p.kalo / p.otpusteno) * 100, 1)} %)
+            </>
+          )}
         </div>
       )}
     </div>
   );
 
-  // Kraj lanca i "otvori posudu" — nepromijenjeno od prije.
+  // Kraj lanca i "otvori posudu".
   const krajLanca =
-    v.vrsta === "posuda" ? (
-      v.razlog === "prekinuto" ? (
-        <div style={{ ...summaryRightStyle, fontWeight: 700 }}>
-          lanac prekinut
-        </div>
-      ) : v.razlog === "bez_knjige" ? (
-        <div style={summarySubTextStyle}>knjiga dalje ne zna</div>
-      ) : hrefPosude ? (
-        <Link href={hrefPosude} style={{ color: "#1f6f8b" }}>
+    p.krajLanca === "prekinuto" ? (
+      <div style={{ ...summaryRightStyle, fontWeight: 700 }}>lanac prekinut</div>
+    ) : p.krajLanca === "bez_knjige" ? (
+      <div style={summarySubTextStyle}>knjiga dalje ne zna</div>
+    ) : p.krajLanca === "neotvoreno" ? (
+      p.hrefPosude ? (
+        <Link href={p.hrefPosude} style={{ color: "#1f6f8b" }}>
           otvori posudu
         </Link>
       ) : null
-    ) : v.vrsta === "spoj" && v.sastavnice.length === 0 ? (
-      // ODREZANA GRANA NIJE KRAJ LANCA. Rez na `DUBINA_KLIKA` ostavlja spoj
-      // bez djece; bez ove oznake izgledao bi kao uredan zavrsetak, a ispod
-      // njega ima jos razina. "Proslost vina" ih pokazuje za vino kakvo je
-      // tada bilo; "otvori posudu" vodi na posudu kakva je danas.
-      hrefPosude ? (
-        <Link href={hrefPosude} style={{ color: "#1f6f8b" }}>
+    ) : p.odrezano ? (
+      // ODREZANA GRANA NIJE KRAJ LANCA. Rez na `DUBINA_KLIKA` ostavlja stavku
+      // bez djece; bez ove oznake izgledala bi kao uredan zavrsetak, a ispod
+      // nje ima jos razina.
+      p.hrefPosude ? (
+        <Link href={p.hrefPosude} style={{ color: "#1f6f8b" }}>
           još razina — otvori posudu
         </Link>
       ) : null
     ) : null;
 
-  const desno =
-    v.vrsta === "partija" ? (
-      <div style={summaryRightStyle}>berba</div>
-    ) : (
-      <div style={{ display: "grid", gap: 2, justifyItems: "end", textAlign: "right" }}>
-        {krajLanca}
-        {poveznicaProslosti}
-      </div>
-    );
+  const desno = p.berbaId ? (
+    <div style={summaryRightStyle}>
+      <Link href={`/berba/${p.berbaId}`} style={{ color: "#1f6f8b" }}>
+        berba
+      </Link>
+    </div>
+  ) : (
+    <div style={{ display: "grid", gap: 2, justifyItems: "end", textAlign: "right" }}>
+      {krajLanca}
+      {poveznicaProslosti}
+    </div>
+  );
 
   // Razmotano dalje: otvorivi `<details>`. Progutano se ne otvara.
-  if (v.vrsta === "spoj" && v.sastavnice.length > 0 && !s.progutano) {
+  if (p.djeca.length > 0 && !p.progutano) {
     return (
       <details style={detailsStyle}>
         <summary style={summaryStyle}>
           {zaglavlje}
           <div style={summaryRightStyle}>
-            {v.sastavnice.length} {rijecKucica(v.sastavnice.length)}
-            {/* Poveznica stoji i na razmotanoj kucici: klik na redak otvara
+            {p.djeca.length} {p.djeca.length === 1 ? "stavka" : "stavki"}
+            {/* Poveznica stoji i na razmotanoj stavci: klik na redak otvara
                 razinu ispod, a ovo vodi na samu posudu. Dvije razlicite radnje
                 pa moraju biti dvije razlicite mete. */}
-            {hrefPosude ? (
+            {p.hrefPosude ? (
               <>
                 {" · "}
-                <Link href={hrefPosude} style={{ color: "#1f6f8b" }}>
+                <Link href={p.hrefPosude} style={{ color: "#1f6f8b" }}>
                   otvori posudu
                 </Link>
               </>
@@ -4920,41 +4482,14 @@ function SastavnicaVina({
           </div>
         </summary>
         <div style={detailsContentStyle}>
-          {/* POVIJEST PRVA, PORIJEKLO ISPOD — vlasnikov redoslijed (14.09.2026):
-              klik na kucicu mora pokazati sto je s tim vinom radeno, a njegove
-              vlastite kucice dolaze ispod toga, ne umjesto njega.
-
-              Prozor je [rodjenje u toj posudi, cas ulaska u roditelja]. Donji
-              rub je `v.kada` jer cvor tipa `spoj` nosi svoje rodjenje; gornji
-              je `s.usloAt`. */}
-          <PovijestKucice
-            povijest={povijestVina({
-              tankId: v.tankId,
-              od: v.kada,
-              do: s.usloAt,
-              radnje,
-              mjerenja,
-              arhivskeRadnje,
-              arhivskaMjerenja,
-            })}
-          />
+          {/* POVIJEST PRVA, PORIJEKLO ISPOD — vlasnikov redoslijed (14.09.2026). */}
+          <PovijestStavke dijelovi={p.povijest} />
 
           <div style={{ ...izKnjigeNaslovStyle, marginTop: 12 }}>
             Odakle je to vino
           </div>
-          {v.sastavnice.map((d, i) => (
-            <SastavnicaVina
-              key={i}
-              s={d}
-              brojevi={brojevi}
-              roditeljTankId={v.tankId}
-              korijenId={korijenId}
-              from={from}
-              radnje={radnje}
-              mjerenja={mjerenja}
-              arhivskeRadnje={arhivskeRadnje}
-              arhivskaMjerenja={arhivskaMjerenja}
-            />
+          {p.djeca.map((d, i) => (
+            <StavkaSastavaVina key={i} p={d} />
           ))}
         </div>
       </details>
@@ -4965,6 +4500,46 @@ function SastavnicaVina({
     <div style={prekinuto ? kucicaPrekinutaStyle : kucicaRedakStyle}>
       {zaglavlje}
       {desno}
+    </div>
+  );
+}
+
+/**
+ * Povijest stavke kroz vise posuda. Zapisi iz svih posuda idu u jedan popis
+ * po datumu; rupa u evidenciji ostaje vidljiva i kad druge posude zapise
+ * imaju — rupa je kvar i ne smije se utopiti u tudim retcima.
+ */
+function PovijestStavke({ dijelovi }: { dijelovi: PovijestVina[] }) {
+  if (dijelovi.length === 0) return null;
+  const poDatumu = (x: StavkaPovijesti[]) =>
+    [...x].sort((a, b) => a.datum.getTime() - b.datum.getTime());
+
+  const sZapisima = dijelovi.filter((p) => p.stanje === "ima");
+  const rupe = dijelovi.filter((p) => p.stanje === "rupa");
+
+  if (sZapisima.length === 0 && rupe.length === 0) {
+    // Sve prolazno — "nista radeno" je istina; inace se ne tvrdi nista.
+    const sve = dijelovi.every((p) => p.stanje === "prolazna");
+    return <PovijestKucice povijest={{ ...dijelovi[0], stanje: sve ? "prolazna" : "nema_zapisa" }} />;
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      {sZapisima.length > 0 ? (
+        <PovijestKucice
+          povijest={{
+            ...sZapisima[0],
+            kvasci: poDatumu(sZapisima.flatMap((p) => p.kvasci)),
+            dodaci: poDatumu(sZapisima.flatMap((p) => p.dodaci)),
+            mjerenja: poDatumu(sZapisima.flatMap((p) => p.mjerenja)),
+            radnje: poDatumu(sZapisima.flatMap((p) => p.radnje)),
+            stanje: "ima",
+          }}
+        />
+      ) : null}
+      {rupe.map((p, i) => (
+        <PovijestKucice key={i} povijest={p} />
+      ))}
     </div>
   );
 }

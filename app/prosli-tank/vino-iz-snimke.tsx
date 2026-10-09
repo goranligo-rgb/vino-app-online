@@ -8,6 +8,7 @@ import { podrijetloTanka } from "@/lib/berba-model";
 import { imeZaPrikaz } from "@/lib/ime-vina";
 import { parametriVinaIzKnjige } from "@/lib/parametri-vina";
 import { imeIzSnimke, kvasciIzSnimke, snimkaIzlazaPoId } from "@/lib/snimka-vina";
+import { nazivStavke, sastavVina } from "@/lib/sastav-vina";
 import {
   dogadajiVina,
   prozoriPrijePrezivljavanja,
@@ -92,11 +93,12 @@ export default async function VinoIzSnimke({ snimkaId }: { snimkaId: string }) {
 
   // STABLO NA TRENUTAK IZLAZA — iz njega lanac posuda i "od cega je slozeno".
   const knjiga = await citajUlazneCine(prisma, sviTankovi.map((t) => t.id));
-  const sorteBerbi = new Map(
-    (await prisma.berba.findMany({ select: { id: true, nazivSorte: true } })).map(
-      (b) => [b.id, b.nazivSorte] as const
-    )
-  );
+  // Oznaka partije ide u isti upit — treba je naziv stavke sastava.
+  const sveBerbe = await prisma.berba.findMany({
+    select: { id: true, nazivSorte: true, oznakaBerbe: true },
+  });
+  const sorteBerbi = new Map(sveBerbe.map((b) => [b.id, b.nazivSorte] as const));
+  const oznakaPartije = new Map(sveBerbe.map((b) => [b.id, b.oznakaBerbe] as const));
   const podrijetlo = await podrijetloTanka(prisma, snimka.tankId, { doTrenutka: trenutak });
   const vino = vinoUTanku(
     knjiga.cini,
@@ -138,7 +140,8 @@ export default async function VinoIzSnimke({ snimkaId }: { snimkaId: string }) {
 
   const spoj =
     zadnjiCvor.vrsta === "spoj" && zadnjiCvor.sastavnice.length > 1 ? zadnjiCvor : null;
-  const sastavnice = spoj?.sastavnice ?? [];
+  // Sastav — vina, ne posude (lib/sastav-vina.ts): prijenosi istog vina sazeti.
+  const sastavnice = spoj ? sastavVina(spoj) : [];
 
   const ime = imeZaPrikaz(imeIzSnimke(snimka));
   const vidiArhivu = prijavljeni?.role === "ADMIN" || prijavljeni?.role === "PODRUM";
@@ -288,7 +291,8 @@ export default async function VinoIzSnimke({ snimkaId }: { snimkaId: string }) {
             sastavnice otvara se njezinom poveznicom.
           </div>
           <div style={{ display: "grid", gap: 6, padding: 10 }}>
-            {sastavnice.map((s, i) => {
+            {sastavnice.map((st, i) => {
+              const s = st.sastavnica;
               // BEZ KORIJENA, po kljucu cina (lib/prosli-tank.ts, `nadjiKucicu`):
               // vino koje je izaslo nema danasnje stablo ni u jednoj posudi.
               const href =
@@ -300,13 +304,17 @@ export default async function VinoIzSnimke({ snimkaId }: { snimkaId: string }) {
                 <div key={i} style={redakStil}>
                   <div style={{ display: "grid", gap: 2 }}>
                     <strong>
-                      {s.vino.vrsta === "partija"
-                        ? `berba · ${s.vino.nazivSorte}`
-                        : `Tank ${brojTanka.get(s.vino.tankId) ?? "?"}`}
+                      {nazivStavke(s, oznakaPartije) ??
+                        (s.vino.vrsta === "partija"
+                          ? `berba · ${s.vino.nazivSorte}`
+                          : `Tank ${brojTanka.get(s.vino.tankId) ?? "?"}`)}
                     </strong>
                     <span style={tihoStil}>
-                      {fBroj(s.litre)} L · {fBroj(s.udio * 100, 0)} % · ušlo {fDatum(s.usloAt)}
+                      {fBroj(st.litre)} L · {fBroj(st.udio * 100, 0)} % · ušlo {fDatum(s.usloAt)}
                       {s.progutano ? " · dolijevanje" : ""}
+                      {st.sazeta && st.kalo > 0.5
+                        ? ` · kalo ukupno ${fBroj(st.kalo)} L (${fBroj((st.kalo / st.otpusteno) * 100, 1)} %)`
+                        : ""}
                     </span>
                   </div>
                   <Link href={href} style={poveznicaStil}>

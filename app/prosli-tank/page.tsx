@@ -22,6 +22,7 @@ import {
   rastaviKljucCina,
 } from "@/lib/prosli-tank";
 import { imeIzSnimke, kvasciIzSnimke, snimkaKucice } from "@/lib/snimka-vina";
+import { nazivStavke, sastavVina } from "@/lib/sastav-vina";
 import { Card } from "@/app/tankovi/[id]/kartica";
 import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
 import { parametriIzSnimke } from "./parametri-iz-snimke";
@@ -170,11 +171,12 @@ export default async function ProsliTankPage({
   if (!brojTanka.has(izTankId)) return notFound();
 
   const knjiga = await citajUlazneCine(prisma, sviTankovi.map((t) => t.id));
-  const sorteBerbi = new Map(
-    (await prisma.berba.findMany({ select: { id: true, nazivSorte: true } })).map(
-      (b) => [b.id, b.nazivSorte] as const
-    )
-  );
+  // Oznaka partije ide u isti upit — treba je naziv stavke sastava.
+  const sveBerbe = await prisma.berba.findMany({
+    select: { id: true, nazivSorte: true, oznakaBerbe: true },
+  });
+  const sorteBerbi = new Map(sveBerbe.map((b) => [b.id, b.nazivSorte] as const));
+  const oznakaPartije = new Map(sveBerbe.map((b) => [b.id, b.oznakaBerbe] as const));
 
   // S korijenom se kucica trazi u njegovom DANASNJEM stablu, istom koje crta
   // stranica tanka — tako ima i udio u korijenu, bez kojeg nema prijevoda
@@ -472,7 +474,10 @@ export default async function ProsliTankPage({
   const brIz = brojTanka.get(izTankId);
   const brRoditelj = brojTanka.get(roditeljTankId);
   const brKorijen = korijenId ? brojTanka.get(korijenId) : undefined;
-  const izvori = kucica.vino.vrsta === "spoj" ? kucica.vino.sastavnice : [];
+  // SASTAV — vina, ne posude (vlasnik, 09.10.2026.): prijenosi istog vina u
+  // praznu posudu sazeti su u stavku vina koje kroz njih prolazi
+  // (lib/sastav-vina.ts). Samo prva razina; dublje vodi poveznica.
+  const izvori = sastavVina(kucica.vino);
 
   return (
     <main style={stranicaStil}>
@@ -670,19 +675,24 @@ export default async function ProsliTankPage({
       {izvori.length > 0 ? (
         <Card title="Odakle je to vino" broj={izvori.length}>
           <div style={{ display: "grid", gap: 6, padding: 10 }}>
-            {izvori.map((s, i) => {
+            {izvori.map((st, i) => {
+              const s = st.sastavnica;
               const href = hrefKucice(korijenId, s);
               const naziv =
-                s.vino.vrsta === "partija"
+                nazivStavke(s, oznakaPartije) ??
+                (s.vino.vrsta === "partija"
                   ? `berba · ${s.vino.nazivSorte}`
-                  : `Tank ${brojTanka.get(s.vino.tankId) ?? "?"}`;
+                  : `Tank ${brojTanka.get(s.vino.tankId) ?? "?"}`);
               return (
                 <div key={i} style={redakStil}>
                   <div style={{ display: "grid", gap: 2 }}>
                     <strong>{naziv}</strong>
                     <span style={tihoStil}>
-                      {fBroj(s.litre)} L · {fBroj(s.udio * 100, 0)} % · ušlo {fDatum(s.usloAt)}
+                      {fBroj(st.litre)} L · {fBroj(st.udio * 100, 0)} % · ušlo {fDatum(s.usloAt)}
                       {s.progutano ? " · dolijevanje" : ""}
+                      {st.sazeta && st.kalo > 0.5
+                        ? ` · kalo ukupno ${fBroj(st.kalo)} L (${fBroj((st.kalo / st.otpusteno) * 100, 1)} %)`
+                        : ""}
                     </span>
                   </div>
                   {href ? (
