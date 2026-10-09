@@ -42,9 +42,11 @@ import { parametriIzSnimke } from "./parametri-iz-snimke";
  * ukljuciva, pa je u trenutku zavrsnog izlaza posuda vec prazna. Kronologija
  * ide do samog izlaza ukljucivo — izlaz pripada bas tom vinu.
  *
- * ODAKLE JE VINO: sastavnice cvora na kojem je lanac stao, BEZ poveznice
- * "prosla povijest" — /prosli-tank kucicu trazi u danasnjem stablu korijena,
- * a vino koje je izaslo korijen vise nema. To je zaseban zahvat.
+ * ODAKLE JE VINO: sastavnice cvora na kojem je lanac stao, svaka s poveznicom
+ * na svoju proslost — /prosli-tank BEZ KORIJENA, po kljucu cina (od
+ * 09.10.2026., `nadjiKucicu` u lib/prosli-tank.ts). Vino koje je izaslo
+ * nema danasnje stablo ni u jednoj posudi, pa korijena nema; odande se ide
+ * dalje u dubinu do berbe — setnja kroz arhivu.
  *
  * UPITI, redom (lib/paralelno.ts): snimka 1, izlaz 1, tankovi 1, stablo ~3,
  * podrijetlo ~2, lanac 2 po karici, dogadaji 11, graf ~3.
@@ -281,25 +283,37 @@ export default async function VinoIzSnimke({ snimkaId }: { snimkaId: string }) {
         <Card title="Odakle je to vino" broj={sastavnice.length}>
           <div style={izvorStil}>
             iz knjige — spoj u tanku {brojTanka.get(spoj.tankId) ?? "?"},{" "}
-            {fDatum(spoj.kada)}. Kronologija ide do tog spoja; povijest
-            sastavnica se odavde još ne otvara.
+            {fDatum(spoj.kada)}. Kronologija ide do tog spoja; povijest svake
+            sastavnice otvara se njezinom poveznicom.
           </div>
           <div style={{ display: "grid", gap: 6, padding: 10 }}>
-            {sastavnice.map((s, i) => (
-              <div key={i} style={redakStil}>
-                <div style={{ display: "grid", gap: 2 }}>
-                  <strong>
-                    {s.vino.vrsta === "partija"
-                      ? `berba · ${s.vino.nazivSorte}`
-                      : `Tank ${brojTanka.get(s.vino.tankId) ?? "?"}`}
-                  </strong>
-                  <span style={tihoStil}>
-                    {fBroj(s.litre)} L · {fBroj(s.udio * 100, 0)} % · ušlo {fDatum(s.usloAt)}
-                    {s.progutano ? " · dolijevanje" : ""}
-                  </span>
+            {sastavnice.map((s, i) => {
+              // BEZ KORIJENA, po kljucu cina (lib/prosli-tank.ts, `nadjiKucicu`):
+              // vino koje je izaslo nema danasnje stablo ni u jednoj posudi.
+              const href =
+                s.vino.vrsta === "partija"
+                  ? `/berba/${s.vino.berbaId}`
+                  : `/prosli-tank?iz=${encodeURIComponent(s.vino.tankId)}` +
+                    `&cin=${encodeURIComponent(s.kljucCina)}`;
+              return (
+                <div key={i} style={redakStil}>
+                  <div style={{ display: "grid", gap: 2 }}>
+                    <strong>
+                      {s.vino.vrsta === "partija"
+                        ? `berba · ${s.vino.nazivSorte}`
+                        : `Tank ${brojTanka.get(s.vino.tankId) ?? "?"}`}
+                    </strong>
+                    <span style={tihoStil}>
+                      {fBroj(s.litre)} L · {fBroj(s.udio * 100, 0)} % · ušlo {fDatum(s.usloAt)}
+                      {s.progutano ? " · dolijevanje" : ""}
+                    </span>
+                  </div>
+                  <Link href={href} style={poveznicaStil}>
+                    {s.vino.vrsta === "partija" ? "berba" : "prošlost vina"}
+                  </Link>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
       ) : null}
