@@ -63,8 +63,11 @@ import {
   sastavVina,
   skratiSastav,
   nazivStavke,
+  nazivVinaBezSastava,
   type StavkaVina,
 } from "@/lib/sastav-vina";
+import { imeKucice, type ImeKucice } from "@/lib/ime-kucice";
+import { uValovima } from "@/lib/paralelno";
 import { opisMaceracije, hrvatskiOblik } from "@/lib/berba-polja";
 // `berbaKrozLanac` se od 11.09.2026. vise ne zove s ove stranice — berbu daje
 // knjiga (`podrijetloTanka`). Modul ostaje i dalje se koristi drugdje.
@@ -1369,6 +1372,19 @@ export default async function TankPregledPage({
     ? { stavke: [] as StavkaVina[], jos: 0 }
     : skratiSastav(sastavVina(vinoDanas), DUBINA_KLIKA);
 
+  // IME I SIFRA KUCICA PRVE RAZINE (vlasnik, 09.10.2026.) — kako se vino
+  // zvalo kad je uslo ovamo; vidi lib/ime-kucice.ts. Samo prva razina: cetiri
+  // upita po kucici, dublje razine nose naziv iz sastava. U valovima, ne
+  // `Promise.all` (lib/paralelno.ts).
+  const imenaKucica = new Map<StavkaVina["sastavnica"], ImeKucice | null>(
+    await uValovima(
+      sastavPrikaz.stavke.map(
+        (st) => async () =>
+          [st.sastavnica, await imeKucice(prisma, st.sastavnica, st.roditeljTankId)] as const
+      )
+    )
+  );
+
   // PROZORI VINA — posude kroz koje je CIJELO danasnje vino proslo, s prozorom
   // u kojem je ondje stajalo (lib/kronologija-vina.ts, `prozoriVina`). JEDAN
   // racun za kronologiju, graf, popis mjerenja i natpis — isti koji slaze i
@@ -1429,19 +1445,13 @@ export default async function TankPregledPage({
   // Natpis navodi SVE karike, i onu u ovoj posudi: od 09.10.2026. kronologija,
   // graf i popis mjerenja pokazuju i prvi boravak u istom tanku.
 
-  // KUCICA NEMA IME VINA, I TO JE MJERENO STANJE, NE PROPUST.
-  //
-  // Ispis je "Tank 12", ne "Cuvee bijeli (T12)". Jedini izvor imena koji je na
-  // ovoj stranici vec ucitan je `BlendIzvor.nazivVina`, ali se s ovim stablom
-  // ne da spojiti: od 41 retka samo 7 uopce ima `izvorTankId`, a presjek tih
-  // sedam s `tankId` kucica prve razine je NULA na svih 17 tankova koji blend
-  // imaju (mjereno 17.09.2026). `BlendIzvor` su zamrznuti pokazivaci iz
-  // ranijeg pretoka i pokazuju na drugu generaciju vina nego knjiga.
-  //
-  // Ime se izvodi tocno preko `izracunajImeVina(granica, zapisi, doTrenutka)`
-  // u lib/ime-vina.ts, koji za to i postoji ("kako se zvalo vino koje je ODANDE
-  // doslo") — ali trazi granicu izvornog tanka na `usloAt`, dakle dodatne
-  // upite. Ceka fazu 5a. Do tada je prazno bolje od krivog.
+  // IME KUCICE NE DOLAZI IZ `BlendIzvor.nazivVina`. S ovim se stablom ne da
+  // spojiti: od 41 retka samo 7 uopce ima `izvorTankId`, a presjek tih sedam
+  // s `tankId` kucica prve razine je NULA na svih 17 tankova koji blend imaju
+  // (mjereno 17.09.2026). `BlendIzvor` su zamrznuti pokazivaci iz ranijeg
+  // pretoka i pokazuju na drugu generaciju vina nego knjiga. Od 09.10.2026.
+  // ime se izvodi preko granice izvorne posude na `usloAt` — vidi
+  // `imenaKucica` gore i lib/ime-kucice.ts.
 
   // MJERENJA SVIH POSUDA U STABLU — jedan upit, i jedini koji povijest kucica
   // uopce kosta.
@@ -2634,11 +2644,11 @@ export default async function TankPregledPage({
                 brojevi: brojeviTankova,
                 oznakaPartije,
                 korijenId: id,
-                from,
                 radnje: vinoRadnje,
                 mjerenja: mjerenjaStabla,
                 arhivskeRadnje: arhivskeRadnjeStabla,
                 arhivskaMjerenja: arhivskaMjerenjaStabla,
+                imena: imenaKucica,
               }).map((p, i) => (
                 <StavkaSastavaVina key={i} p={p} />
               ))}
@@ -4225,22 +4235,14 @@ const IME_ODLJEVA: Record<string, string> = {
 };
 
 /**
- * Ime cvora: sorta za berbu, "Tank N" za posudu — a za posudu SAMU SEBE
- * "prethodno vino".
- *
- * Kucica s brojem vlastitog tanka nije izvor nego ono sto je u posudi vec bilo
- * kad je danasnje vino nastalo; ispisana kao "Tank 43" na stranici tanka 43
- * cita se kao da je vino doteklo samo iz sebe.
+ * Naziv cvora kad ga sastav ne zna: sorta za berbu, za posudu bez
+ * razmotavanja `nazivVinaBezSastava`. Broj posude NIJE naziv (vlasnik,
+ * 09.10.2026.) — stoji sitno u sivom retku.
  */
-function imeCvoraVina(
-  v: VinoCvor,
-  brojevi: Map<string, number>,
-  roditeljTankId: string
-): string {
+function nazivCvoraVina(v: VinoCvor): string {
   if (v.vrsta === "partija") return v.nazivSorte;
-  if (v.tankId === roditeljTankId) return "prethodno vino";
-  const broj = brojevi.get(v.tankId);
-  return broj != null ? `Tank ${broj}` : "nepoznata posuda";
+  if (v.vrsta === "posuda") return nazivVinaBezSastava(v.razlog);
+  return "Vino";
 }
 
 /**
@@ -4262,8 +4264,16 @@ function imeCvoraVina(
  * BEZ JS-a: ugnijezdjeni `<details>`, isti uzorak kao sastavnice blenda nize.
  * Posluzitelj iscrta cijelo stablo, preglednik otvara razinu po razinu.
  *
+ * NASLOV JE VINO, NE POSUDA (vlasnik, 09.10.2026.). Prva razina nosi ime
+ * vina iz trenutka ulaska i sifru (lib/ime-kucice.ts); bezimeno pada na sortu
+ * i partiju iz sastava. Dublje razine samo naziv iz sastava. Broj tanka stoji
+ * sitno u sivom retku uz litre ("iz tanka 7"), bez poveznice: kad nesto ne
+ * stima treba znati gdje je fizicki, ali to nije ono sto se prati. Poveznica
+ * "otvori posudu" je maknuta — vodila je na posudu KAKVA JE DANAS, cesto s
+ * tudjim vinom; ostaje "prošlost vina".
+ *
  * TRI KRAJA LANCA se MORAJU razlikovati (vlasnik, 14.09.2026):
- *   "neotvoreno" — ima jos, klik vodi na tu posudu;
+ *   "neotvoreno" — ima jos, dalje vodi "prošlost vina";
  *   "bez_knjige" — zateceno vino, uredan kraj;
  *   "prekinuto"  — lanac bi trebao ici dalje a ne moze. To je KVAR i tako
  *                  izgleda, jer bi uredan redak zamaskirao rupu u knjizi.
@@ -4277,6 +4287,10 @@ function imeCvoraVina(
  */
 type PrikazStavke = {
   naziv: string;
+  /** Sifra vina, samo prva razina i samo kad je upisana. */
+  sifra: string | null;
+  /** Posuda iz koje je vino stiglo, za sivi redak; `null` za berbu i prethodno vino. */
+  izTanka: number | null;
   progutano: boolean;
   /** Kraj lanca za stavku-posudu bez razmotavanja; `null` za vino i berbu. */
   krajLanca: "neotvoreno" | "bez_knjige" | "prekinuto" | null;
@@ -4288,7 +4302,6 @@ type PrikazStavke = {
   kalo: number;
   sazeta: boolean;
   odrezano: boolean;
-  hrefPosude: string | null;
   hrefProslosti: string | null;
   /** Povijest po svim posudama u kojima je vino stavke stajalo prije ulaska. */
   povijest: PovijestVina[];
@@ -4303,14 +4316,14 @@ function slozPrikazSastava(
     oznakaPartije: Map<string, string | null>;
     /** Tank ove stranice — /prosli-tank u njegovom stablu trazi kucicu i kvasce. */
     korijenId: string;
-    /** Za `?from=` na poveznici, isto kao u kartici porijekla nize. */
-    from?: string;
     /** `VinoRadnja` DANASNJEG tanka, sve; izbor po posudi radi `povijestVina`. */
     radnje: RedakRadnje[];
     mjerenja: RedakMjerenjaPosude[];
     /** Arhivski redci — bez njih je povijest arhivirane posude lazno prazna. */
     arhivskeRadnje: RedakArhivskeRadnje[];
     arhivskaMjerenja: RedakMjerenjaPosude[];
+    /** Ime i sifra kucica PRVE razine (lib/ime-kucice.ts); dublje ih nemaju. */
+    imena?: Map<StavkaVina["sastavnica"], ImeKucice | null>;
   }
 ): PrikazStavke[] {
   return stavke.map((stavka) => {
@@ -4318,13 +4331,18 @@ function slozPrikazSastava(
     const v = s.vino;
     const roditeljTankId = stavka.roditeljTankId;
     const prethodno = v.vrsta !== "partija" && v.tankId === roditeljTankId;
-    const nazivVina = nazivStavke(s, u.oznakaPartije);
+    const ime = u.imena?.get(s) ?? null;
+    // Ime vina kad je poznato; bezimeno pada na sortu i partiju iz sastava.
+    const nazivVina = ime?.naziv ?? nazivStavke(s, u.oznakaPartije);
     const razmotava = stavka.djeca.length > 0 && !s.progutano;
 
     return {
       naziv: prethodno
         ? `prethodno vino${nazivVina ? ` — ${nazivVina}` : ""}`
-        : nazivVina ?? imeCvoraVina(v, u.brojevi, roditeljTankId),
+        : nazivVina ?? nazivCvoraVina(v),
+      sifra: ime?.sifra ?? null,
+      izTanka:
+        v.vrsta !== "partija" && !prethodno ? u.brojevi.get(v.tankId) ?? null : null,
       progutano: s.progutano,
       krajLanca: v.vrsta === "posuda" ? v.razlog : null,
       berbaId: v.vrsta === "partija" ? v.berbaId : null,
@@ -4334,17 +4352,10 @@ function slozPrikazSastava(
       kalo: stavka.kalo,
       sazeta: stavka.sazeta,
       odrezano: stavka.odrezano,
-      // POVEZNICA NA POSUDU, uz svaku stavku koja posudu i ima. Vlastiti tank
-      // se izuzima — poveznica na stranicu na kojoj vec jesi nije poveznica.
-      hrefPosude:
-        v.vrsta !== "partija" && v.tankId !== roditeljTankId
-          ? `/tankovi/${v.tankId}${u.from ? `?from=${encodeURIComponent(u.from)}` : ""}`
-          : null,
       // POVEZNICA NA PROSLOST VINA — na SVAKU stavku koja je vino iz posude, po
       // adresi PRAVE sastavnice u punom stablu: ista adresa kao do sada, pa
       // /prosli-tank kucicu nalazi u stablu ovog tanka. Praga nema (vlasnik,
-      // 28.09.2026). "Otvori posudu" vodi na posudu KAKVA JE DANAS, cesto s
-      // tudjim vinom; ova na vino kakvo je bilo u trenutku ulaska ovamo.
+      // 28.09.2026). Vodi na vino kakvo je bilo u trenutku ulaska ovamo.
       hrefProslosti:
         v.vrsta !== "partija"
           ? `/prosli-tank?korijen=${encodeURIComponent(u.korijenId)}` +
@@ -4368,7 +4379,8 @@ function slozPrikazSastava(
             })
           )
         : [],
-      djeca: slozPrikazSastava(stavka.djeca, u),
+      // Imena se trazila samo za prvu razinu; djeci se ne predaju.
+      djeca: slozPrikazSastava(stavka.djeca, { ...u, imena: undefined }),
     };
   });
 }
@@ -4393,9 +4405,13 @@ function StavkaSastavaVina({ p }: { p: PrikazStavke }) {
       >
         {prekinuto ? "⚠ " : ""}
         {p.naziv}
+        {/* SIFRA UZ IME: sest kucica "Cuvee 2026" bez nje izgleda kao sest
+            puta isto vino (vlasnik, 09.10.2026.). */}
+        {p.sifra ? <span style={sifraKuciceStyle}> · {p.sifra}</span> : null}
       </div>
       <div style={summarySubTextStyle}>
         {formatBroj(p.litre, 0)} L · {formatBroj(p.udio * 100, 0)} %
+        {p.izTanka != null ? ` · iz tanka ${p.izTanka}` : ""}
         {p.progutano ? " · dolijevanje, nije novo vino" : ""}
       </div>
       {/* OTPUSTENO NIJE RAVNOPRAVNO S ULAZOM — sitno, i samo kad kala ima. */}
@@ -4418,27 +4434,17 @@ function StavkaSastavaVina({ p }: { p: PrikazStavke }) {
     </div>
   );
 
-  // Kraj lanca i "otvori posudu".
+  // Kraj lanca. Dalje od "još razina" vodi "prošlost vina", ne posuda.
   const krajLanca =
     p.krajLanca === "prekinuto" ? (
       <div style={{ ...summaryRightStyle, fontWeight: 700 }}>lanac prekinut</div>
     ) : p.krajLanca === "bez_knjige" ? (
       <div style={summarySubTextStyle}>knjiga dalje ne zna</div>
-    ) : p.krajLanca === "neotvoreno" ? (
-      p.hrefPosude ? (
-        <Link href={p.hrefPosude} style={{ color: "#1f6f8b" }}>
-          otvori posudu
-        </Link>
-      ) : null
-    ) : p.odrezano ? (
+    ) : p.krajLanca === "neotvoreno" || p.odrezano ? (
       // ODREZANA GRANA NIJE KRAJ LANCA. Rez na `DUBINA_KLIKA` ostavlja stavku
       // bez djece; bez ove oznake izgledala bi kao uredan zavrsetak, a ispod
       // nje ima jos razina.
-      p.hrefPosude ? (
-        <Link href={p.hrefPosude} style={{ color: "#1f6f8b" }}>
-          još razina — otvori posudu
-        </Link>
-      ) : null
+      <div style={summarySubTextStyle}>još razina</div>
     ) : null;
 
   const desno = p.berbaId ? (
@@ -4463,16 +4469,8 @@ function StavkaSastavaVina({ p }: { p: PrikazStavke }) {
           <div style={summaryRightStyle}>
             {p.djeca.length} {p.djeca.length === 1 ? "stavka" : "stavki"}
             {/* Poveznica stoji i na razmotanoj stavci: klik na redak otvara
-                razinu ispod, a ovo vodi na samu posudu. Dvije razlicite radnje
-                pa moraju biti dvije razlicite mete. */}
-            {p.hrefPosude ? (
-              <>
-                {" · "}
-                <Link href={p.hrefPosude} style={{ color: "#1f6f8b" }}>
-                  otvori posudu
-                </Link>
-              </>
-            ) : null}
+                razinu ispod, a ovo vodi na proslost vina. Dvije razlicite
+                radnje pa moraju biti dvije razlicite mete. */}
             {poveznicaProslosti ? (
               <>
                 {" · "}
@@ -4672,6 +4670,14 @@ const kucicaPrekinutaStyle: React.CSSProperties = {
 const kaloTekstStyle: React.CSSProperties = {
   fontSize: 11,
   color: "#8a8a85",
+};
+
+/** Sifra uz ime kucice — dio naslova, ali tise od imena. */
+const sifraKuciceStyle: React.CSSProperties = {
+  fontWeight: 400,
+  color: "#4b5563",
+  fontVariantNumeric: "tabular-nums",
+  whiteSpace: "nowrap",
 };
 
 const josRazinaStyle: React.CSSProperties = {

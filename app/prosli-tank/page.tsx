@@ -7,7 +7,9 @@ import { citajSesiju } from "@/lib/auth-sesija";
 import { citajUlazneCine, vinoUTanku, type Sastavnica } from "@/lib/identitet-vina";
 import { podrijetloTanka } from "@/lib/berba-model";
 import { granicaVina } from "@/lib/granica-vina";
-import { imeVina, imeZaPrikaz } from "@/lib/ime-vina";
+import { imeVina } from "@/lib/ime-vina";
+import { imeKucice, izImena } from "@/lib/ime-kucice";
+import { uValovima } from "@/lib/paralelno";
 import { parametriVinaIzKnjige } from "@/lib/parametri-vina";
 import {
   povijestVina,
@@ -22,7 +24,7 @@ import {
   rastaviKljucCina,
 } from "@/lib/prosli-tank";
 import { imeIzSnimke, kvasciIzSnimke, snimkaKucice } from "@/lib/snimka-vina";
-import { nazivStavke, sastavVina } from "@/lib/sastav-vina";
+import { nazivStavke, nazivVinaBezSastava, sastavVina } from "@/lib/sastav-vina";
 import { Card } from "@/app/tankovi/[id]/kartica";
 import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
 import { parametriIzSnimke } from "./parametri-iz-snimke";
@@ -214,11 +216,19 @@ export default async function ProsliTankPage({
   const snimka = await snimkaKucice(prisma, { kljucCina, izTankId, roditeljTankId });
 
   const granica = await granicaVina(prisma, izTankId, { doTrenutka: trenutak, zadnjeVino: true });
-  const ime = imeZaPrikaz(
+  // NASLOV JE IME VINA, BEZ TANKA (vlasnik, 09.10.2026.): "Graševina
+  // 020/2026, kakva je bila 21. 09. 2026." Isti izvor kao kucica na stranici
+  // tanka (lib/ime-kucice.ts), da kucica i stranica koju otvara ne kazu dvije
+  // stvari. Bezimeno pada na sortu i partiju iz sastava.
+  const ime = izImena(
     snimka
       ? imeIzSnimke(snimka)
       : await imeVina(prisma, izTankId, granica, { doTrenutka: trenutak })
   );
+  const naslov =
+    ime.naziv ??
+    nazivStavke(kucica, oznakaPartije) ??
+    (kucica.vino.vrsta === "posuda" ? nazivVinaBezSastava(kucica.vino.razlog) : "Vino");
   // Iz knjige i kad snimka postoji: iz nje dolazi GRAF (niz mjerenja kroz
   // vrijeme), a snimka nosi samo vrijednosti u jednom trenutku.
   const parametri = await parametriVinaIzKnjige(prisma, izTankId, { doTrenutka: trenutak });
@@ -474,17 +484,27 @@ export default async function ProsliTankPage({
   const brIz = brojTanka.get(izTankId);
   const brRoditelj = brojTanka.get(roditeljTankId);
   const brKorijen = korijenId ? brojTanka.get(korijenId) : undefined;
+  // "← NATRAG" NOSI IME VINA kad je poznato (vlasnik, 09.10.2026.): vraca se
+  // na vino, a ne na posudu. Ime korijena DANAS — stranica tanka pokazuje
+  // danasnje vino. Bezimeno ostaje "← Tank N".
+  const imeKorijena = korijenId
+    ? izImena(await imeVina(prisma, korijenId, await granicaVina(prisma, korijenId))).naziv
+    : null;
   // SASTAV — vina, ne posude (vlasnik, 09.10.2026.): prijenosi istog vina u
   // praznu posudu sazeti su u stavku vina koje kroz njih prolazi
   // (lib/sastav-vina.ts). Samo prva razina; dublje vodi poveznica.
   const izvori = sastavVina(kucica.vino);
+  // Ime i sifra stavki — ovo je prva razina ove kucice (lib/ime-kucice.ts).
+  const imenaIzvora = await uValovima(
+    izvori.map((st) => () => imeKucice(prisma, st.sastavnica, st.roditeljTankId))
+  );
 
   return (
     <main style={stranicaStil}>
       <div style={{ display: "grid", gap: 4 }}>
         {korijenId ? (
           <Link href={`/tankovi/${korijenId}`} style={poveznicaStil}>
-            ← Tank {brKorijen}
+            ← {imeKorijena ?? `Tank ${brKorijen}`}
           </Link>
         ) : (
           // Bez korijena nema tanka na koji bi se vratilo: posuda iz koje je
@@ -494,15 +514,21 @@ export default async function ProsliTankPage({
             <NatragNaPrethodnu />
           </div>
         )}
-        <div style={nadnaslovStil}>
-          Vino iz tanka {brIz}, kakvo je bilo {fDatumSat(kucica.usloAt)}
-        </div>
-        <h1 style={naslovStil}>{ime.tekst}</h1>
+        <h1 style={naslovStil}>
+          {naslov}
+          {ime.sifra ? <span style={sifraStil}> · {ime.sifra}</span> : null}
+          {/* fDatum vec zavrsava tockom ("21. 09. 2026."). "Kakvo je vino
+              bilo", ne "kakva je bila": rod imena se ne zna. */}
+          <span style={naslovDatumStil}>
+            {" "}— kakvo je vino bilo {fDatum(kucica.usloAt)}
+          </span>
+        </h1>
         <div style={podnaslovStil}>
           {vecBiloUPosudi
-            ? `Vino koje je već bilo u tanku ${brIz} kad je u njega ušlo novo — ${fBroj(kucica.litre)} L.`
+            ? `Vino koje je već bilo u tanku ${brIz} kad je u njega ušlo novo (${fDatumSat(kucica.usloAt)}) — ${fBroj(kucica.litre)} L.`
             : `Ušlo ${fBroj(kucica.litre)} L u tank ${brRoditelj}` +
               (kucica.progutano ? " kao dolijevanje" : "") +
+              ` (${fDatumSat(kucica.usloAt)})` +
               "."}
           {/* fDatum vec zavrsava tockom ("21. 09. 2026."). */}
           {granica.odAt ? ` U tanku ${brIz} od ${fDatum(granica.odAt)}` : ""}
@@ -678,17 +704,31 @@ export default async function ProsliTankPage({
             {izvori.map((st, i) => {
               const s = st.sastavnica;
               const href = hrefKucice(korijenId, s);
+              const imeStavke = imenaIzvora[i];
+              // Ime vina kad je poznato; inace sorta i partija iz sastava.
+              // Broj posude nije naziv — ide u sivi redak (vlasnik, 09.10.2026.).
               const naziv =
+                imeStavke?.naziv ??
                 nazivStavke(s, oznakaPartije) ??
                 (s.vino.vrsta === "partija"
                   ? `berba · ${s.vino.nazivSorte}`
-                  : `Tank ${brojTanka.get(s.vino.tankId) ?? "?"}`);
+                  : s.vino.vrsta === "posuda"
+                    ? nazivVinaBezSastava(s.vino.razlog)
+                    : "Vino");
+              const izTanka =
+                s.vino.vrsta !== "partija" && s.vino.tankId !== st.roditeljTankId
+                  ? brojTanka.get(s.vino.tankId) ?? null
+                  : null;
               return (
                 <div key={i} style={redakStil}>
                   <div style={{ display: "grid", gap: 2 }}>
-                    <strong>{naziv}</strong>
+                    <strong>
+                      {naziv}
+                      {imeStavke?.sifra ? <span style={sifraStil}> · {imeStavke.sifra}</span> : null}
+                    </strong>
                     <span style={tihoStil}>
-                      {fBroj(st.litre)} L · {fBroj(st.udio * 100, 0)} % · ušlo {fDatum(s.usloAt)}
+                      {fBroj(st.litre)} L · {fBroj(st.udio * 100, 0)} %
+                      {izTanka != null ? ` · iz tanka ${izTanka}` : ""} · ušlo {fDatum(s.usloAt)}
                       {s.progutano ? " · dolijevanje" : ""}
                       {st.sazeta && st.kalo > 0.5
                         ? ` · kalo ukupno ${fBroj(st.kalo)} L (${fBroj((st.kalo / st.otpusteno) * 100, 1)} %)`
@@ -717,8 +757,16 @@ const stranicaStil: React.CSSProperties = {
   display: "grid",
   gap: 14,
 };
-const nadnaslovStil: React.CSSProperties = { fontSize: 13, color: "#6b7280" };
 const naslovStil: React.CSSProperties = { margin: 0, fontSize: 26, fontWeight: 600 };
+/** Datum u naslovu — dio recenice, ali tisi od imena. */
+const naslovDatumStil: React.CSSProperties = { fontWeight: 400, color: "#6b7280", fontSize: 20 };
+/** Sifra uz ime — kao na kucici stranice tanka. */
+const sifraStil: React.CSSProperties = {
+  fontWeight: 400,
+  color: "#4b5563",
+  fontVariantNumeric: "tabular-nums",
+  whiteSpace: "nowrap",
+};
 const podnaslovStil: React.CSSProperties = { fontSize: 14, color: "#374151" };
 const napomenaStil: React.CSSProperties = {
   fontSize: 12,

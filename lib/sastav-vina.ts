@@ -195,8 +195,9 @@ function udjeliBerbi(v: VinoCvor, u: number, out: Map<string | null, { naziv: st
  *   posuda bez razmotavanja (zateceno, prekinuto) — `null`: prikaz zadrzava
  *                   svoje oznake kraja lanca.
  *
- * Ime vina u tom trenutku (`ImeVina`) trazi dodatne upite i ceka zaseban
- * zahvat; do tada je naziv iz sastava tocan i bez ijednog upita.
+ * Ime vina u tom trenutku (`ImeVina`) trazi dodatne upite, pa ga od
+ * 09.10.2026. nose samo kucice prve razine (lib/ime-kucice.ts); ovo je
+ * rezerva kad je vino bezimeno i naziv svih dubljih razina.
  */
 export function nazivStavke(
   s: Sastavnica,
@@ -232,4 +233,14 @@ export function nazivStavke(
   return vrsta === "CUVEE"
     ? `Cuvée (${glavna.nazivSorte} ${posto} %)`
     : `Bez tvrdnje o sorti (${glavna.nazivSorte} ${posto} %)`;
+}
+
+/**
+ * Naziv stavke-posude bez razmotavanja, kad ni ime vina nije poznato. Do
+ * 09.10.2026. ovdje je stajalo "Tank 11"; broj posude sad ide u sivi redak
+ * ("iz tanka 11"), ne u naslov (vlasnik). Kraj lanca i dalje razlikuje
+ * oznaka uz stavku ("knjiga dalje ne zna", "lanac prekinut", "još razina").
+ */
+export function nazivVinaBezSastava(razlog: "neotvoreno" | "bez_knjige" | "prekinuto"): string {
+  return razlog === "bez_knjige" ? "Zatečeno vino" : "Vino";
 }

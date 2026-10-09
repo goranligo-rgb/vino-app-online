@@ -5,10 +5,13 @@ import { prisma } from "@/lib/prisma";
 import { citajSesiju } from "@/lib/auth-sesija";
 import { citajUlazneCine, vinoUTanku } from "@/lib/identitet-vina";
 import { podrijetloTanka } from "@/lib/berba-model";
-import { imeZaPrikaz } from "@/lib/ime-vina";
+import { imeVina } from "@/lib/ime-vina";
+import { granicaVina } from "@/lib/granica-vina";
+import { imeKucice, izImena } from "@/lib/ime-kucice";
+import { uValovima } from "@/lib/paralelno";
 import { parametriVinaIzKnjige } from "@/lib/parametri-vina";
 import { imeIzSnimke, kvasciIzSnimke, snimkaIzlazaPoId } from "@/lib/snimka-vina";
-import { nazivStavke, sastavVina } from "@/lib/sastav-vina";
+import { nazivStavke, nazivVinaBezSastava, sastavVina } from "@/lib/sastav-vina";
 import {
   dogadajiVina,
   prozoriPrijePrezivljavanja,
@@ -143,7 +146,26 @@ export default async function VinoIzSnimke({ snimkaId }: { snimkaId: string }) {
   // Sastav — vina, ne posude (lib/sastav-vina.ts): prijenosi istog vina sazeti.
   const sastavnice = spoj ? sastavVina(spoj) : [];
 
-  const ime = imeZaPrikaz(imeIzSnimke(snimka));
+  // Ime i sifra stavki sastava — prva razina ove stranice (lib/ime-kucice.ts).
+  const imenaSastavnica = await uValovima(
+    sastavnice.map((st) => () => imeKucice(prisma, st.sastavnica, st.roditeljTankId))
+  );
+
+  // NASLOV JE IME VINA, BEZ TANKA (vlasnik, 09.10.2026.) — isto pravilo kao
+  // kucica na /prosli-tank. Bezimeno pada na sortu i partiju: partija kad je
+  // berba jedna, inace deklarirana sorta iz snimke.
+  const ime = izImena(imeIzSnimke(snimka));
+  const jednaBerba = podrijetlo.stavke.length === 1 ? podrijetlo.stavke[0] : null;
+  const naslov =
+    ime.naziv ??
+    (jednaBerba
+      ? `${jednaBerba.nazivSorte}${jednaBerba.oznakaBerbe ? `, partija ${jednaBerba.oznakaBerbe}` : ""}`
+      : snimka.sorta?.trim() || "Vino");
+  // "← natrag" nosi ime vina koje je DANAS u posudi, kad je poznato: stranica
+  // tanka pokazuje danasnje vino, ne ovo koje je otislo.
+  const imePosudeDanas = izImena(
+    await imeVina(prisma, snimka.tankId, await granicaVina(prisma, snimka.tankId))
+  ).naziv;
   const vidiArhivu = prijavljeni?.role === "ADMIN" || prijavljeni?.role === "PODRUM";
   const opisIzlaza =
     snimka.cin === "PUNJENJE"
@@ -154,14 +176,19 @@ export default async function VinoIzSnimke({ snimkaId }: { snimkaId: string }) {
     <main style={stranicaStil}>
       <div style={{ display: "grid", gap: 4 }}>
         <Link href={`/tankovi/${snimka.tankId}`} style={poveznicaStil}>
-          ← Tank {brIz ?? "?"}
+          ← {imePosudeDanas ?? `Tank ${brIz ?? "?"}`}
         </Link>
-        <div style={nadnaslovStil}>
-          Vino iz tanka {brIz ?? "?"}, kakvo je bilo {fDatumSat(snimka.dogodenoAt)}
-        </div>
-        <h1 style={naslovStil}>{ime.tekst}</h1>
+        <h1 style={naslovStil}>
+          {naslov}
+          {ime.sifra ? <span style={sifraStil}> · {ime.sifra}</span> : null}
+          {/* fDatum vec zavrsava tockom. Rod imena se ne zna, pa "kakvo je vino bilo". */}
+          <span style={naslovDatumStil}>
+            {" "}— kakvo je vino bilo {fDatum(snimka.dogodenoAt)}
+          </span>
+        </h1>
         <div style={podnaslovStil}>
-          {opisIzlaza} · izašlo {fBroj(snimka.litreOtislo)} L od {fBroj(snimka.litrePrije)} L
+          {opisIzlaza} ({fDatumSat(snimka.dogodenoAt)}, tank {brIz ?? "?"}) · izašlo{" "}
+          {fBroj(snimka.litreOtislo)} L od {fBroj(snimka.litrePrije)} L
           {snimka.ispraznjen ? " · posuda ispražnjena, vino je otišlo iz podruma" : " · dio vina ostao je u posudi"}
           {snimka.godiste ? ` · godište ${snimka.godiste}.` : ""}
         </div>
@@ -300,17 +327,28 @@ export default async function VinoIzSnimke({ snimkaId }: { snimkaId: string }) {
                   ? `/berba/${s.vino.berbaId}`
                   : `/prosli-tank?iz=${encodeURIComponent(s.vino.tankId)}` +
                     `&cin=${encodeURIComponent(s.kljucCina)}`;
+              const imeStavke = imenaSastavnica[i];
+              // Broj posude nije naziv — ide u sivi redak (vlasnik, 09.10.2026.).
+              const izTanka =
+                s.vino.vrsta !== "partija" && s.vino.tankId !== st.roditeljTankId
+                  ? brojTanka.get(s.vino.tankId) ?? null
+                  : null;
               return (
                 <div key={i} style={redakStil}>
                   <div style={{ display: "grid", gap: 2 }}>
                     <strong>
-                      {nazivStavke(s, oznakaPartije) ??
+                      {imeStavke?.naziv ??
+                        nazivStavke(s, oznakaPartije) ??
                         (s.vino.vrsta === "partija"
                           ? `berba · ${s.vino.nazivSorte}`
-                          : `Tank ${brojTanka.get(s.vino.tankId) ?? "?"}`)}
+                          : s.vino.vrsta === "posuda"
+                            ? nazivVinaBezSastava(s.vino.razlog)
+                            : "Vino")}
+                      {imeStavke?.sifra ? <span style={sifraStil}> · {imeStavke.sifra}</span> : null}
                     </strong>
                     <span style={tihoStil}>
-                      {fBroj(st.litre)} L · {fBroj(st.udio * 100, 0)} % · ušlo {fDatum(s.usloAt)}
+                      {fBroj(st.litre)} L · {fBroj(st.udio * 100, 0)} %
+                      {izTanka != null ? ` · iz tanka ${izTanka}` : ""} · ušlo {fDatum(s.usloAt)}
                       {s.progutano ? " · dolijevanje" : ""}
                       {st.sazeta && st.kalo > 0.5
                         ? ` · kalo ukupno ${fBroj(st.kalo)} L (${fBroj((st.kalo / st.otpusteno) * 100, 1)} %)`
@@ -337,8 +375,14 @@ const stranicaStil: React.CSSProperties = {
   display: "grid",
   gap: 14,
 };
-const nadnaslovStil: React.CSSProperties = { fontSize: 13, color: "#6b7280" };
 const naslovStil: React.CSSProperties = { margin: 0, fontSize: 26, fontWeight: 600 };
+const naslovDatumStil: React.CSSProperties = { fontWeight: 400, color: "#6b7280", fontSize: 20 };
+const sifraStil: React.CSSProperties = {
+  fontWeight: 400,
+  color: "#4b5563",
+  fontVariantNumeric: "tabular-nums",
+  whiteSpace: "nowrap",
+};
 const podnaslovStil: React.CSSProperties = { fontSize: 14, color: "#374151" };
 const napomenaStil: React.CSSProperties = {
   fontSize: 12,
