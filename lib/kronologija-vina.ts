@@ -136,6 +136,23 @@ function fDatum(value: Date | null | undefined) {
   return value.toLocaleString("hr-HR");
 }
 
+function fDatumBezVremena(value: Date | null | undefined) {
+  if (!value) return "—";
+  return value.toLocaleDateString("hr-HR");
+}
+
+/** Redak kala/taloga s postotkom i oznakom visokog — isti oblik kao na stranici tanka. */
+function redakGubitka(g: NonNullable<ReturnType<typeof opisGubitka>>, sOznakomVisokog: boolean) {
+  return {
+    label: g.naziv.charAt(0).toUpperCase() + g.naziv.slice(1),
+    value:
+      `${fBroj(g.litre)} L` +
+      (g.postotak != null ? ` (${fBroj(g.postotak, 1)} %)` : "") +
+      ` — ${g.objasnjenje}` +
+      (sOznakomVisokog && g.visok ? " · iznad uobičajenog" : ""),
+  };
+}
+
 function ime(k: { ime?: string | null; email?: string | null } | null | undefined) {
   return k?.ime ?? k?.email ?? "—";
 }
@@ -212,6 +229,7 @@ export async function dogadajiVina(
   }
   for (const p of punjenja) {
     if (!punjenjaUProzoru.has(p.id)) continue;
+    const kg = p.stavke.reduce((z, s) => z + Number(s.kolicinaKgGrozdja ?? 0), 0);
     dogadaji.push({
       id: `pun-${p.id}`,
       vrsta: "PUNJENJE",
@@ -219,13 +237,31 @@ export async function dogadajiVina(
       naslov: `${gdje(p.tankId)}${p.nazivVina || "Punjenje tanka"}`,
       podnaslov: p.stavke.map((s) => s.nazivSorte).join(", ") || null,
       iznos: `${fBroj(p.ukupnoLitara, 0)} L`,
+      // Podaci berbe po stavci, isti kao na stranici tanka: modul je od
+      // 09.10.2026. jedini izvor kronologije i ondje.
       detalji: [
         { label: "Ukupno litara", value: `${fBroj(p.ukupnoLitara)} L` },
+        { label: "Ukupno kg grožđa", value: kg > 0 ? `${fBroj(kg)} kg` : "—" },
         { label: "Napomena", value: p.napomena || "—" },
-        ...p.stavke.map((s) => ({
-          label: `— ${s.nazivSorte}`,
-          value: `${fBroj(s.kolicinaLitara)} L${s.oznakaBerbe ? ` · partija ${s.oznakaBerbe}` : ""}`,
-        })),
+        ...p.stavke.flatMap((s) => [
+          {
+            label: `— ${s.nazivSorte}`,
+            value: `${fBroj(s.kolicinaLitara)} L${s.oznakaBerbe ? ` · partija ${s.oznakaBerbe}` : ""}`,
+          },
+          {
+            label: "   Kg grožđa",
+            value: s.kolicinaKgGrozdja != null ? `${fBroj(s.kolicinaKgGrozdja)} kg` : "—",
+          },
+          { label: "   Vinograd", value: s.vinograd || "—" },
+          { label: "   Parcela", value: s.parcela || "—" },
+          { label: "   Položaj", value: s.polozaj || "—" },
+          { label: "   Oznaka berbe", value: s.oznakaBerbe || "—" },
+          { label: "   Datum berbe", value: s.datumBerbe ? fDatumBezVremena(s.datumBerbe) : "—" },
+          { label: "   Šećer", value: s.secer != null ? fBroj(s.secer) : "—" },
+          { label: "   Kiseline", value: s.kiseline != null ? fBroj(s.kiseline) : "—" },
+          { label: "   pH", value: s.ph != null ? fBroj(s.ph) : "—" },
+          { label: "   Napomena berbe", value: s.napomenaBerbe || "—" },
+        ]),
       ],
     });
   }
@@ -295,6 +331,22 @@ export async function dogadajiVina(
           label: "Izvršio",
           value: z.izvrsenoAt ? `${ime(z.izvrsioKorisnik)} · ${fDatum(z.izvrsenoAt)}` : "—",
         },
+        ...(z.kolicinaIzlaz != null
+          ? [{ label: "Izašlo", value: `${fBroj(z.kolicinaIzlaz)} L` }]
+          : []),
+        ...(z.gubitakLitara != null
+          ? [{ label: "Gubitak", value: `${fBroj(z.gubitakLitara)} L` }]
+          : []),
+        ...(z.maceracija != null
+          ? [
+              {
+                label: "Maceracija",
+                value: z.maceracija
+                  ? `da${z.maceracijaOpis ? ` — ${z.maceracijaOpis}` : ""}`
+                  : "ne",
+              },
+            ]
+          : []),
         ...z.tankStavke.map((s) => ({
           label: `→ tank ${s.ciljTank.broj}`,
           value: `${fBroj(s.kolicina)} L`,
@@ -486,6 +538,8 @@ export async function dogadajiVina(
       .filter((c) => c.tankId === cilj.tankId)
       .reduce((z, c) => z + Number(c.kolicina ?? 0), 0);
     const g = opisGubitka(p);
+    const izasloIzIzvora = p.izvori.reduce((z, i) => z + Number(i.kolicina ?? 0), 0);
+    const drugiCiljevi = p.ciljevi.filter((c) => c.tankId !== cilj.tankId);
 
     dogadaji.push({
       id: `pu-${p.id}`,
@@ -505,11 +559,26 @@ export async function dogadajiVina(
           label: `Ušlo u tank ${c.tank.broj}`,
           value: `${fBroj(c.kolicina)} L`,
         })),
-        ...(g
+        // Razlika se IMENUJE, kao na stranici tanka: bez ovoga "izaslo 1.600,
+        // uslo 1.000" izgleda kao da je 600 L nestalo.
+        ...(drugiCiljevi.length > 0
           ? [
               {
-                label: g.naziv.charAt(0).toUpperCase() + g.naziv.slice(1),
-                value: `${fBroj(g.litre)} L — ${g.objasnjenje}`,
+                label: "Istim pretokom u druge tankove",
+                value: drugiCiljevi
+                  .map((c) => `T${c.tank.broj} ${fBroj(c.kolicina)} L`)
+                  .join(" · "),
+              },
+            ]
+          : []),
+        ...(g ? [redakGubitka(g, false)] : []),
+        ...(izasloIzIzvora !== uCilj
+          ? [
+              {
+                label: "Zašto brojke nisu iste",
+                value:
+                  `iz izvora je izašlo ${fBroj(izasloIzIzvora)} L, ` +
+                  `u tank ${cilj.tank.broj} ušlo ${fBroj(uCilj)} L — ostatak je otišao drugdje`,
               },
             ]
           : []),
@@ -547,7 +616,12 @@ export async function dogadajiVina(
           label: "U tank",
           value: `${c.tank.broj} — ${fBroj(c.kolicina)} L`,
         })),
+        { label: "Količina", value: `${fBroj(i.kolicina)} L` },
         { label: "Tip pretoka", value: String(i.pretok.tip) },
+        ...(i.pretok.nacin ? [{ label: "Način", value: String(i.pretok.nacin) }] : []),
+        // Gubitak pripada tanku iz kojeg je vino izaslo — ovdje i s oznakom
+        // visokog, kao na stranici tanka.
+        ...(g ? [redakGubitka(g, true)] : []),
         { label: "Napomena", value: i.pretok.napomena || "—" },
       ],
     });
@@ -583,6 +657,7 @@ export async function dogadajiVina(
         { label: "Iz tanka", value: String(s.zadatak.tank.broj) },
         { label: "Količina", value: `${fBroj(s.kolicina)} L` },
         { label: "Vrsta prijenosa", value: String(s.zadatak.vrsta) },
+        { label: "Izvršeno", value: fDatum(s.zadatak.izvrsenoAt) },
       ],
     });
   }

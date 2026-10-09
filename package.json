@@ -49,6 +49,7 @@
     "test:parametri:vina": "tsx scripts/test-parametri-vina-baza.ts",
     "test:prosli:tank": "tsx scripts/test-prosli-tank.ts",
     "test:setnja": "tsx scripts/test-setnja-arhive.ts",
+    "kronologija:provjeri": "tsx scripts/provjeri-kronologija-vina.ts",
     "test:snimka:izlaza": "tsx scripts/test-snimka-izlaza.ts",
     "ime:backfill": "tsx scripts/backfill-ime-vina.ts",
     "izvoz:provjeri": "tsx scripts/provjeri-izvoz-podrum.ts"
