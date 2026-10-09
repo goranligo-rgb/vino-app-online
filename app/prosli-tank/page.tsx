@@ -17,12 +17,13 @@ import {
 } from "@/lib/povijest-vina";
 import {
   kvasciKucice,
-  pojaveKucice,
+  nadjiKucicu,
   prozoriKucice,
   rastaviKljucCina,
 } from "@/lib/prosli-tank";
 import { imeIzSnimke, kvasciIzSnimke, snimkaKucice } from "@/lib/snimka-vina";
 import { Card } from "@/app/tankovi/[id]/kartica";
+import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
 import { parametriIzSnimke } from "./parametri-iz-snimke";
 import VinoIzSnimke from "./vino-iz-snimke";
 import ParametriPoPolju, {
@@ -35,11 +36,19 @@ import ParametriPoPolju, {
  * ======================================================================
  *
  * Adresa: /prosli-tank?korijen=<tank>&iz=<tank>&cin=<Sastavnica.kljucCina>
- *   korijen — tank s cije je stranice kucica otvorena; njegov `VinoRadnja`
- *             daje kvasce, a njegovo stablo odredjuje kucicu;
+ *   korijen — NEOBAVEZAN. Tank s cije je stranice kucica otvorena; njegov
+ *             `VinoRadnja` daje kvasce, a njegovo stablo odredjuje kucicu;
  *   iz      — posuda iz koje je vino doslo (za vino koje je u posudi vec
  *             bilo: sama ta posuda);
  *   cin     — cin kojim je vino uslo (lib/identitet-vina.ts, `kljucCina`).
+ *
+ * BEZ KORIJENA (od 09.10.2026.) kucica se otvara iz samog kljuca cina
+ * (`nadjiKucicu`, lib/prosli-tank.ts): roditelj je zapisan u kljucu, trenutak
+ * u knjizi. Tako se otvara vino koje je otislo iz podruma — setnja kroz
+ * arhivu, i iz /prosli-tank?snimka= — a i stara poveznica ciji je korijen u
+ * medjuvremenu ponovno napunjen, koja je dotad davala notFound. Bez korijena
+ * nema prijevoda kvasaca: `VinoRadnja` se brise kad se posuda isprazni, pa
+ * kvasce pokazuje samo kucica sa snimkom; ostale kazu zasto ih nema.
  *
  * Adresa: /prosli-tank?snimka=<SnimkaVina.id> — RAZINA 1 arhive: vino koje
  * je izaslo kroz izlaz (boce ili rinfuza), puna evidencija. Vidi
@@ -120,11 +129,13 @@ function fBroj(v: number, dec = 0): string {
   return v.toLocaleString("hr-HR", { maximumFractionDigits: dec, minimumFractionDigits: dec });
 }
 
-function hrefKucice(korijenId: string, s: Sastavnica): string | null {
+/** S korijenom ista adresa kao do sada; bez njega samo posuda i cin. */
+function hrefKucice(korijenId: string | null, s: Sastavnica): string | null {
   if (s.vino.vrsta === "partija") return `/berba/${s.vino.berbaId}`;
   return (
-    `/prosli-tank?korijen=${encodeURIComponent(korijenId)}` +
-    `&iz=${encodeURIComponent(s.vino.tankId)}` +
+    `/prosli-tank?` +
+    (korijenId ? `korijen=${encodeURIComponent(korijenId)}&` : "") +
+    `iz=${encodeURIComponent(s.vino.tankId)}` +
     `&cin=${encodeURIComponent(s.kljucCina)}`
   );
 }
@@ -146,16 +157,17 @@ export default async function ProsliTankPage({
   const snimkaId = jedan(sp.snimka);
   if (snimkaId) return <VinoIzSnimke snimkaId={snimkaId} />;
 
-  const korijenId = jedan(sp.korijen);
+  const korijenIzAdrese = jedan(sp.korijen);
   const izTankId = jedan(sp.iz);
   const kljucCina = jedan(sp.cin);
-  if (!korijenId || !izTankId || !kljucCina) return notFound();
+  if (!izTankId || !kljucCina) return notFound();
 
   // Upiti idu redom, ne u Promise.all — pooler drzi 15 veza za cijelu
   // aplikaciju, a `citajUlazneCine` sam trosi nekoliko.
   const sviTankovi = await prisma.tank.findMany({ select: { id: true, broj: true } });
   const brojTanka = new Map(sviTankovi.map((t) => [t.id, t.broj]));
-  if (!brojTanka.has(korijenId) || !brojTanka.has(izTankId)) return notFound();
+  if (korijenIzAdrese && !brojTanka.has(korijenIzAdrese)) return notFound();
+  if (!brojTanka.has(izTankId)) return notFound();
 
   const knjiga = await citajUlazneCine(prisma, sviTankovi.map((t) => t.id));
   const sorteBerbi = new Map(
@@ -164,26 +176,33 @@ export default async function ProsliTankPage({
     )
   );
 
-  // Kucica se trazi u DANASNJEM stablu korijena, istom koje crta stranica
-  // tanka — tako ima i udio u korijenu, bez kojeg nema prijevoda kvasaca.
-  const podKorijena = await podrijetloTanka(prisma, korijenId);
-  const korijen = vinoUTanku(
-    knjiga.cini,
-    sorteBerbi,
-    korijenId,
-    Date.now(),
-    {},
-    [],
-    podKorijena.ukupnoL
-  );
+  // S korijenom se kucica trazi u njegovom DANASNJEM stablu, istom koje crta
+  // stranica tanka — tako ima i udio u korijenu, bez kojeg nema prijevoda
+  // kvasaca. Bez korijena (ili kad ga korijen vise ne sadrzi) iz kljuca cina.
+  const korijen = korijenIzAdrese
+    ? vinoUTanku(
+        knjiga.cini,
+        sorteBerbi,
+        korijenIzAdrese,
+        Date.now(),
+        {},
+        [],
+        (await podrijetloTanka(prisma, korijenIzAdrese)).ukupnoL
+      )
+    : null;
 
-  const pojave = pojaveKucice(korijen, izTankId, kljucCina);
-  // Nema je: poveznica je stara (cin ponisten, knjiga ispravljena) ili je
+  const nadjena = nadjiKucicu(knjiga.cini, sorteBerbi, { korijen, izTankId, kljucCina });
+  // Nema je ni iz kljuca: cin je ponisten, knjiga ispravljena ili je adresa
   // rucno sastavljena. Pogadjati se ne smije.
-  if (pojave.length === 0) return notFound();
+  if (!nadjena) return notFound();
 
-  const kucica = pojave[0].sastavnica;
-  const roditeljTankId = pojave[0].roditeljTankId;
+  // Korijen vrijedi samo ako je kucica stvarno u njegovom stablu. Stara
+  // poveznica ciji je korijen ponovno napunjen otvara se kao bez korijena: ni
+  // prijevod kvasaca ni povratak "← Tank N" vise ne opisuju to vino.
+  const korijenId = nadjena.kroz === "korijen" ? korijenIzAdrese : null;
+
+  const kucica = nadjena.sastavnica;
+  const roditeljTankId = nadjena.roditeljTankId;
   const vecBiloUPosudi = izTankId === roditeljTankId;
   const trenutak = new Date(kucica.usloAt.getTime() - 1);
 
@@ -278,6 +297,14 @@ export default async function ProsliTankPage({
 
   // KVASCI: iz snimke kad je ima (tocan udio, bez prijevoda), inace prijevod
   // iz `VinoRadnja` korijena kao prije. Nikad oboje — vidi `kvasciIzSnimke`.
+  //
+  // BEZ KORIJENA I BEZ SNIMKE kvasci se NE ZNAJU — i to nije "bez zapisa".
+  // `VinoRadnja` je jedini tocan izvor udjela, a brise se kad se posuda
+  // isprazni; prijevod iz necijeg danasnjeg stabla ovdje ne postoji.
+  // Mjereno 09.10.2026: nijedna kucica u stablu T42 ni ispod snimki izlaza
+  // nema snimku, pa setnja kroz arhivu kvasce danas ne pokazuje nigdje.
+  const korijenKucice = korijenId ? korijen : null;
+  const kvasciPoznati = snimka !== null || korijenKucice !== null;
   type KvasacPrikaz = {
     id: string;
     naziv: string;
@@ -295,8 +322,10 @@ export default async function ProsliTankPage({
         udio: r.udio,
         zasto: null,
       }))
-    : kvasciKucice(
-        korijen,
+    : !korijenKucice || !korijenId
+      ? []
+      : kvasciKucice(
+        korijenKucice,
         izTankId,
         kljucCina,
         await prisma.vinoRadnja.findMany({
@@ -442,15 +471,24 @@ export default async function ProsliTankPage({
 
   const brIz = brojTanka.get(izTankId);
   const brRoditelj = brojTanka.get(roditeljTankId);
-  const brKorijen = brojTanka.get(korijenId);
+  const brKorijen = korijenId ? brojTanka.get(korijenId) : undefined;
   const izvori = kucica.vino.vrsta === "spoj" ? kucica.vino.sastavnice : [];
 
   return (
     <main style={stranicaStil}>
       <div style={{ display: "grid", gap: 4 }}>
-        <Link href={`/tankovi/${korijenId}`} style={poveznicaStil}>
-          ← Tank {brKorijen}
-        </Link>
+        {korijenId ? (
+          <Link href={`/tankovi/${korijenId}`} style={poveznicaStil}>
+            ← Tank {brKorijen}
+          </Link>
+        ) : (
+          // Bez korijena nema tanka na koji bi se vratilo: posuda iz koje je
+          // kucica otvorena danas drzi drugo vino, ili je kucica otvorena iz
+          // arhive. Natrag je ondje odakle se doslo.
+          <div>
+            <NatragNaPrethodnu />
+          </div>
+        )}
         <div style={nadnaslovStil}>
           Vino iz tanka {brIz}, kakvo je bilo {fDatumSat(kucica.usloAt)}
         </div>
@@ -526,13 +564,20 @@ export default async function ProsliTankPage({
         )}
       </Card>
 
-      <Card title="Kvasci" broj={kvasci.length}>
+      <Card title="Kvasci" broj={kvasciPoznati ? kvasci.length : undefined}>
         <div style={izvorStil}>
           {snimka
             ? "iz snimke u trenutku izlaska — udio u vinu ove kućice"
-            : `iz knjige — udio iz zapisa tanka ${brKorijen}, preveden na ovu kućicu`}
+            : kvasciPoznati
+              ? `iz knjige — udio iz zapisa tanka ${brKorijen}, preveden na ovu kućicu`
+              : "nije poznato"}
         </div>
-        {kvasci.length === 0 ? (
+        {!kvasciPoznati ? (
+          <div style={praznoStil}>
+            Kvasci se ne prikazuju: zapis udjela kvasca briše se kad se posuda
+            isprazni, a za ovu kućicu nema snimke.
+          </div>
+        ) : kvasci.length === 0 ? (
           <div style={praznoStil}>bez zapisa</div>
         ) : (
           <div style={{ display: "grid", gap: 6, padding: 10 }}>
