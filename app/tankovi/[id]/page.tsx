@@ -247,6 +247,15 @@ function statusBadge(status: string) {
   };
 }
 
+/** "1 otvoren zadatak", "2 otvorena zadatka", "5 otvorenih zadataka". */
+function tekstOtvorenihZadataka(n: number): string {
+  const d = n % 10;
+  const s = n % 100;
+  if (d === 1 && s !== 11) return `${n} otvoren zadatak`;
+  if (d >= 2 && d <= 4 && (s < 12 || s > 14)) return `${n} otvorena zadatka`;
+  return `${n} otvorenih zadataka`;
+}
+
 function ParamTop({
   label,
   value,
@@ -2170,19 +2179,134 @@ export default async function TankPregledPage({
   const slobodno =
     Number(tank.kapacitet ?? 0) - Number(tank.kolicinaVinaUTanku ?? 0);
 
+  // Isti uvjet koji je i prije gasio blok s imenom: knjiga kaze da vina nema.
+  const prazan = ime.razlog === "PRAZAN";
+
   return (
     <div style={pageStyle}>
       <div style={omotacStyle}>
+      {/* ZAGLAVLJE (vlasnik, 09.10.2026.): naslov je IME VINA, ne posuda.
+          ======================================================================
+          Broj tanka i tip stoje sitno iznad, kao nadnaslov. Ime se na ekranu
+          pise JEDNOM: centrirani blok s imenom ispod zaglavlja je maknut, jer
+          je ime dvaput upravo ono sto se cisti. Prazan tank nema vina, pa je
+          naslov posuda — "Tank 21 · prazno".
+
+          Ime iz cina imenovanja (faza 4), ne s `Tank.nazivVina`. Bezimeno se
+          kaze rijecima, jer prazno mjesto izgleda kao podatak koji nedostaje,
+          a rijec je o poslu koji ceka covjeka. Nesklad deklarirane sorte i
+          knjige: ne bira se pobjednik, stoje obje tvrdnje, imenovane. Stvarni
+          sastav ima svoju karticu nize i ne ponavlja se ovdje. */}
       <div style={headerStyle}>
-        <div style={{ display: "grid", gap: 8 }}>
-          <div>
-            <h1 style={titleStyle}>Tank {tank.broj}</h1>
-            <div style={subtitleStyle}>Pregled tanka, vina i radnji</div>
+        <div style={zaglavljeLijevoStyle}>
+          {prazan ? (
+            tank.tip ? <div style={nadnaslovStyle}>{tank.tip}</div> : null
+          ) : (
+            <div style={nadnaslovStyle}>
+              Tank {tank.broj}
+              {tank.tip ? ` · ${tank.tip}` : ""}
+            </div>
+          )}
+
+          <div style={naslovRedStyle}>
+            <h1 style={!prazan && !ime.naziv ? titleBezimenoStyle : titleStyle}>
+              {prazan ? `Tank ${tank.broj} · prazno` : ime.naziv ?? "Bez imena"}
+            </h1>
+
+            {prazan ? null : (
+              <>
+                {/* SIFRA — uz naslov, ne dio imena. Bez nje pise „bez sifre":
+                    to je posao koji ceka covjeka (unos unatrag), ne podatak
+                    koji se nije ucitao. */}
+                <span style={uzNaslovStyle}>
+                  Šifra:{" "}
+                  {sifraPrikaz.bezSifre ? (
+                    <span style={bezSifreStyle}>{sifraPrikaz.tekst}</span>
+                  ) : (
+                    <strong style={{ color: "#111827" }}>{sifraPrikaz.tekst}</strong>
+                  )}
+                  {ime.deklariranaSorta
+                    ? ` · Deklarirana sorta: ${ime.deklariranaSorta}`
+                    : ""}
+                </span>
+
+                {/* IMENOVANJE (faza 5). Samo L1/L2 i samo uz vino u tanku.
+                    Sastav ide iz knjige, isti popis kao u kartici Sastav, da
+                    se ne imenuje naslijepo. */}
+                {jeL12(prijavljeni.role) ? (
+                  <ImenujVino
+                    tankId={tank.id}
+                    brojTanka={tank.broj}
+                    naziv={ime.naziv}
+                    deklariranaSorta={ime.deklariranaSorta}
+                    sifra={ime.sifra}
+                    sastav={sastavKnjige.map((s) => ({
+                      nazivSorte: s.nazivSorte,
+                      litre: s.litre,
+                      postotak: s.postotak,
+                      nepoznata: s.nepoznata,
+                    }))}
+                  />
+                ) : null}
+              </>
+            )}
           </div>
+
+          {/* BROJKE U JEDNOM REDU, ne tri kartice. Kolicina krupno, kapacitet
+              i slobodno sitnije; zadaci i temperatura kao znacke. Temperatura
+              samo kad je ocitanje svjeze — zastarjela brojka uz kolicinu
+              izgledala bi kao danasnja. */}
+          <div style={brojkeRedStyle}>
+            <span>
+              <strong style={kolicinaStyle}>
+                {formatBroj(tank.kolicinaVinaUTanku)} L
+              </strong>{" "}
+              u tanku
+            </span>
+            <span style={uzNaslovStyle}>
+              kapacitet {formatBroj(tank.kapacitet)} L · slobodno{" "}
+              {formatBroj(slobodno)} L
+            </span>
+            {otvoreniZadaci.length > 0 ? (
+              <span style={znackaStyle}>
+                {tekstOtvorenihZadataka(otvoreniZadaci.length)}
+              </span>
+            ) : null}
+            {zadnjeOcitanje?.temperatura != null &&
+            tempStatus !== "OFFLINE" &&
+            tempStatus !== "NEMA_OCITANJA" ? (
+              <span
+                style={
+                  tempStatus === "ALARM" ? znackaAlarmStyle : znackaStyle
+                }
+              >
+                {formatTemp(zadnjeOcitanje.temperatura)} °C
+              </span>
+            ) : null}
+          </div>
+
+          {!prazan &&
+          usporedbaSorte.razilazi &&
+          usporedbaSorte.deklarirana &&
+          usporedbaSorte.glavna ? (
+            <div style={sortaNeskladStyle}>
+              Deklarirano „{usporedbaSorte.deklarirana}”, a knjiga kaže{" "}
+              {usporedbaSorte.glavna}{" "}
+              {formatBroj(usporedbaSorte.glavniPostotak ?? 0, 1)} %.
+            </div>
+          ) : null}
+
+          {/* `jeBezImena`, ne `razlog === "BEZIMENO"`: osam tankova IMA zapis o
+              imenovanju, ali u njemu stoji samo deklarirana sorta. Vino je i
+              dalje bezimeno i to mora pisati. */}
+          {!prazan && jeBezImena(ime) ? (
+            <div style={sortaNeskladStyle}>
+              Vino je u tanku, ali ga nitko nije imenovao.
+            </div>
+          ) : null}
 
           <div style={headerBadgesWrapStyle}>
             <div style={headerBadgeStyle}>Sastav: {oznakaSastava}</div>
-            <div style={headerBadgeStyle}>Tip: {tank.tip ?? "-"}</div>
             {/* KNJIGA PROTIV TANKA. `Tank.kolicinaVinaUTanku` je od faze E
                 predmemorija, pa uz nju stoji sto knjiga kaze. Razlika je
                 uredno nula; kad nije, mora se vidjeti. */}
@@ -2199,6 +2323,7 @@ export default async function TankPregledPage({
             </div>
           </div>
 
+          {/* GUMBI U JEDNOM REDU, s prelamanjem na uskom ekranu. */}
           <div style={headerActionsStyle}>
             <NatragNaPrethodnu />
             <TankRoleActions
@@ -2208,112 +2333,16 @@ export default async function TankPregledPage({
               primaryStyle={linkButtonPrimaryStyle}
               secondaryStyle={linkButtonSecondaryStyle}
             />
+            <Link
+              href={`/tankovi/${tank.id}/izvjestaj`}
+              style={linkButtonPrimaryStyle}
+            >
+              Izvještaj
+            </Link>
           </div>
         </div>
 
         <TankSwitcher currentId={id} />
-      </div>
-
-      <Link
-        href={`/tankovi/${tank.id}/izvjestaj`}
-        style={linkButtonPrimaryStyle}
-      >
-        Izvještaj
-      </Link>
-
-      {/* IME VINA (faza 4) — iz cina imenovanja, ne s `Tank.nazivVina`.
-          ======================================================================
-          Tri retka, svaki s vlastitom tvrdnjom i vlastitim izvorom:
-
-            1. IME — kako se vino zove. Bezimeno se kaze rijecima, jer prazno
-               mjesto izgleda kao podatak koji nedostaje, a rijec je o poslu
-               koji ceka covjeka (osam tankova, faza 5).
-            2. DEKLARIRANA SORTA — ono sto bi pisalo na etiketi.
-            3. NESKLAD — samo kad deklarirano i knjiga nedvojbeno ne govore
-               isto. Ne bira se pobjednik: stoje obje tvrdnje, imenovane.
-
-          Stvarni sastav ima svoju karticu nize i ne ponavlja se ovdje. */}
-      {ime.razlog === "PRAZAN" ? null : (
-        // `minWidth: 0` iz istog razloga kao na kartici monitora: element
-        // rešetke se inace ne smije stisnuti ispod min-content sirine svog
-        // sadrzaja, a ovdje sadrzaj ukljucuje i recenicu o neskladu.
-        <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
-          <div style={ime.naziv ? nazivVinaStyle : nazivVinaBezimenoStyle}>
-            {ime.naziv ?? "Bez imena"}
-          </div>
-
-          {ime.deklariranaSorta ? (
-            <div style={deklariranaSortaStyle}>
-              Deklarirana sorta: {ime.deklariranaSorta}
-            </div>
-          ) : null}
-
-          {/* SIFRA — zaseban redak, ne dio imena. Bez nje pise „bez sifre":
-              to je posao koji ceka covjeka (unos unatrag), ne podatak koji
-              se nije ucitao. */}
-          <div style={deklariranaSortaStyle}>
-            Šifra:{" "}
-            {sifraPrikaz.bezSifre ? (
-              <span style={bezSifreStyle}>{sifraPrikaz.tekst}</span>
-            ) : (
-              <strong style={{ color: "#111827" }}>{sifraPrikaz.tekst}</strong>
-            )}
-          </div>
-
-          {usporedbaSorte.razilazi &&
-          usporedbaSorte.deklarirana &&
-          usporedbaSorte.glavna ? (
-            <div style={sortaNeskladStyle}>
-              Deklarirano „{usporedbaSorte.deklarirana}”, a knjiga kaže{" "}
-              {usporedbaSorte.glavna}{" "}
-              {formatBroj(usporedbaSorte.glavniPostotak ?? 0, 1)} %.
-            </div>
-          ) : null}
-
-          {/* `jeBezImena`, ne `razlog === "BEZIMENO"`: osam tankova IMA zapis o
-              imenovanju, ali u njemu stoji samo deklarirana sorta. Vino je i
-              dalje bezimeno i to mora pisati. */}
-          {jeBezImena(ime) ? (
-            <div style={sortaNeskladStyle}>
-              Vino je u tanku, ali ga nitko nije imenovao.
-            </div>
-          ) : null}
-
-          {/* IMENOVANJE (faza 5). Samo L1/L2 i samo uz vino u tanku — prazan
-              tank ovaj blok ionako ne crta. Sastav ide iz knjige, isti popis
-              kao u kartici Sastav, da se ne imenuje naslijepo. */}
-          {jeL12(prijavljeni.role) ? (
-            <ImenujVino
-              tankId={tank.id}
-              brojTanka={tank.broj}
-              naziv={ime.naziv}
-              deklariranaSorta={ime.deklariranaSorta}
-              sifra={ime.sifra}
-              sastav={sastavKnjige.map((s) => ({
-                nazivSorte: s.nazivSorte,
-                litre: s.litre,
-                postotak: s.postotak,
-                nepoznata: s.nepoznata,
-              }))}
-            />
-          ) : null}
-        </div>
-      )}
-
-      <div style={topParamsGridStyle}>
-        <ParamTop
-          label="Količina vina"
-          value={formatBroj(tank.kolicinaVinaUTanku)}
-          unit="L"
-          velika
-        />
-        <ParamTop
-          label="Kapacitet"
-          value={formatBroj(tank.kapacitet)}
-          unit="L"
-          velika
-        />
-        <ParamTop label="Slobodno" value={formatBroj(slobodno)} unit="L" velika />
       </div>
 
 
@@ -3783,17 +3812,101 @@ const headerStyle: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
-const titleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: 20,
-  fontWeight: 600,
-  lineHeight: 1.1,
+/**
+ * Lijevi stupac zaglavlja. `minWidth: 0` je obavezan: bez njega element flexa
+ * ne smije ispod min-content sirine, a dugacko ime vina bi gurnulo sirinu
+ * stranice na mobitelu.
+ */
+const zaglavljeLijevoStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 6,
+  minWidth: 0,
+  flex: "1 1 320px",
 };
 
-const subtitleStyle: React.CSSProperties = {
-  marginTop: 3,
+/** "Tank 3 · zatvoreni tank" — posuda, sitno iznad imena vina. */
+const nadnaslovStyle: React.CSSProperties = {
+  fontSize: 12,
   color: "#6b7280",
+  letterSpacing: 0.2,
+};
+
+/** Naslov, sifra i gumb za imenovanje u jednom redu; prelama se na uskom. */
+const naslovRedStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: "4px 14px",
+  flexWrap: "wrap",
+  minWidth: 0,
+};
+
+/** Naslov stranice je IME VINA (vlasnik, 09.10.2026.). */
+const titleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 30,
+  fontWeight: 800,
+  color: "#7f1d1d",
+  lineHeight: 1.15,
+  letterSpacing: 0.2,
+  // Dugacko ime („Bijeli pinot, sivi pinot, zeleni silvanac") na uskom
+  // prozoru ili uz zum od 150 % lako premasi sirinu — neka se prelomi.
+  overflowWrap: "anywhere",
+  minWidth: 0,
+};
+
+/**
+ * Bezimeno vino — isto mjesto i ista velicina kao ime, ali sivo i u kurzivu.
+ *
+ * NAMJERNO ZAUZIMA MJESTO IMENA. Prazan prostor bi izgledao kao da se podatak
+ * nije ucitao; ovako se vidi da vino postoji i da mu ime tek treba dati.
+ */
+const titleBezimenoStyle: React.CSSProperties = {
+  ...titleStyle,
+  fontWeight: 500,
+  fontStyle: "italic",
+  color: "#9ca3af",
+};
+
+/** Sitno uz naslov: sifra i deklarirana sorta, kapacitet i slobodno. */
+const uzNaslovStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#6b7280",
+  overflowWrap: "anywhere",
+};
+
+/** Kolicina, kapacitet, slobodno i znacke — jedan red, prelama se. */
+const brojkeRedStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: "4px 14px",
+  flexWrap: "wrap",
   fontSize: 13,
+  color: "#6b7280",
+};
+
+const kolicinaStyle: React.CSSProperties = {
+  fontSize: 22,
+  fontWeight: 800,
+  color: "#222",
+  fontVariantNumeric: "tabular-nums",
+};
+
+/** "2 otvorena zadatka", "14,2 °C" — znacka, ne kartica. */
+const znackaStyle: React.CSSProperties = {
+  padding: "2px 7px",
+  border: "1px solid #d1d5db",
+  background: "#ffffff",
+  color: "#374151",
+  fontSize: 12,
+  whiteSpace: "nowrap",
+};
+
+const znackaAlarmStyle: React.CSSProperties = {
+  ...znackaStyle,
+  border: "1px solid #fecdd3",
+  background: "#fff1f2",
+  color: "#9f1239",
+  fontWeight: 700,
 };
 
 const headerBadgesWrapStyle: React.CSSProperties = {
@@ -3817,41 +3930,6 @@ const headerActionsStyle: React.CSSProperties = {
   alignItems: "center",
 };
 
-const nazivVinaStyle: React.CSSProperties = {
-  marginTop: 12,
-  marginBottom: 2,
-  textAlign: "center",
-  fontSize: 34,
-  fontWeight: 800,
-  color: "#7f1d1d",
-  lineHeight: 1.15,
-  letterSpacing: 0.2,
-  // 34 px i dugacko ime („Bijeli pinot, sivi pinot, zeleni silvanac") na uskom
-  // prozoru ili uz zum od 150 % lako premase sirinu — neka se prelomi.
-  overflowWrap: "anywhere",
-};
-
-/**
- * Bezimeno vino — isto mjesto i ista velicina kao ime, ali sivo i u kurzivu.
- *
- * NAMJERNO ZAUZIMA MJESTO IMENA. Prazan prostor bi izgledao kao da se podatak
- * nije ucitao; ovako se vidi da vino postoji i da mu ime tek treba dati.
- */
-const nazivVinaBezimenoStyle: React.CSSProperties = {
-  ...nazivVinaStyle,
-  fontWeight: 500,
-  fontStyle: "italic",
-  color: "#9ca3af",
-};
-
-/** „Ono sto bi pisalo na etiketi" — stoji pod imenom, ne umjesto sastava. */
-const deklariranaSortaStyle: React.CSSProperties = {
-  textAlign: "center",
-  fontSize: 12,
-  color: "#6b7280",
-  marginBottom: 2,
-};
-
 const bezSifreStyle: React.CSSProperties = {
   color: "#9ca3af",
   fontStyle: "italic",
@@ -3864,10 +3942,8 @@ const bezSifreStyle: React.CSSProperties = {
  * (paznja), a ne crvena (kvar). Odluku donosi covjek.
  */
 const sortaNeskladStyle: React.CSSProperties = {
-  textAlign: "center",
   fontSize: 12,
   color: "#92400e",
-  marginBottom: 10,
   lineHeight: 1.3,
   // Ovo je RECENICA, ne naziv — smije se prelomiti u dva retka, ali ne smije
   // gurati sirinu. Nazivi sorti znaju biti dugacki i bez razmaka za prijelom.

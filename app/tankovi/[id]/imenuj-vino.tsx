@@ -125,11 +125,11 @@ export default function ImenujVino({
 
   return (
     <>
-      <div style={{ textAlign: "center", marginBottom: 10 }}>
-        <button type="button" onClick={otvori} style={gumbOtvoriStyle}>
-          {naziv ? "Promijeni ime vina" : "Imenuj vino"}
-        </button>
-      </div>
+      {/* Gumb stoji u retku naslova (zaglavlje stranice tanka), bez vlastitog
+          bloka — omotac s centriranjem gurao bi ga u novi red. */}
+      <button type="button" onClick={otvori} style={gumbOtvoriStyle}>
+        {naziv ? "Promijeni ime vina" : "Imenuj vino"}
+      </button>
 
       {open ? (
         <div onClick={() => (loading ? null : setOpen(false))} style={overlayStyle}>
