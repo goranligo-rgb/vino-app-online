@@ -13,7 +13,13 @@ import { sifraNakonPunjenja, sifraObrascaPunjenja } from "@/lib/sifra-vina";
 
 // Tko smije UPISATI punjenje. Isti popis koji proxy.ts pusta na stranicu
 // /punjenje — proxy stiti samo stranice, pa svaka ruta mora sama provjeriti
-// rolu. GET se namjerno NE zakljucava: cita ga i /berba.
+// rolu.
+//
+// GET trazi PRIJAVU, ali ne i rolu. Do 09.10.2026. ovdje je pisalo da se GET
+// "namjerno ne zakljucava jer ga cita /berba" — to je opravdavalo izostanak
+// ROLE, ne prijave: korisnik stranice je ionako prijavljen, a popis svih
+// punjenja vidio je svatko tko zna adresu. (Mjereno 09.10.2026.: nijedna
+// stranica u repou ovu rutu GET-om ne zove, ni /berba — ona cita /api/berba.)
 const ROLE_UPIS_PUNJENJA = ["ADMIN", "PODRUM"] as const;
 
 function ocistiString(v: unknown): string | null {
@@ -50,6 +56,12 @@ function datumIliNull(v: unknown): Date | null {
 
 export async function GET() {
   try {
+    // Samo prijava, bez role — vidi komentar uz ROLE_UPIS_PUNJENJA.
+    const user = await citajSesiju();
+    if (!user?.id) {
+      return NextResponse.json({ error: "Niste prijavljeni." }, { status: 401 });
+    }
+
     const punjenjaRaw = await prisma.punjenjeTanka.findMany({
       orderBy: {
         datumPunjenja: "desc",
