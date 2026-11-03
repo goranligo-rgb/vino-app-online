@@ -185,6 +185,14 @@ export default async function DashboardPage() {
             />
           )}
 
+          {canSeeIzvjestajPodruma && (
+            <DashboardCard
+              href="/dashboard/izvjestaji/statistika-vina"
+              title="Pregled vina"
+              description="Vino u tankovima sa zadnjim parametrima, grupiranje i simulacija kupaže"
+            />
+          )}
+
           {/* Prisutnost je za SVE prijavljene role — svatko bilježi svoj dolazak/odlazak. */}
           <DashboardCard
             href="/dashboard/prisutnost"
