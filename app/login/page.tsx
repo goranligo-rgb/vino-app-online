@@ -167,6 +167,18 @@ export default function LoginPage() {
             </div>
           ) : null}
         </form>
+
+        {/* PRIVREMENO: brise se zajedno sa /sesija-dijagnoza. */}
+        <a
+          href="/sesija-dijagnoza"
+          style={{
+            color: "rgba(255,255,255,0.6)",
+            fontSize: 12,
+            textAlign: "center",
+          }}
+        >
+          Dijagnoza prijave
+        </a>
       </div>
     </main>
   );
