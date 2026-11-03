@@ -48,9 +48,10 @@
  */
 
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { citajSesiju } from "@/lib/auth-sesija";
 import { uValovima } from "@/lib/paralelno";
 import PrintButton from "@/components/PrintButton";
 import { prozorFermentacije, type Boravak } from "@/lib/fermentacija-prozor";
@@ -123,6 +124,7 @@ export default async function DnevnikFermentacijePage({
   params: Promise<{ id: string }> | { id: string };
 }) {
   noStore();
+  if (!(await citajSesiju())) redirect("/login");
 
   const p = await params;
   const id = p?.id;

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { notFound } from "next/navigation";
+import { citajSesiju } from "@/lib/auth-sesija";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import ObrisiPunjenjeStavkuButton from "./obrisi-punjenje-stavku-button";
 
@@ -10,6 +11,7 @@ type Props = {
 };
 
 export default async function PunjenjeDetaljPage({ params }: Props) {
+  if (!(await citajSesiju())) redirect("/login");
   const { id } = await params;
 
   if (!id) {

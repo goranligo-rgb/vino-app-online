@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requirePutnikUser } from "@/lib/putnik-auth";
 import PosjetForm from "../posjet-form";
 import { spremiPosjet } from "../actions";
 
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 type PageParams = Promise<{ id: string }>;
 
 export default async function NoviPosjetPage({ params }: { params: PageParams }) {
+  await requirePutnikUser();
   const { id } = await params;
 
   const kupac = await prisma.putnikKupac.findUnique({

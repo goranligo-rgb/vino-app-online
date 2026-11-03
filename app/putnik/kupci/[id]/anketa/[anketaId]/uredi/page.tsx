@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requirePutnikUser } from "@/lib/putnik-auth";
 import AnketaForm from "../../anketa-form";
 import { azurirajAnketu } from "../../actions";
 
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 type PageParams = Promise<{ id: string; anketaId: string }>;
 
 export default async function UrediAnketuPage({ params }: { params: PageParams }) {
+  await requirePutnikUser();
   const { id, anketaId } = await params;
 
   const [kupac, anketa] = await Promise.all([

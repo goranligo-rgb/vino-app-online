@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { prisma } from "@/lib/prisma";
+import { requirePutnikUser } from "@/lib/putnik-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -115,6 +116,7 @@ function DaNe({
 }
 
 export default async function DogovorDetaljiPage({ params }: PageProps) {
+  await requirePutnikUser();
   const { id, dogovorId } = await params;
 
   const dogovor = await prisma.putnikDogovor.findUnique({

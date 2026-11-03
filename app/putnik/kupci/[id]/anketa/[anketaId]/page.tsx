@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { prisma } from "@/lib/prisma";
+import { requirePutnikUser } from "@/lib/putnik-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -150,6 +151,7 @@ function KoraciPanel({ steps }: { steps: string[] }) {
 }
 
 export default async function AnketaDetaljiPage({ params }: PageProps) {
+  await requirePutnikUser();
   const { id, anketaId } = await params;
 
   const anketa = await prisma.putnikAnketaKupca.findUnique({

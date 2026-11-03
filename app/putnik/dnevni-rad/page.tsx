@@ -1,6 +1,7 @@
 import Link from "next/link";
 import NatragHome from "@/components/NatragHome";
 import { prisma } from "@/lib/prisma";
+import { requirePutnikUser } from "@/lib/putnik-auth";
 import { formatHrDateTime } from "@/lib/datum";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,7 @@ export default async function DnevniRadPage({
 }: {
   searchParams: Promise<{ putnik?: string; datum?: string }>;
 }) {
+  await requirePutnikUser();
   const sp = await searchParams;
   const danas = new Date().toISOString().slice(0, 10);
   const datum = sp.datum || danas;

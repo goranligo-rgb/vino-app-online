@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requirePutnikUser } from "@/lib/putnik-auth";
 import { sPotvrdom } from "../spremljeno";
 
 export const dynamic = "force-dynamic";
 
 async function createKupac(formData: FormData) {
     "use server";
+
+    await requirePutnikUser();
 
     const nazivLokala = String(formData.get("nazivLokala") || "").trim();
 
@@ -108,7 +111,9 @@ function SelectField({
     );
 }
 
-export default function NoviKupacPage() {
+export default async function NoviKupacPage() {
+    await requirePutnikUser();
+
     return (
         <main className="min-h-screen bg-[#eee3cf] px-4 py-6 text-[#2b2118] md:px-8">
             <div className="mx-auto max-w-5xl">

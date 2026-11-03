@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requirePutnikUser } from "@/lib/putnik-auth";
 import AktivnostForm from "../../aktivnost-form";
 import { azurirajAktivnost } from "../../actions";
 
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 type PageParams = Promise<{ id: string; aktivnostId: string }>;
 
 export default async function UrediAktivnostPage({ params }: { params: PageParams }) {
+  await requirePutnikUser();
   const { id, aktivnostId } = await params;
 
   const [kupac, aktivnost] = await Promise.all([

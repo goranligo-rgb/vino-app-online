@@ -1,7 +1,8 @@
 import Link from "next/link";
 import React from "react";
 import { prisma } from "@/lib/prisma";
-import { notFound } from "next/navigation";
+import { citajSesiju } from "@/lib/auth-sesija";
+import { notFound, redirect } from "next/navigation";
 import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
 import { opisMaceracije } from "@/lib/berba-polja";
 
@@ -307,6 +308,7 @@ export default async function ArhivaDetaljPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  if (!(await citajSesiju())) redirect("/login");
   const { id } = await params;
 
   const arhiva = await prisma.arhivaVina.findUnique({

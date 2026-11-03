@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { citajSesiju } from "@/lib/auth-sesija";
 import { granicaVina } from "@/lib/granica-vina";
 import { imeVina, jeBezImena, usporediSaSastavom } from "@/lib/ime-vina";
 import { nazivVrste } from "@/lib/vrste-prijenosa";
@@ -277,6 +278,7 @@ export default async function TankIzvjestajPage({
   params: Promise<{ id: string }> | { id: string };
 }) {
   noStore();
+  if (!(await citajSesiju())) redirect("/login");
 
   const resolvedParams = await params;
   const id = resolvedParams?.id;

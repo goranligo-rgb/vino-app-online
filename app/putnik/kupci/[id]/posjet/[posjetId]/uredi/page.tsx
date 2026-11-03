@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requirePutnikUser } from "@/lib/putnik-auth";
 import PosjetForm, { type InitialPosjet } from "../../posjet-form";
 import PosjetSlike, { type SlikaPrikaz } from "../../posjet-slike";
 import { potpisaniUrl } from "@/lib/supabase-storage";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 type PageParams = Promise<{ id: string; posjetId: string }>;
 
 export default async function UrediPosjetPage({ params }: { params: PageParams }) {
+  await requirePutnikUser();
   const { id, posjetId } = await params;
 
   const [kupac, posjet] = await Promise.all([
