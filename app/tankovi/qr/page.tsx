@@ -6,19 +6,37 @@ import PrintButton from "@/components/PrintButton";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function getBaseUrl() {
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+// Adrese deploya (VERCEL_URL) su zakljucane i nestalne, a QR kod na naljepnici
+// ostaje godinama. Zato bez postavljene adrese nema ispisa, osim u developmentu.
+function getBaseUrl(): string | null {
+  const adresa = process.env.NEXT_PUBLIC_APP_URL?.trim();
+
+  if (adresa) {
+    return adresa.replace(/\/$/, "");
   }
 
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
+  if (process.env.NODE_ENV === "development") {
+    return "http://localhost:3000";
   }
 
-  return "http://localhost:3000";
+  return null;
 }
 
 export default async function TankQrPage() {
+  const baseUrl = getBaseUrl();
+
+  if (!baseUrl) {
+    return (
+      <main style={{ padding: 24, background: "#f5f5f5", minHeight: "100vh" }}>
+        <p role="alert" style={{ fontSize: 18, fontWeight: 700, color: "#b91c1c" }}>
+          NEXT_PUBLIC_APP_URL nije postavljen — naljepnice se ne smiju ispisati
+        </p>
+
+        <Link href="/dashboard">Natrag</Link>
+      </main>
+    );
+  }
+
   const tankovi = await prisma.tank.findMany({
     orderBy: { broj: "asc" },
     select: {
@@ -27,8 +45,6 @@ export default async function TankQrPage() {
       sorta: true,
     },
   });
-
-  const baseUrl = getBaseUrl();
 
   return (
     <main style={{ padding: 24, background: "#f5f5f5", minHeight: "100vh" }}>
@@ -70,6 +86,13 @@ export default async function TankQrPage() {
           </Link>
         </div>
       </div>
+
+      <p
+        className="no-print"
+        style={{ fontSize: 12, color: "#6b7280", margin: "0 0 12px" }}
+      >
+        Kodovi vode na: {baseUrl}
+      </p>
 
       <div className="labels-grid">
         {tankovi.map((tank) => (
