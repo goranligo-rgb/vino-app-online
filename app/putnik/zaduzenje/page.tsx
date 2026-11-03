@@ -1,7 +1,7 @@
 import Link from "next/link";
 import NatragHome from "@/components/NatragHome";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/putnik-auth";
+import { getAuthUser, requirePutnikUser } from "@/lib/putnik-auth";
 import { formatHrDate } from "@/lib/datum";
 import { zaduziVino, zaduziPromo, vratiVino, vratiPromo } from "./actions";
 import { oznaciIsporuceno } from "../priprema/actions";
@@ -30,6 +30,7 @@ export default async function ZaduzenjePage({
 }: {
   searchParams: Promise<{ putnik?: string; datum?: string }>;
 }) {
+  await requirePutnikUser();
   const sp = await searchParams;
   const user = await getAuthUser();
   const jeL12 = user?.role === "ADMIN" || user?.role === "PODRUM";

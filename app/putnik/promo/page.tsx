@@ -1,7 +1,7 @@
 import Link from "next/link";
 import NatragHome from "@/components/NatragHome";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/putnik-auth";
+import { getAuthUser, requirePutnikUser } from "@/lib/putnik-auth";
 import { formatHrDate, formatHrDateTime } from "@/lib/datum";
 import { dodajArtikl, toggleArtikl, otpisiPromo, dodajVino, toggleVino } from "./actions";
 
@@ -22,6 +22,7 @@ export default async function PromoPage({
 }: {
   searchParams: Promise<{ kupac?: string }>;
 }) {
+  await requirePutnikUser();
   const sp = await searchParams;
   const user = await getAuthUser();
   const jeL12 = user?.role === "ADMIN" || user?.role === "PODRUM";

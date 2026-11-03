@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { formatHrDateTime, formatHrDate } from "@/lib/datum";
-import { getAuthUser } from "@/lib/putnik-auth";
+import { getAuthUser, requirePutnikUser } from "@/lib/putnik-auth";
 import { postaviAktivanKupca } from "./actions";
 import { otvoriDanasnjiPosjet } from "./posjet/actions";
 import PosjetGalerija from "./posjet/posjet-galerija";
@@ -208,6 +208,7 @@ function MiniStat({
 }
 
 export default async function KupacDetaljiPage({ params }: PageProps) {
+  await requirePutnikUser();
   const { id } = await params;
 
   const kupac = await prisma.putnikKupac.findUnique({

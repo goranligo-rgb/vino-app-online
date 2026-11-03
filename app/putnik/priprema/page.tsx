@@ -1,7 +1,7 @@
 import Link from "next/link";
 import NatragHome from "@/components/NatragHome";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/putnik-auth";
+import { getAuthUser, requirePutnikUser } from "@/lib/putnik-auth";
 import { oznaciPripremu } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -82,6 +82,7 @@ export default async function PripremaPage({
 }: {
   searchParams: Promise<{ putnik?: string; datum?: string; sve?: string }>;
 }) {
+  await requirePutnikUser();
   const sp = await searchParams;
   const user = await getAuthUser();
   const jeL12 = user?.role === "ADMIN" || user?.role === "PODRUM";
