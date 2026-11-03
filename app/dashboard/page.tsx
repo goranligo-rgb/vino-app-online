@@ -5,6 +5,8 @@ import LogoutButton from "@/components/LogoutButton";
 import SignatureAnimation from "@/components/SignatureAnimation";
 import DashboardTopActions from "@/components/DashboardTopActions";
 import PrisutnostGumb from "@/components/PrisutnostGumb";
+import SkenirajTank from "@/components/SkenirajTank";
+import { smijeUPodrumu } from "@/lib/auth-role";
 import { prisma } from "@/lib/prisma";
 import { satMinutaHr } from "@/lib/prisutnost";
 
@@ -120,7 +122,21 @@ export default async function DashboardPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* PREGLED ne vidi gumb: proxy ga na tank ionako ne pusta. */}
+            {smijeUPodrumu(user.role) ? (
+              <SkenirajTank
+                stil={{
+                  background: "#14131c",
+                  border: "2px solid #ff2f92",
+                  color: "#ffffff",
+                  padding: "8px 16px",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  fontFamily: "Calibri, Segoe UI, Arial, sans-serif",
+                }}
+              />
+            ) : null}
             <DashboardTopActions />
             <LogoutButton />
           </div>

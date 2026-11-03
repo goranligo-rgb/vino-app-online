@@ -11,6 +11,7 @@ import BerbaPrekidac from "./berba-prekidac";
 import PovijestPrekidac from "./povijest-prekidac";
 import KronologijaPrekidac from "./kronologija-prekidac";
 import NatragNaPrethodnu from "@/components/NatragNaPrethodnu";
+import SkenirajTank from "@/components/SkenirajTank";
 import TankRoleActions from "./tank-role-actions";
 import TankRoleSastavModal from "./tank-role-sastav-modal";
 import TankRoleDokumentiUpload from "./tank-role-dokumenti-upload";
@@ -2326,6 +2327,9 @@ export default async function TankPregledPage({
           {/* GUMBI U JEDNOM REDU, s prelamanjem na uskom ekranu. */}
           <div style={headerActionsStyle}>
             <NatragNaPrethodnu />
+            {smijeUPodrumu(prijavljeni.role) ? (
+              <SkenirajTank stil={linkButtonPrimaryStyle} />
+            ) : null}
             <TankRoleActions
               rola={prijavljeni.role}
               tankId={tank.id}
