@@ -10,7 +10,7 @@
 import { redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import Link from "next/link";
-import { citajSesiju } from "@/lib/auth-sesija";
+import { adresaPrijave, citajSesiju } from "@/lib/auth-sesija";
 import { smijeUPodrumu } from "@/lib/auth-role";
 import { dohvatiPodrum, DANA_GRAF } from "./podaci";
 import {
@@ -535,7 +535,7 @@ export default async function IzvjestajPodrumaPage() {
   // Vlastita provjera na ruti. Allow-lista u `proxy.ts` je prva brana, ali se
   // na nju ne oslanjamo — sto nije provjereno ovdje, nije provjereno.
   const prijavljeni = await citajSesiju();
-  if (!prijavljeni) redirect("/login");
+  if (!prijavljeni) redirect(await adresaPrijave());
   if (!smijeUPodrumu(prijavljeni.role)) redirect("/dashboard");
 
   const podaci = await dohvatiPodrum();

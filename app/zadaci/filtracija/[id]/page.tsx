@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
+import { adresaPrijave } from "@/lib/auth-sesija";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
@@ -31,7 +32,7 @@ export default async function FiltracijaIzvrsenjePage({
   const { id } = await params;
 
   const user = await getAuthUser();
-  if (!user) redirect("/login");
+  if (!user) redirect(await adresaPrijave());
 
   if (!smijeRaditiUPodrumu(user)) redirect("/zadaci");
 

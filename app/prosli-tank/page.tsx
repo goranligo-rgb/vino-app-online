@@ -3,7 +3,7 @@ import type React from "react";
 import { notFound, redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { citajSesiju } from "@/lib/auth-sesija";
+import { adresaPrijave, citajSesiju } from "@/lib/auth-sesija";
 import { citajUlazneCine, vinoUTanku, type Sastavnica } from "@/lib/identitet-vina";
 import { podrijetloTanka } from "@/lib/berba-model";
 import { granicaVina } from "@/lib/granica-vina";
@@ -151,7 +151,7 @@ export default async function ProsliTankPage({
   noStore();
 
   const prijavljeni = await citajSesiju();
-  if (!prijavljeni) redirect("/login");
+  if (!prijavljeni) redirect(await adresaPrijave());
 
   const sp = await searchParams;
 

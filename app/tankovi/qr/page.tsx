@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { citajSesiju } from "@/lib/auth-sesija";
+import { adresaPrijave, citajSesiju } from "@/lib/auth-sesija";
 import TankQrCard from "@/components/TankQrCard";
 import PrintButton from "@/components/PrintButton";
 
@@ -25,7 +25,7 @@ function getBaseUrl(): string | null {
 }
 
 export default async function TankQrPage() {
-  if (!(await citajSesiju())) redirect("/login");
+  if (!(await citajSesiju())) redirect(await adresaPrijave());
   const baseUrl = getBaseUrl();
 
   if (!baseUrl) {

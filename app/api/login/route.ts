@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import {
   AUTH_COOKIE,
   imaTajnu,
-  opcijeKolacica,
+  opcijeTrajnogKolacica,
   potpisiToken,
 } from "@/lib/auth-token";
 
@@ -91,9 +91,10 @@ export async function POST(req: Request) {
       },
     });
 
-    // Sesijski kolacic (bez maxAge) — kao i dosad. Token je httpOnly, pa ga
-    // klijentski JS vise ne cita; za prikaz sluzi GET /api/me.
-    response.cookies.set(AUTH_COOKIE, token, opcijeKolacica());
+    // Trajni kolacic: sesijski bi mobilni preglednik mogao izgubiti pri zatvaranju,
+    // pa bi svako skeniranje naljepnice opet trazilo prijavu. Token je httpOnly, pa
+    // ga klijentski JS ne cita; za prikaz sluzi GET /api/me.
+    response.cookies.set(AUTH_COOKIE, token, opcijeTrajnogKolacica());
 
     return response;
   } catch (error) {

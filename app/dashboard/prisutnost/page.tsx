@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { adresaPrijave } from "@/lib/auth-sesija";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/putnik-auth";
 import {
@@ -24,7 +25,7 @@ const BOJE: Record<Stanje, { bg: string; border: string; text: string }> = {
 
 export default async function PrisutnostPage() {
   const user = await getAuthUser();
-  if (!user) redirect("/login");
+  if (!user) redirect(await adresaPrijave());
 
   const danas = danasHr();
   const danasBaza = danUBazu(danas);

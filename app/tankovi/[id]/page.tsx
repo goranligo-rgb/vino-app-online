@@ -3,7 +3,7 @@ import type React from "react";
 import { prisma } from "@/lib/prisma";
 import Kronologija, { type Dogadaj } from "./kronologija";
 import { notFound, redirect } from "next/navigation";
-import { citajSesiju } from "@/lib/auth-sesija";
+import { adresaPrijave, citajSesiju } from "@/lib/auth-sesija";
 import { unstable_noStore as noStore } from "next/cache";
 import TankSwitcher from "./tank-switcher";
 import { Card } from "./kartica";
@@ -937,7 +937,7 @@ export default async function TankPregledPage({
   noStore();
 
   const prijavljeni = await citajSesiju();
-  if (!prijavljeni) redirect("/login");
+  if (!prijavljeni) redirect(await adresaPrijave());
 
   const resolvedParams = await params;
   const id = resolvedParams?.id;

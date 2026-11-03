@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { adresaPrijave } from "@/lib/auth-sesija";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/putnik-auth";
 import {
@@ -31,7 +32,7 @@ export default async function EvidencijaPage({
 }) {
   // SAMO Level 1 (ADMIN) — evidencija je podatak o svim djelatnicima.
   const user = await getAuthUser();
-  if (!user) redirect("/login");
+  if (!user) redirect(await adresaPrijave());
   if (user.role !== "ADMIN") redirect("/dashboard/prisutnost");
 
   const sp = await searchParams;

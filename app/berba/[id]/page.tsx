@@ -3,7 +3,7 @@ import type React from "react";
 import { notFound, redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { citajSesiju } from "@/lib/auth-sesija";
+import { adresaPrijave, citajSesiju } from "@/lib/auth-sesija";
 import { jeL12 } from "@/lib/auth-role";
 import { formatHrDate, formatHrDateTime } from "@/lib/datum";
 import { hrvatskiOblik, opisMaceracije } from "@/lib/berba-polja";
@@ -88,7 +88,7 @@ export default async function ZapisBerbePage({
   noStore();
 
   const sesija = await citajSesiju();
-  if (!sesija) redirect("/login");
+  if (!sesija) redirect(await adresaPrijave());
 
   const smijeMijenjati = jeL12(sesija.role);
 

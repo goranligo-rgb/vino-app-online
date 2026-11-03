@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { citajSesiju } from "@/lib/auth-sesija";
+import { adresaPrijave, citajSesiju } from "@/lib/auth-sesija";
 import LogoutButton from "@/components/LogoutButton";
 import SignatureAnimation from "@/components/SignatureAnimation";
 import DashboardTopActions from "@/components/DashboardTopActions";
@@ -63,7 +63,7 @@ function DashboardCard({
 export default async function DashboardPage() {
   const user: AuthUser | null = await citajSesiju();
 
-  if (!user) redirect("/login");
+  if (!user) redirect(await adresaPrijave());
 
   const isLevel1 = user.role === "ADMIN";
   const isLevel2 = user.role === "PODRUM";

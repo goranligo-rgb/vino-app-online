@@ -1,32 +1,63 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { AUTH_COOKIE, provjeriToken } from "@/lib/auth-token";
+import {
+  AUTH_COOKIE,
+  obnoviTokenAkoTreba,
+  opcijeTrajnogKolacica,
+  provjeriToken,
+} from "@/lib/auth-token";
+import { putanjaPrijave, ZAGLAVLJE_PUTANJE } from "@/lib/sigurna-putanja";
 
 type Role = "ADMIN" | "PODRUM" | "ENOLOG" | "PREGLED";
-
-// Rola se cita iz POTPISANOG tokena. Krivotvoren ili nepotpisan kolacic ne
-// prolazi provjeru i tretira se kao "nije prijavljen".
-async function getRole(req: NextRequest): Promise<Role | null> {
-  const user = await provjeriToken(req.cookies.get(AUTH_COOKIE)?.value);
-  return user?.role ?? null;
-}
 
 /** /preparat i sve ispod njega. Ne hvata /statistika/preparati. */
 function jePreparat(pathname: string): boolean {
   return pathname === "/preparat" || pathname.startsWith("/preparat/");
 }
 
+/** Putanja i upit zahtjeva, bez Nextova internog parametra za RSC. */
+function putanjaZahtjeva(req: NextRequest): string {
+  const url = req.nextUrl.clone();
+  url.searchParams.delete("_rsc");
+  return url.pathname + url.search;
+}
+
+/** Pusti zahtjev dalje i predaj stranici njezinu putanju (auth-sesija, adresaPrijave). */
+function dalje(req: NextRequest): NextResponse {
+  const zaglavlja = new Headers(req.headers);
+  zaglavlja.set(ZAGLAVLJE_PUTANJE, putanjaZahtjeva(req));
+  return NextResponse.next({ request: { headers: zaglavlja } });
+}
+
+// Rola se cita iz POTPISANOG tokena. Krivotvoren ili nepotpisan kolacic ne
+// prolazi provjeru i tretira se kao "nije prijavljen".
 export async function proxy(req: NextRequest) {
+  const token = req.cookies.get(AUTH_COOKIE)?.value;
+  const user = await provjeriToken(token);
+  const odgovor = odluci(req, user?.role ?? null);
+
+  // Sesija traje 90 dana od zadnjeg koristenja. Obnova je i na preusmjeravanju,
+  // jer je i to koristenje; /api/* nije u matcheru pa ne obnavlja.
+  if (user) {
+    const nov = await obnoviTokenAkoTreba(token);
+    if (nov) odgovor.cookies.set(AUTH_COOKIE, nov, opcijeTrajnogKolacica());
+  }
+
+  return odgovor;
+}
+
+function odluci(req: NextRequest, role: Role | null): NextResponse {
   const pathname = req.nextUrl.pathname;
-  const role = await getRole(req);
 
   if (!role) {
-    return NextResponse.redirect(new URL("/login", req.url));
+    return NextResponse.redirect(
+      new URL(putanjaPrijave(putanjaZahtjeva(req)), req.url)
+    );
   }
 
   // LEVEL 1 sve
   if (role === "ADMIN") {
-    return NextResponse.next();
+    return dalje(req);
   }
 
   // Reset i korisnici samo LEVEL 1
@@ -44,7 +75,7 @@ export async function proxy(req: NextRequest) {
 
   // LEVEL 2 sve osim reseta i korisnika
   if (role === "PODRUM") {
-    return NextResponse.next();
+    return dalje(req);
   }
 
   // LEVEL 3: dashboard, hladjenje, zadaci, monitor, putnik + samo detalj tanka
@@ -92,7 +123,7 @@ export async function proxy(req: NextRequest) {
       return NextResponse.redirect(new URL("/dashboard", req.url));
     }
 
-    return NextResponse.next();
+    return dalje(req);
   }
 
   // LEVEL 4: samo dashboard i putnik
@@ -108,7 +139,7 @@ export async function proxy(req: NextRequest) {
       return NextResponse.redirect(new URL("/dashboard", req.url));
     }
 
-    return NextResponse.next();
+    return dalje(req);
   }
 
   return NextResponse.redirect(new URL("/login", req.url));

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
-import { citajSesiju } from "@/lib/auth-sesija";
+import { adresaPrijave, citajSesiju } from "@/lib/auth-sesija";
 import type { AuthUser } from "@/lib/auth-token";
 
 export type { AuthUser };
@@ -60,7 +60,7 @@ export async function requirePutnikUser(): Promise<AuthUser> {
   const user = await getAuthUser();
 
   if (!user || !PUTNIK_ROLES.has(user.role)) {
-    redirect("/login");
+    redirect(await adresaPrijave());
   }
 
   return user;
@@ -75,7 +75,9 @@ export async function requirePutnikUser(): Promise<AuthUser> {
 export async function requireLevel12User(): Promise<AuthUser> {
   const user = await getAuthUser();
 
-  if (!user || (user.role !== "ADMIN" && user.role !== "PODRUM")) {
+  if (!user) redirect(await adresaPrijave());
+
+  if (user.role !== "ADMIN" && user.role !== "PODRUM") {
     redirect("/putnik");
   }
 
@@ -88,7 +90,9 @@ export async function requireLevel12User(): Promise<AuthUser> {
 export async function requireAdminUser(): Promise<AuthUser> {
   const user = await getAuthUser();
 
-  if (!user || user.role !== "ADMIN") {
+  if (!user) redirect(await adresaPrijave());
+
+  if (user.role !== "ADMIN") {
     redirect("/putnik");
   }
 

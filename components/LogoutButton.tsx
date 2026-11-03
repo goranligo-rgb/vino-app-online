@@ -7,6 +7,8 @@ export default function LogoutButton() {
         method: "POST",
       });
     } finally {
+      // Zadaci i preparat odavde citaju korisnika; last_username namjerno ostaje.
+      localStorage.removeItem("user");
       window.location.href = "/login";
     }
   }

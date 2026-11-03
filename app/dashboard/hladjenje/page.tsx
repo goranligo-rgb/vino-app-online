@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { adresaPrijave } from "@/lib/auth-sesija";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { imeZaPrikaz, imenaPodruma, jeBezImena } from "@/lib/ime-vina";
@@ -47,7 +48,7 @@ export default async function HladjenjeDashboard({
   const { tank: trazeniTank } = await searchParams;
 
   const user = await getAuthUser();
-  if (!user) redirect("/login");
+  if (!user) redirect(await adresaPrijave());
 
   const smije = smijeUpravljatiRole(user.role);
 

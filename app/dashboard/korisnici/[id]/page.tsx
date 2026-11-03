@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { citajSesiju } from "@/lib/auth-sesija";
+import { adresaPrijave, citajSesiju } from "@/lib/auth-sesija";
 
 type AuthUser = {
   id: string;
@@ -75,7 +75,7 @@ export default async function UrediKorisnikaPage({ params }: PageProps) {
 
   const user: AuthUser | null = await citajSesiju();
 
-  if (!user) redirect("/login");
+  if (!user) redirect(await adresaPrijave());
   if (user.role !== "ADMIN") redirect("/dashboard");
 
   const korisnik = await prisma.user.findUnique({

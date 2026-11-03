@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { sigurnaPutanja } from "@/lib/sigurna-putanja";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
@@ -50,7 +51,11 @@ export default function LoginPage() {
 
       localStorage.setItem("user", JSON.stringify(data.user));
       localStorage.setItem("last_username", username);
-      window.location.href = "/dashboard";
+      // Povratak na stranicu s koje je korisnik poslan na prijavu, npr. skenirani
+      // tank. Ovlasti i dalje provjerava proxy na odredistu.
+      window.location.href = sigurnaPutanja(
+        new URLSearchParams(window.location.search).get("next")
+      );
     } catch (err) {
       console.error("LOGIN FETCH ERROR:", err);
       setError("Greška kod prijave - provjeri terminal i /api/login");

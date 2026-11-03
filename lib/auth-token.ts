@@ -20,8 +20,11 @@ export type AuthUser = {
 
 export const AUTH_COOKIE = "auth_user";
 
-/** Koliko token vrijedi. Kolacic je sesijski, ovo je gornja granica. */
-const TRAJANJE_SEKUNDI = 60 * 60 * 24 * 30; // 30 dana
+/** Koliko vrijede token i kolacic od zadnje obnove. */
+export const TRAJANJE_SEKUNDI = 60 * 60 * 24 * 90; // 90 dana
+
+/** Proxy obnavlja token tek kad je stariji od ovoga, ne na svakom zahtjevu. */
+const PRAG_OBNOVE_SEKUNDI = 60 * 60 * 24 * 7; // 7 dana
 
 const ROLE = new Set<AuthUser["role"]>([
   "ADMIN",
@@ -79,18 +82,13 @@ async function kljuc(): Promise<CryptoKey> {
   );
 }
 
-/** Izradi potpisani token za prijavljenog korisnika. */
-export async function potpisiToken(user: AuthUser): Promise<string> {
-  const sada = Math.floor(Date.now() / 1000);
+function sadaSekunde(): number {
+  return Math.floor(Date.now() / 1000);
+}
 
+async function potpisiSadrzaj(sadrzaj: Record<string, unknown>): Promise<string> {
   const glava = b64urlIzObjekta({ alg: "HS256", typ: "JWT" });
-  const tijelo = b64urlIzObjekta({
-    sub: user.id,
-    ime: user.ime,
-    role: user.role,
-    iat: sada,
-    exp: sada + TRAJANJE_SEKUNDI,
-  });
+  const tijelo = b64urlIzObjekta(sadrzaj);
 
   const potpis = await crypto.subtle.sign(
     "HMAC",
@@ -101,14 +99,27 @@ export async function potpisiToken(user: AuthUser): Promise<string> {
   return `${glava}.${tijelo}.${b64urlIzBajtova(new Uint8Array(potpis))}`;
 }
 
+/** Izradi potpisani token za prijavljenog korisnika. */
+export async function potpisiToken(user: AuthUser): Promise<string> {
+  const sada = sadaSekunde();
+
+  return potpisiSadrzaj({
+    sub: user.id,
+    ime: user.ime,
+    role: user.role,
+    iat: sada,
+    exp: sada + TRAJANJE_SEKUNDI,
+  });
+}
+
 /**
- * Provjeri token i vrati korisnika. Vraca null za sve sto nije uredno:
- * nema tokena, krivi oblik, neispravan potpis, istekao, nepoznata rola —
- * ukljucujuci i stare nepotpisane JSON kolacice (oni ce pasti na obliku).
+ * Sadrzaj tokena ako je token uredan, inace null: nema tokena, krivi oblik,
+ * neispravan potpis, istekao, nepoznata rola — ukljucujuci i stare nepotpisane
+ * JSON kolacice (oni ce pasti na obliku).
  */
-export async function provjeriToken(
+async function ispravanSadrzaj(
   token: string | undefined | null
-): Promise<AuthUser | null> {
+): Promise<Record<string, unknown> | null> {
   if (!token) return null;
 
   try {
@@ -132,22 +143,79 @@ export async function provjeriToken(
     const podaci = JSON.parse(dec.decode(bajtoviIzB64url(tijelo)));
 
     if (typeof podaci?.exp !== "number") return null;
-    if (podaci.exp <= Math.floor(Date.now() / 1000)) return null;
+    if (podaci.exp <= sadaSekunde()) return null;
 
     if (typeof podaci?.sub !== "string" || !podaci.sub) return null;
     if (!ROLE.has(podaci?.role)) return null;
 
-    return {
-      id: podaci.sub,
-      ime: typeof podaci.ime === "string" ? podaci.ime : "",
-      role: podaci.role,
-    };
+    return podaci;
   } catch {
     return null;
   }
 }
 
-/** Postavke kolacica — na jednom mjestu da login i logout ne odu u razmak. */
+/** Provjeri token i vrati korisnika; za sve sto nije uredno vraca null. */
+export async function provjeriToken(
+  token: string | undefined | null
+): Promise<AuthUser | null> {
+  const podaci = await ispravanSadrzaj(token);
+  if (!podaci) return null;
+
+  return {
+    id: podaci.sub as string,
+    ime: typeof podaci.ime === "string" ? podaci.ime : "",
+    role: podaci.role as AuthUser["role"],
+  };
+}
+
+/**
+ * Produzuje sesiju: 90 dana od zadnjeg koristenja. Novi token ima isti sadrzaj
+ * osim iat/exp, pa obnova ne moze promijeniti ni korisnika ni ulogu. Vraca null
+ * ako obnova nije potrebna ili token nije valjan.
+ *
+ * Deaktiviranom korisniku obnova ne pomaze: citajSesiju ga odbija uz redak iz baze.
+ */
+export async function obnoviTokenAkoTreba(
+  token: string | undefined | null
+): Promise<string | null> {
+  const podaci = await ispravanSadrzaj(token);
+  if (!podaci || typeof podaci.iat !== "number") return null;
+
+  const sada = sadaSekunde();
+  if (sada - podaci.iat <= PRAG_OBNOVE_SEKUNDI) return null;
+
+  return potpisiSadrzaj({
+    ...podaci,
+    iat: sada,
+    exp: sada + TRAJANJE_SEKUNDI,
+  });
+}
+
+/**
+ * Sesija uz redak iz baze. Neaktivan ili obrisan korisnik nema sesiju.
+ *
+ * Razlika u ulozi takodjer znaci novu prijavu, a ne tiho citanje nove uloge:
+ * proxy dopusta rute prema ulozi IZ TOKENA, a obnova je ne mijenja. Bez ovoga bi
+ * aktivan korisnik staru ulogu u proxyju zadrzao zauvijek. Nova prijava daje nov
+ * token, pa se proxy i stranice opet slazu.
+ */
+export function sesijaIzBaze(
+  izTokena: AuthUser,
+  redak: { active: boolean; role: string; ime: string } | null
+): AuthUser | null {
+  if (!redak || !redak.active) return null;
+  if (redak.role !== izTokena.role) return null;
+
+  return { id: izTokena.id, ime: redak.ime, role: izTokena.role };
+}
+
+/**
+ * Postavke kolacica — na jednom mjestu da login i logout ne odu u razmak.
+ *
+ * NAMJERNO bez maxAge: odjava koristi ove iste opcije uz expires u proslosti, a
+ * maxAge ima prednost pred expires, pa se kolacic ne bi obrisao. Vidi
+ * opcijeTrajnogKolacica.
+ */
 export function opcijeKolacica() {
   return {
     httpOnly: true,
@@ -155,4 +223,9 @@ export function opcijeKolacica() {
     sameSite: "lax" as const,
     path: "/",
   };
+}
+
+/** Za prijavu i obnovu: kolacic prezivi zatvaranje preglednika na mobitelu. */
+export function opcijeTrajnogKolacica() {
+  return { ...opcijeKolacica(), maxAge: TRAJANJE_SEKUNDI };
 }

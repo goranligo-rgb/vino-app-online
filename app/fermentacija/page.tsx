@@ -30,7 +30,7 @@ import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { citajSesiju } from "@/lib/auth-sesija";
+import { adresaPrijave, citajSesiju } from "@/lib/auth-sesija";
 import PrintButton from "@/components/PrintButton";
 import { berbeUTanku, type KretanjeBerbe } from "@/lib/fermentacija-prozor";
 
@@ -68,7 +68,7 @@ export default async function PregledFermentacijaPage({
   searchParams?: Promise<{ godina?: string }> | { godina?: string };
 }) {
   noStore();
-  if (!(await citajSesiju())) redirect("/login");
+  if (!(await citajSesiju())) redirect(await adresaPrijave());
 
   const sp = (await searchParams) ?? {};
   const sada = new Date();

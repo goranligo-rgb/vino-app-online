@@ -3,7 +3,7 @@ import type React from "react";
 import { notFound, redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { citajSesiju } from "@/lib/auth-sesija";
+import { adresaPrijave, citajSesiju } from "@/lib/auth-sesija";
 import { jeL12 } from "@/lib/auth-role";
 import { IspravakBerbeGreska, stanjeZaUredjivanje } from "@/lib/berba-ispravak";
 import UrediBerbu, { type PodaciZaObrazac } from "./uredi-berbu";
@@ -24,7 +24,7 @@ export default async function UrediBerbuPage({
   noStore();
 
   const sesija = await citajSesiju();
-  if (!sesija) redirect("/login");
+  if (!sesija) redirect(await adresaPrijave());
   if (!jeL12(sesija.role)) redirect("/punjenje");
 
   const { id } = await params;
